@@ -1,0 +1,74 @@
+{
+  "generator": "Codex built-in image generation",
+  "constraints": "Photographic material texture, no text, logos, interface or controls.",
+  "encoding": "WebP quality 92; original dimensions, composition and colors retained.",
+  "files": [
+    {
+      "file": "amber-lantern.webp",
+      "integrity": "sha256-+CVN69leqFbieDQzaWWD9fnr9zh4WErxF3NodPVb1C4=",
+      "source_integrity": "sha256-7uq16WitgQdhpjBTOclDJU9cYoeld/4E5jAsthE4/l4=",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "bytes": 435342,
+      "material_brief": "Honey amber fluted cast glass"
+    },
+    {
+      "file": "fire-opal.png",
+      "integrity": "sha256-/Kz6UdrVmLQ+pXZKov8IOF6la10hDkA51EJa4Co2VBs=",
+      "source_integrity": "sha256-/Kz6UdrVmLQ+pXZKov8IOF6la10hDkA51EJa4Co2VBs=",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "bytes": 1321170,
+      "material_brief": "Smooth engineered smoked glass, crisp beveled planes and restrained amber highlights; no organic geology, cracks, pores or rough stone.",
+      "encoding": "Unmodified PNG from Codex built-in image generation"
+    },
+    {
+      "file": "rust-belt.webp",
+      "integrity": "sha256-lAuGMCyhdeHAv0m42e9iox6GFRNfo82SKyqArlD3f3c=",
+      "source_integrity": "sha256-rGO0ezF5tnDaGN3R0ev19gUy27+x84LMCb12JOxdUkU=",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "bytes": 601406,
+      "material_brief": "Satin russet brushed copper with quiet verdigris seams"
+    },
+    {
+      "file": "paper-press.webp",
+      "integrity": "sha256-SPN0laI1NzuXpLLMAg1qTaAH4/U4sVVdA3zVItydk3o=",
+      "source_integrity": "sha256-EvBtDaCkYkIEP05igii71uz/uppELaFiWmjIN/JS4cE=",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "bytes": 383780,
+      "material_brief": "Ivory cotton rag paper with soft blind embossed woven structure"
+    },
+    {
+      "file": "emerald-vault.webp",
+      "integrity": "sha256-ubSf9KAYrKlV5KAdpNIYwDU48xe3zW0Lv0uF3AEOhd0=",
+      "source_integrity": "sha256-nn93YUqJb1L9WTD8bXMbMPRVHZ8W4gf+AhPVAqUTMd8=",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "bytes": 458794,
+      "material_brief": "Dark green finely banded malachite"
+    },
+    {
+      "file": "ultraviolet-hour.webp",
+      "integrity": "sha256-sB8BM7rJOE2L2NS8m3Dq8GKo5qlqTFpgjaF795QZSs0=",
+      "source_integrity": "sha256-Czz6wkAIRh4VQHRCGq8QiVCLfGd+rdLOf5L2jynyvNQ=",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "bytes": 499026,
+      "material_brief": "Dark violet brushed anodized titanium"
+    }
+  ]
+}

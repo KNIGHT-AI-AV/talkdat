@@ -1,0 +1,2 @@
+# Independent PDF structure, text and source-attachment acceptance.
+pypdf==6.19.0

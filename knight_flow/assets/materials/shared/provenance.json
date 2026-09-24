@@ -1,0 +1,82 @@
+{
+  "note": "Existing owner-created image assets reused unchanged at the owner request. Product code, logos and reel illustrations are not copied.",
+  "files": [
+    {
+      "file": "bone/material.webp",
+      "source_project": "D-REC",
+      "source_file": "art/bone/material.webp",
+      "integrity": "sha256-1h/V9l0me+HoCZ10mJ2eBzYChc4RYQ8+oBokR2rLusE=",
+      "bytes": 133998
+    },
+    {
+      "file": "brass/material.webp",
+      "source_project": "D-REC",
+      "source_file": "art/brass/material.webp",
+      "integrity": "sha256-7jsCbn+sdCxfAEWdjH/Rv37GwO5xsy6rGnTzrbPTJYY=",
+      "bytes": 1027118
+    },
+    {
+      "file": "jade/material.webp",
+      "source_project": "D-REC",
+      "source_file": "art/jade/material.webp",
+      "integrity": "sha256-AFq55jYiSWUTLwfwdauwmfRbJyRAJTWAOziQyvTb93E=",
+      "bytes": 239258
+    },
+    {
+      "file": "matrix/material.webp",
+      "source_project": "D-REC",
+      "source_file": "art/matrix/material.webp",
+      "integrity": "sha256-pbjHBl4MoDjttDl+R1cApar0Te3bJiD13hRkxgqWOFs=",
+      "bytes": 344024
+    },
+    {
+      "file": "moss/material.webp",
+      "source_project": "D-REC",
+      "source_file": "art/moss/material.webp",
+      "integrity": "sha256-jWIzTmvVkP1kuFzIHfciM61D89VdnQUWX/YvBjdaKSs=",
+      "bytes": 1153092
+    },
+    {
+      "file": "nami/material.webp",
+      "source_project": "D-REC",
+      "source_file": "art/nami/material.webp",
+      "integrity": "sha256-7Mefvz9UmpF0tO3qXO85+BeZO8SLeOzRxXAtUrrBDpc=",
+      "bytes": 417766
+    },
+    {
+      "file": "neon/material.webp",
+      "source_project": "D-REC",
+      "source_file": "art/neon/material.webp",
+      "integrity": "sha256-Cd3CVnnm+eth6feC7J5vNXygCJDjwWHnHlr8vDPjWlA=",
+      "bytes": 737210
+    },
+    {
+      "file": "olive/material.webp",
+      "source_project": "D-REC",
+      "source_file": "art/olive/material.webp",
+      "integrity": "sha256-YFYNFXdYRefpehOr8BDAdaOeEwVC6JpDvrevi4tmr+8=",
+      "bytes": 806692
+    },
+    {
+      "file": "plum/material.webp",
+      "source_project": "D-REC",
+      "source_file": "art/plum/material.webp",
+      "integrity": "sha256-ehZfelq/67uZ++axr7/eD8IU8bbIy3ps5n00QPwHW8s=",
+      "bytes": 305996
+    },
+    {
+      "file": "rose/material.webp",
+      "source_project": "D-REC",
+      "source_file": "art/rose/material.webp",
+      "integrity": "sha256-pP9fV03u5wCCT3l5UQhqnP0PVYm9Cp5/cK2///eYsWY=",
+      "bytes": 483500
+    },
+    {
+      "file": "sunset/material.webp",
+      "source_project": "D-REC",
+      "source_file": "art/sunset/material.webp",
+      "integrity": "sha256-W9Kvbvnxj8Tb7FPWDODPkh5NgCFZQvHbvut9YPGcg2E=",
+      "bytes": 370428
+    }
+  ]
+}

@@ -1,0 +1,550 @@
+{
+  "tool": "Real-ESRGAN ncnn Vulkan 20220424",
+  "model": "realesrgan-x4plus",
+  "source": "https://github.com/xinntao/Real-ESRGAN",
+  "tile": 128,
+  "threads": "1:1:1",
+  "runtime_inference": false,
+  "assets": [
+    {
+      "source": "arctic-aurora-dark.png",
+      "asset": "enhanced/materials-arctic-aurora-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-wMO3gR7ymYzlrbvf6CyFwELx2KKTUS//SNGfRwflNHY=",
+      "source_integrity": "sha256-XgYBuxKcFIiUU3H4uk7W3YaRtruDyzarOWIiSON3bfk="
+    },
+    {
+      "source": "arctic-aurora-light.png",
+      "asset": "enhanced/materials-arctic-aurora-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-RQZRSa17pq9l+AApQ6DBzw7hQN1vgUefGflad3nCBLM=",
+      "source_integrity": "sha256-F4iPvERrekQ0r7eGFyE1u3ZiRaCHLkpIovywPkEyFKA="
+    },
+    {
+      "source": "champagne-glass-dark.png",
+      "asset": "enhanced/materials-champagne-glass-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-Ki6PWsdlLpT3kkDZKRVPg40XCGrD1x+vaswh2x6Z98A=",
+      "source_integrity": "sha256-z23bMkUSJukGY6R/+9PlXXMPkSC5lzXs58n6QBKhvwo="
+    },
+    {
+      "source": "champagne-glass-light.png",
+      "asset": "enhanced/materials-champagne-glass-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-COVtsci7p3Fo15q07lrFiToJwyO2JwQlgjevK2Y8m5I=",
+      "source_integrity": "sha256-zhWHLCzcu+yKHsMHeUfZIJw6E8tUOTNqvKcWWCSkGdc="
+    },
+    {
+      "source": "cobalt-heat-dark.png",
+      "asset": "enhanced/materials-cobalt-heat-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-LwNTDQKrKzzhBc6EO1eszOD+x+Z97dXF1hMIwBKrIQs=",
+      "source_integrity": "sha256-kgXmuYnb3S2iSNIscJTiSzrmlJZPbUW4+9xnZzZ5DBA="
+    },
+    {
+      "source": "cobalt-heat-light.png",
+      "asset": "enhanced/materials-cobalt-heat-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-LE2URej8v4N3ub3e/QB+KjKUOCfV21uuu/pUKqeJ8HY=",
+      "source_integrity": "sha256-Zx7CDJeIObpoRst2YnTG9tWKv9YuUfF2DgF+Egn32z0="
+    },
+    {
+      "source": "crimson-bloom-dark.png",
+      "asset": "enhanced/materials-crimson-bloom-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-5B21tEjP81c/ZPgKMQAHGUVKgDZ57kxWuHAcJ/scqWo=",
+      "source_integrity": "sha256-NwA3waE6Z5hfP7EJAG80q3w+roX1I4s+bpjJe6cA6CM="
+    },
+    {
+      "source": "crimson-bloom-light.png",
+      "asset": "enhanced/materials-crimson-bloom-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-p1ogsSX2dtQqlMngMxCZphzx5LYyoZ0+VhpPF/ctrM4=",
+      "source_integrity": "sha256-Zu6ua6Cdb/LUOyiVxsT3NznV+X7jd6DKDJSq2HX9lCs="
+    },
+    {
+      "source": "deep-forest-dark.png",
+      "asset": "enhanced/materials-deep-forest-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-Wny3fLIk/5SArmtNOk9h+JxvEQaR3maD9GJWfULp6IA=",
+      "source_integrity": "sha256-uzZC8+mTkv8wS8Uy7kS8CnAM8LLT9s9B5aiKiNH1xUo="
+    },
+    {
+      "source": "deep-forest-light.png",
+      "asset": "enhanced/materials-deep-forest-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-Zd7ZqYtvpIVvw3vGJRroh6OAm1LtgZlGXDpOjev20Hg=",
+      "source_integrity": "sha256-sG+1SMl9UFX5eWwXMJV6jrfNHv1iJ1mcBzFqWDobjus="
+    },
+    {
+      "source": "desert-bloom-dark.png",
+      "asset": "enhanced/materials-desert-bloom-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-taKfwsKkfkToVyivl/uvp+JmLPA3x6kyg6zeIUX5DC4=",
+      "source_integrity": "sha256-s5in4NRqZOGmMsL9rySKMk3yyjCm1G0IbDUXJs/tnFQ="
+    },
+    {
+      "source": "desert-bloom-light.png",
+      "asset": "enhanced/materials-desert-bloom-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-2ZvbzWIwjhMfi4N3ZZaHzTp+Q+hTxpkllOUz+ayM5qo=",
+      "source_integrity": "sha256-XPBHRjr2MeBRMlLiiAQgI+4TjLCk6jrpQdwvAvY3VdM="
+    },
+    {
+      "source": "ember-glass-dark.png",
+      "asset": "enhanced/materials-ember-glass-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-TmmFJsUSwaGeZznT+l5zD6WIB2WK+p15Wi05zqMsUw4=",
+      "source_integrity": "sha256-9ULzcfFKik2UVAz0NTGPpmSd95G3QSQKThkOGaYsLfs="
+    },
+    {
+      "source": "ember-glass-light.png",
+      "asset": "enhanced/materials-ember-glass-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-UMTDB+igzxqzUXUVK7a0jbUyKS5eB+9A84Sy51hKcts=",
+      "source_integrity": "sha256-+LUfgIdZSlIIwt6/cH6lECB8+9+BrXXZpATvbHX6+LI="
+    },
+    {
+      "source": "flow-dark.png",
+      "asset": "enhanced/materials-flow-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-qta38rr0rDNW9zIevMfHmJEVzWcFojgs6oszAQpXw/U=",
+      "source_integrity": "sha256-CcUUfBq1vfFxkVaK4EL+F0rZx+Y8vCx0yUcVXknXg4k="
+    },
+    {
+      "source": "flow-light.png",
+      "asset": "enhanced/materials-flow-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-BceO70CyJ444RLptvYOse2Qvi7KmBiAI3AmBaBgN/jo=",
+      "source_integrity": "sha256-SwHRKoihBpqRyvph6wa+HUtEPb6URA7HdvA2RL5kv0w="
+    },
+    {
+      "source": "graphite-pulse-dark.png",
+      "asset": "enhanced/materials-graphite-pulse-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-Fu2OeVhNyMOwH/ytjDHskybqwSVusygszn0fEu4+f4M=",
+      "source_integrity": "sha256-5qfUdR0nP21ICRSSL0QtYeW4VxAexKGdcVZyico83S8="
+    },
+    {
+      "source": "graphite-pulse-light.png",
+      "asset": "enhanced/materials-graphite-pulse-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-jNJuaz5mA5jlhjWLSZz4ZN6FfwJ6APqoJ6Q9zT7F40k=",
+      "source_integrity": "sha256-95/sixkhEXWpouUrxdNjYUVBPyZf2VfyBPN8QyYrD4o="
+    },
+    {
+      "source": "ivory-halo-dark.png",
+      "asset": "enhanced/materials-ivory-halo-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-uZQJnlmFDlM5QeOk+4kxPjeIUmlx60DCs02EUHdH8ts=",
+      "source_integrity": "sha256-2NWx2nIs0KojGHa6Rfu0c+0Lt/MJmP45vWtK3ID09/s="
+    },
+    {
+      "source": "ivory-halo-light.png",
+      "asset": "enhanced/materials-ivory-halo-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-b0KqPH1rebwb2Uq2eHthZMmjF+g4Xk0wQRZp/TMcwJQ=",
+      "source_integrity": "sha256-FtFVmlFsDK6QxWJfC5zFMXP/Se1lo9ZKVvpzF6pemcU="
+    },
+    {
+      "source": "lime-wash-dark.png",
+      "asset": "enhanced/materials-lime-wash-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-9fL1u3HSGj5uWhp7viiv2luc1fVuomWGqt5PTYgfXTU=",
+      "source_integrity": "sha256-wRxf8KCl1OUyQBRz6KHuqIvGONGKUAgttHRIMYTeRB0="
+    },
+    {
+      "source": "lime-wash-light.png",
+      "asset": "enhanced/materials-lime-wash-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-FrjtakNFY6sm72P+N3rhYXb759unNKKZF+qnr9gB9Hg=",
+      "source_integrity": "sha256-Vy/JObVVZZN66ey3ufkzrUJ0RwTLeBJxhgXQixFMmPI="
+    },
+    {
+      "source": "midnight-ink-dark.png",
+      "asset": "enhanced/materials-midnight-ink-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-sNb+y9heAACBK7pkakZp7i/k1RBGLWJCM1scIuXGT0g=",
+      "source_integrity": "sha256-kHIGvr2J2cV8aTQoHhWlHuXHi8Eto8sGVBiUt0Mu3kA="
+    },
+    {
+      "source": "midnight-ink-light.png",
+      "asset": "enhanced/materials-midnight-ink-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-vnDW09eqHbSnV6TYjCUUYXz6uwY/n+TTvpK5Wc8tpMY=",
+      "source_integrity": "sha256-6ibNs8KWGP9o9AL3DTgjKcETm6e73XOlqpGPhi1uCco="
+    },
+    {
+      "source": "neon-sakura-dark.png",
+      "asset": "enhanced/materials-neon-sakura-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-SDn5rC9gPh1fli9j1XpxNrpnKLErX/H5O5iYveDYsXM=",
+      "source_integrity": "sha256-34b4/1IXNwe+dhe9ShBhI4wBbicvCZIV3rhs2EmORtQ="
+    },
+    {
+      "source": "neon-sakura-light.png",
+      "asset": "enhanced/materials-neon-sakura-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-5GNDvpxphLiyOGV4EcTA7zLVfL2PYrtby19vr7eLqQk=",
+      "source_integrity": "sha256-I50gzDCQ6dw3+eTTfNtKl4fvF+8UO8zB1/5E/Cmvdxk="
+    },
+    {
+      "source": "night-city-neon-dark.png",
+      "asset": "enhanced/materials-night-city-neon-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-IMwsmMyH3yI81f7aumMSgYWfuzjQpq/V1Yq2e9cS4mo=",
+      "source_integrity": "sha256-zToGg7+9hiNkDsfS37+s3IisSfXTsa8pLgr2w7Ttb+w="
+    },
+    {
+      "source": "night-city-neon-light.png",
+      "asset": "enhanced/materials-night-city-neon-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-dyixCsWedCjL3TPZzDOKmDGp/yQxN1iwXxTUpuxfMqY=",
+      "source_integrity": "sha256-KXZyQM5S2J9ero93MwzS32xjoEgHrLMfQGeahOLjWFE="
+    },
+    {
+      "source": "obsidian-gold-dark.png",
+      "asset": "enhanced/materials-obsidian-gold-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-JJKGuOMVgLlajEGFgnvr0s9/4pslYiHRc1Huw1wrWM4=",
+      "source_integrity": "sha256-W6eN1dqMgPq93N/Z4n0pyyWJ/+D8ZF8lwTUbPtZ9a/s="
+    },
+    {
+      "source": "obsidian-gold-light.png",
+      "asset": "enhanced/materials-obsidian-gold-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-yzCF4zxbjnLVShL1zDXHLkKXJh6W8XolOKr5qmQIXNo=",
+      "source_integrity": "sha256-UHVOFePhz4x+LIYgukf6KliVqcIfTczUz9874rY4ZS4="
+    },
+    {
+      "source": "original-v2/amber-lantern.webp",
+      "asset": "enhanced/original-v2-amber-lantern.webp",
+      "dimensions": [
+        2508,
+        2508
+      ],
+      "integrity": "sha256-FjSfV3KcfMsmHSK9HeeGf2a6W2yRQlzgQ4cyvINdIcs=",
+      "source_integrity": "sha256-+CVN69leqFbieDQzaWWD9fnr9zh4WErxF3NodPVb1C4="
+    },
+    {
+      "source": "original-v2/emerald-vault.webp",
+      "asset": "enhanced/original-v2-emerald-vault.webp",
+      "dimensions": [
+        2508,
+        2508
+      ],
+      "integrity": "sha256-B4zWXQXTJR5mrDgK4ul445mErkIDtHg7oG0JLSBdB3M=",
+      "source_integrity": "sha256-ubSf9KAYrKlV5KAdpNIYwDU48xe3zW0Lv0uF3AEOhd0="
+    },
+    {
+      "source": "original-v2/fire-opal.png",
+      "asset": "enhanced/original-v2-fire-opal.webp",
+      "dimensions": [
+        2508,
+        2508
+      ],
+      "integrity": "sha256-T4usUZaTpWl8bZiPQHvODNTk48ySTjS+Jh303QaI8yU=",
+      "source_integrity": "sha256-/Kz6UdrVmLQ+pXZKov8IOF6la10hDkA51EJa4Co2VBs="
+    },
+    {
+      "source": "original-v2/paper-press.webp",
+      "asset": "enhanced/original-v2-paper-press.webp",
+      "dimensions": [
+        2508,
+        2508
+      ],
+      "integrity": "sha256-7xiusUx5nItj2R0mW49iurHJWm5+PuIi36qkaRfcXHo=",
+      "source_integrity": "sha256-SPN0laI1NzuXpLLMAg1qTaAH4/U4sVVdA3zVItydk3o="
+    },
+    {
+      "source": "original-v2/rust-belt.webp",
+      "asset": "enhanced/original-v2-rust-belt.webp",
+      "dimensions": [
+        2508,
+        2508
+      ],
+      "integrity": "sha256-br6Q4NMnqi1uQYqq/xplpiT6/+9HgowSAEJ5V1WTniw=",
+      "source_integrity": "sha256-lAuGMCyhdeHAv0m42e9iox6GFRNfo82SKyqArlD3f3c="
+    },
+    {
+      "source": "original-v2/ultraviolet-hour.webp",
+      "asset": "enhanced/original-v2-ultraviolet-hour.webp",
+      "dimensions": [
+        2508,
+        2508
+      ],
+      "integrity": "sha256-XtoQDmic8dwaGz4TNFxqOqYWC23fj80PjAXhEWy4Cg0=",
+      "source_integrity": "sha256-sB8BM7rJOE2L2NS8m3Dq8GKo5qlqTFpgjaF795QZSs0="
+    },
+    {
+      "source": "oxide-copper-dark.png",
+      "asset": "enhanced/materials-oxide-copper-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-yJjetlZAaFD1qFgN7jtJW++bLVIF1vVMB8fA20cyaPE=",
+      "source_integrity": "sha256-9OgtHBKEUMfabfyXlBl30q0RNokO9BtkmsNCDyTuCuc="
+    },
+    {
+      "source": "oxide-copper-light.png",
+      "asset": "enhanced/materials-oxide-copper-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-QXV+OFBAyYMwfkPh04QjPgz+qIwq0D1zauCdDgiQ3do=",
+      "source_integrity": "sha256-2p9k6oU6FUVz8XDx6Z3I1SPIUhZah68G85ghlc8oMLc="
+    },
+    {
+      "source": "roman-clay-dark.png",
+      "asset": "enhanced/materials-roman-clay-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-U25l6L93nDdkFbWoW/elFoRpJSmJdFKAXzBZck6EUUg=",
+      "source_integrity": "sha256-2RXV56vDMU46uvuzpjdtSTAW/vF8CGBHchxEMn6DMlQ="
+    },
+    {
+      "source": "roman-clay-light.png",
+      "asset": "enhanced/materials-roman-clay-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-5ULwaG+i23AuRExmMhrsfuH+xm6zgFvlSg8/CmHOHgE=",
+      "source_integrity": "sha256-GrdOs7G/2cmo9OKC3hiRPRAOqnO/7WrLnAU3Q0hJGmU="
+    },
+    {
+      "source": "sandstone-dark.png",
+      "asset": "enhanced/materials-sandstone-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-kjdB9ZPf8HOa5L7CAP9XH5c3UTLDN15LBJYNCGaqZd4=",
+      "source_integrity": "sha256-9mf9ektX/5AvSmd6OtXSJAGtWs+NdhoM4LPOexvqKeY="
+    },
+    {
+      "source": "sandstone-light.png",
+      "asset": "enhanced/materials-sandstone-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-Lsz1VEXsPkvMdjrI+fGeDoeOvGzBEVv9DAKhv0I80o0=",
+      "source_integrity": "sha256-Ta39QelqXLNQtkIsUIDiL/cy6EUb9eDxYoeiwVVT/BE="
+    },
+    {
+      "source": "shared/nami/material.webp",
+      "asset": "enhanced/nami-material.webp",
+      "dimensions": [
+        2508,
+        2508
+      ],
+      "integrity": "sha256-wLWf0mfrvD4bsZhCdbd60Ro+HhZOQ+7RGQ9cXGLQKKQ=",
+      "source_integrity": "sha256-7Mefvz9UmpF0tO3qXO85+BeZO8SLeOzRxXAtUrrBDpc="
+    },
+    {
+      "source": "shared/plum/material.webp",
+      "asset": "enhanced/plum-material.webp",
+      "dimensions": [
+        2508,
+        2508
+      ],
+      "integrity": "sha256-FkuA2HOUYUmS/Aaed5C8G7RLto24Pl2SfEIRTNpQtB0=",
+      "source_integrity": "sha256-ehZfelq/67uZ++axr7/eD8IU8bbIy3ps5n00QPwHW8s="
+    },
+    {
+      "source": "slate-quarry-dark.png",
+      "asset": "enhanced/materials-slate-quarry-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-mHj7mr036mSr5e882EogPxlcCjje6M6tkpDV61i4veM=",
+      "source_integrity": "sha256-ZdSvl0vx6IoOUL9omoql2rxWwTXhRPRvLjlECTGsOy0="
+    },
+    {
+      "source": "slate-quarry-light.png",
+      "asset": "enhanced/materials-slate-quarry-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-PBmAXfZayVkTzc5wNN+kN/GtsEMiXniboS8RnihBTno=",
+      "source_integrity": "sha256-04sIfqIv+m6hS5ojbUTlYPfvnJwpmMYC0pzr4qiojkc="
+    },
+    {
+      "source": "solar-ribbon-dark.png",
+      "asset": "enhanced/materials-solar-ribbon-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-PZd5xTFAot9ITsSjauAMpVGbOfNW3+2jjGhixR0Fm5k=",
+      "source_integrity": "sha256-WxA6r3OnWcI1oJir8d9jtXZ5AaoRRnEHDxN3NphJsEw="
+    },
+    {
+      "source": "solar-ribbon-light.png",
+      "asset": "enhanced/materials-solar-ribbon-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-h9gemT/VRrJWYUZeKdm6S/x54rt0Uk/mUvXd0igZ0Uk=",
+      "source_integrity": "sha256-NiG/9Buaky4zrotPliKfivBeoIwBnT7ETP7xjA+R920="
+    },
+    {
+      "source": "teal-circuit-dark.png",
+      "asset": "enhanced/materials-teal-circuit-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-AurJnCOu1RH8WLTldo5lGdrJ86npiLhvilubArjAs5w=",
+      "source_integrity": "sha256-n5QkJuS1xkJRMRHq+qN0LEqu9Fej1uUsTwhjANd4FRc="
+    },
+    {
+      "source": "teal-circuit-light.png",
+      "asset": "enhanced/materials-teal-circuit-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-1EI3VfdGT5PToAL/oBD4oY/13loI7Yz44LwIxQRYNvE=",
+      "source_integrity": "sha256-MYI8TCkadtiv0ldbjEIvm8tAdAMCc2zmp6bNcR1TURo="
+    },
+    {
+      "source": "venetian-plaster-dark.png",
+      "asset": "enhanced/materials-venetian-plaster-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-Hyi95CKw9n0pGjCWjXGlUtMigsWMGrImlqqThQh5NCg=",
+      "source_integrity": "sha256-RQzUwLktBnvjn/sC26Ry0u3qeT2Du+n50vjaD+4RXSY="
+    },
+    {
+      "source": "venetian-plaster-light.png",
+      "asset": "enhanced/materials-venetian-plaster-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-f4ABVNUN9N/YNR1EAC9vKS6ThNmtpeQc4t7UeysIKjc=",
+      "source_integrity": "sha256-d1aq3hKNed1kaemWJfEqmU6YieGm/KAoKUICHlt+Qv0="
+    },
+    {
+      "source": "violet-signal-dark.png",
+      "asset": "enhanced/materials-violet-signal-dark.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-prl6YyMFwmNCUj7ebxbDerlsIpI2tOqmMQXTRZuIvhg=",
+      "source_integrity": "sha256-1Wu8f8X5BCCgjnRvS22m8XXwOCvSbcZOpZsxy/IKztQ="
+    },
+    {
+      "source": "violet-signal-light.png",
+      "asset": "enhanced/materials-violet-signal-light.webp",
+      "dimensions": [
+        5120,
+        704
+      ],
+      "integrity": "sha256-m1nz+oNB7sOqAt2KV9Jqie8zwdUi6y9KSIpEPx2bVVs=",
+      "source_integrity": "sha256-dn3X/kaGH50s38rgVPoO8fqVfpQjbpgPHxsrGjRR9ns="
+    }
+  ]
+}

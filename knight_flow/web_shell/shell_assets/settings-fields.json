@@ -1,0 +1,2771 @@
+[
+  {
+    "id": "deepgram.sample_rate",
+    "label": "Sample rate",
+    "type": "number",
+    "min": 8000,
+    "max": 192000,
+    "step": 1,
+    "page": "speech",
+    "section": "Deepgram advanced options",
+    "when": {
+      "stt.provider": "deepgram"
+    },
+    "default": 16000,
+    "description": "Audio samples per second; keep 16000 unless a support doc says otherwise."
+  },
+  {
+    "id": "deepgram.channels",
+    "label": "Channels",
+    "type": "number",
+    "min": 1,
+    "max": 8,
+    "step": 1,
+    "page": "speech",
+    "section": "Deepgram advanced options",
+    "when": {
+      "stt.provider": "deepgram"
+    },
+    "default": 1,
+    "description": "Mono or stereo capture; keep 1 for dictation."
+  },
+  {
+    "id": "deepgram.encoding",
+    "label": "Encoding",
+    "type": "select",
+    "page": "speech",
+    "section": "Deepgram advanced options",
+    "options": [
+      {
+        "value": "linear16",
+        "label": "linear16"
+      },
+      {
+        "value": "mulaw",
+        "label": "mulaw"
+      },
+      {
+        "value": "alaw",
+        "label": "alaw"
+      },
+      {
+        "value": "opus",
+        "label": "opus"
+      }
+    ],
+    "when": {
+      "stt.provider": "deepgram"
+    },
+    "default": "linear16",
+    "description": "Raw audio format sent to the provider; keep linear16."
+  },
+  {
+    "id": "deepgram.smart_format",
+    "label": "Smart format",
+    "type": "toggle",
+    "page": "speech",
+    "section": "Deepgram advanced options",
+    "when": {
+      "stt.provider": "deepgram"
+    },
+    "default": true,
+    "description": "Provider formats dates, times, and numbers nicely on its own."
+  },
+  {
+    "id": "deepgram.punctuate",
+    "label": "Punctuation",
+    "type": "toggle",
+    "page": "speech",
+    "section": "Deepgram advanced options",
+    "when": {
+      "stt.provider": "deepgram"
+    },
+    "default": true,
+    "description": "Provider inserts periods, commas, and question marks for you."
+  },
+  {
+    "id": "deepgram.interim_results",
+    "label": "Interim results",
+    "type": "toggle",
+    "page": "speech",
+    "section": "Deepgram advanced options",
+    "when": {
+      "stt.provider": "deepgram"
+    },
+    "default": true,
+    "description": "Shows live partial words while you are still speaking."
+  },
+  {
+    "id": "deepgram.endpointing",
+    "label": "Endpointing ms",
+    "type": "text",
+    "page": "speech",
+    "section": "Deepgram advanced options",
+    "codec": "endpointing",
+    "when": {
+      "stt.provider": "deepgram"
+    },
+    "default": 300,
+    "description": "Silence length before the service decides a phrase has ended."
+  },
+  {
+    "id": "deepgram.utterance_end_ms",
+    "label": "Utterance end ms",
+    "type": "number",
+    "min": 0,
+    "max": 10000,
+    "step": 1,
+    "page": "speech",
+    "section": "Deepgram advanced options",
+    "when": {
+      "stt.provider": "deepgram"
+    },
+    "default": 1000,
+    "description": "Silence length before a whole thought is marked finished."
+  },
+  {
+    "id": "deepgram.vad_events",
+    "label": "VAD speech events",
+    "type": "toggle",
+    "page": "speech",
+    "section": "Deepgram advanced options",
+    "when": {
+      "stt.provider": "deepgram"
+    },
+    "default": true,
+    "description": "Provider signals when it hears speech start and stop."
+  },
+  {
+    "id": "deepgram.filler_words",
+    "label": "Include provider filler words",
+    "type": "toggle",
+    "page": "speech",
+    "section": "Deepgram advanced options",
+    "when": {
+      "stt.provider": "deepgram"
+    },
+    "default": false,
+    "description": "Keeps ums and uhs in the transcript instead of dropping them."
+  },
+  {
+    "id": "deepgram.dictation",
+    "label": "Dictation mode",
+    "type": "toggle",
+    "page": "speech",
+    "section": "Deepgram advanced options",
+    "when": {
+      "stt.provider": "deepgram"
+    },
+    "default": true,
+    "description": "Say punctuation aloud, like 'comma', and get the symbol."
+  },
+  {
+    "id": "deepgram.numerals",
+    "label": "Numerals",
+    "type": "toggle",
+    "page": "speech",
+    "section": "Deepgram advanced options",
+    "when": {
+      "stt.provider": "deepgram"
+    },
+    "default": true,
+    "description": "Writes numbers as digits (3) instead of words (three)."
+  },
+  {
+    "id": "deepgram.mip_opt_out",
+    "label": "Deepgram MIP opt-out",
+    "type": "toggle",
+    "page": "speech",
+    "section": "Deepgram advanced options",
+    "when": {
+      "stt.provider": "deepgram"
+    },
+    "default": true,
+    "description": "Keeps your audio out of Deepgram's improvement program; leave on for privacy."
+  },
+  {
+    "id": "cleanup.level",
+    "label": "Auto Cleanup",
+    "type": "select",
+    "page": "formatting",
+    "section": "Your writing",
+    "options": [
+      {
+        "value": "none",
+        "label": "None"
+      },
+      {
+        "value": "light",
+        "label": "Light"
+      },
+      {
+        "value": "medium",
+        "label": "Medium"
+      },
+      {
+        "value": "high",
+        "label": "High"
+      }
+    ],
+    "default": "high",
+    "description": "How much tidying your words get. High removes ums and stumbles; None keeps everything."
+  },
+  {
+    "id": "cleanup.censor_profanity",
+    "label": "Censor profanity",
+    "type": "toggle",
+    "page": "privacy",
+    "section": "Privacy and history",
+    "default": false,
+    "description": "Replaces swear words with asterisks in your transcripts."
+  },
+  {
+    "id": "cleanup.smart_format",
+    "label": "Smart formatting: structure every dictation",
+    "type": "toggle",
+    "page": "formatting",
+    "section": "Finishing and rewrites",
+    "default": true,
+    "description": "Automatically adds punctuation, capitals, and lists to everything you dictate."
+  },
+  {
+    "id": "cleanup.preserve_meaning",
+    "label": "Protect numbers, links, quotes, and intent during AI cleanup",
+    "type": "toggle",
+    "page": "formatting",
+    "section": "Finishing and rewrites",
+    "default": true,
+    "description": "Stops AI cleanup from ever changing numbers, links, quotes, or your meaning."
+  },
+  {
+    "id": "cleanup.format_mode",
+    "label": "Formatting engine",
+    "type": "select",
+    "page": "formatting",
+    "section": "Finishing and rewrites",
+    "options": [
+      {
+        "value": "auto",
+        "label": "Auto"
+      },
+      {
+        "value": "ai",
+        "label": "AI"
+      },
+      {
+        "value": "heuristic",
+        "label": "Built-in rules"
+      },
+      {
+        "value": "off",
+        "label": "Off"
+      }
+    ],
+    "default": "auto",
+    "description": "Auto picks the best available. AI uses your AI provider. Built-in rules work offline. Off turns formatting off."
+  },
+  {
+    "id": "privacy.save_history",
+    "label": "Save local transcript history",
+    "type": "toggle",
+    "page": "privacy",
+    "section": "Privacy and history",
+    "default": true,
+    "description": "Keeps a private copy of your dictations on this computer; off keeps no record."
+  },
+  {
+    "id": "privacy.history_limit",
+    "label": "History limit",
+    "type": "number",
+    "min": 0,
+    "max": 100000,
+    "step": 1,
+    "page": "privacy",
+    "section": "Privacy and history",
+    "default": 0,
+    "description": "Most dictations kept in history; 0 means keep everything."
+  },
+  {
+    "id": "privacy.redact_pii",
+    "label": "Redact emails, phone numbers, cards, SSNs before pasting",
+    "type": "toggle",
+    "page": "privacy",
+    "section": "Privacy and history",
+    "default": false,
+    "description": "Blanks out personal details before text lands anywhere; use for sensitive work."
+  },
+  {
+    "id": "dictation.paste_mode",
+    "label": "Paste method",
+    "type": "select",
+    "page": "dictation",
+    "section": "Audio and delivery",
+    "options": [
+      {
+        "value": "auto",
+        "label": "Auto"
+      },
+      {
+        "value": "clipboard",
+        "label": "Clipboard"
+      },
+      {
+        "value": "shift_insert",
+        "label": "Shift+Insert"
+      },
+      {
+        "value": "type",
+        "label": "Type it"
+      },
+      {
+        "value": "copy_only",
+        "label": "Copy only"
+      }
+    ],
+    "default": "auto",
+    "description": "How text lands in your app. Auto works nearly everywhere; try another if pasting misbehaves."
+  },
+  {
+    "id": "dictation.typing_interval_ms",
+    "label": "Typing interval ms",
+    "type": "number",
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "page": "dictation",
+    "section": "Audio and delivery",
+    "default": 2,
+    "description": "Delay between typed characters in typing mode; raise it if letters go missing."
+  },
+  {
+    "id": "dictation.clipboard_paste_delay_ms",
+    "label": "Clipboard paste delay ms",
+    "type": "number",
+    "min": 0,
+    "max": 1000,
+    "step": 1,
+    "page": "dictation",
+    "section": "Audio and delivery",
+    "default": 10,
+    "description": "Small wait before pasting; raise it if slow apps miss the paste."
+  },
+  {
+    "id": "audio.quiet_mode",
+    "label": "Whisper-quiet mode (extra gain for soft speech)",
+    "type": "toggle",
+    "page": "dictation",
+    "section": "Audio and delivery",
+    "default": false,
+    "description": "Extra volume boost for speaking softly, like in a shared office."
+  },
+  {
+    "id": "audio.quiet_mode_boost",
+    "label": "Quiet mode boost",
+    "type": "number",
+    "min": 1.0,
+    "max": 16.0,
+    "step": 0.01,
+    "page": "dictation",
+    "section": "Audio and delivery",
+    "default": 3.0,
+    "description": "How much extra loudness whisper-quiet mode adds."
+  },
+  {
+    "id": "transforms.llm.provider",
+    "label": "AI rewrite provider",
+    "type": "select",
+    "page": "formatting",
+    "section": "Finishing and rewrites",
+    "options": [
+      {
+        "value": "auto",
+        "label": "Auto"
+      },
+      {
+        "value": "none",
+        "label": "None"
+      },
+      {
+        "value": "ollama",
+        "label": "Ollama"
+      },
+      {
+        "value": "openai",
+        "label": "OpenAI"
+      },
+      {
+        "value": "anthropic",
+        "label": "Anthropic"
+      },
+      {
+        "value": "gemini",
+        "label": "Gemini"
+      },
+      {
+        "value": "groq",
+        "label": "Groq"
+      },
+      {
+        "value": "custom",
+        "label": "Custom"
+      }
+    ],
+    "default": "auto",
+    "description": "Which AI powers rewrites. None turns AI off; Ollama runs free on your computer."
+  },
+  {
+    "id": "cleanup.max_ai_format_ms",
+    "label": "Formatting time budget ms",
+    "type": "number",
+    "min": 100,
+    "max": 30000,
+    "step": 1,
+    "page": "formatting",
+    "section": "Finishing and rewrites",
+    "default": 1200,
+    "description": "Longest the AI may spend formatting before built-in rules take over."
+  },
+  {
+    "id": "transforms.translate_to",
+    "label": "Translate to",
+    "type": "text",
+    "page": "formatting",
+    "section": "Finishing and rewrites",
+    "default": "English",
+    "description": "The language used when you run a translate transform."
+  },
+  {
+    "id": "translation.enabled",
+    "label": "Enable automatic translation",
+    "type": "toggle",
+    "page": "translation",
+    "section": "Translation",
+    "default": false,
+    "description": "Used with Auto-translate every dictation. Manual translation is always available after local setup."
+  },
+  {
+    "id": "translation.auto_translate_dictation",
+    "label": "Auto-translate every dictation",
+    "type": "toggle",
+    "page": "translation",
+    "section": "Translation",
+    "default": false,
+    "description": "Everything you dictate is translated before it is pasted."
+  },
+  {
+    "id": "translation.preserve_formatting",
+    "label": "Preserve line breaks",
+    "type": "toggle",
+    "page": "translation",
+    "section": "Translation",
+    "default": true,
+    "description": "Check the line-break count and keep surrounding spacing. Protected numbers and links are always checked."
+  },
+  {
+    "id": "remote.enabled",
+    "label": "Enable local control API for automations (127.0.0.1 only)",
+    "type": "toggle",
+    "page": "privacy",
+    "section": "Automation",
+    "default": false,
+    "description": "Lets programs on this computer control Talk DAT!; leave off unless you automate.",
+    "advanced": true
+  },
+  {
+    "id": "ui.display_name",
+    "label": "Your name",
+    "type": "text",
+    "page": "general",
+    "section": "Every day",
+    "default": "",
+    "description": "Home greets you by this name. Leave it blank to be greeted without one."
+  },
+  {
+    "id": "ui.show_home_on_start",
+    "label": "Open Home at launch",
+    "type": "toggle",
+    "page": "general",
+    "section": "Every day",
+    "default": true,
+    "description": "Off means Talk DAT starts straight to the Pill, with no window."
+  },
+  {
+    "id": "updates.channel",
+    "label": "Update channel",
+    "type": "select",
+    "page": "general",
+    "section": "Every day",
+    "options": [
+      {
+        "value": "stable",
+        "label": "Stable"
+      },
+      {
+        "value": "beta",
+        "label": "Beta"
+      }
+    ],
+    "default": "beta",
+    "description": "Stable gets tested releases. Beta gets new features earlier, with more rough edges."
+  },
+  {
+    "id": "ui.reduce_motion",
+    "label": "Reduce motion (skip pill animations)",
+    "type": "toggle",
+    "page": "appearance",
+    "section": "Text and motion",
+    "default": false,
+    "description": "Turns animations off; good if motion distracts you or the PC is slow."
+  },
+  {
+    "id": "overlay.position",
+    "label": "Pill position",
+    "type": "select",
+    "page": "appearance",
+    "section": "Pill details",
+    "options": [
+      {
+        "value": "bottom-center",
+        "label": "Bottom center"
+      },
+      {
+        "value": "bottom-left",
+        "label": "Bottom left"
+      },
+      {
+        "value": "bottom-right",
+        "label": "Bottom right"
+      },
+      {
+        "value": "top-center",
+        "label": "Top center"
+      }
+    ],
+    "default": "bottom-center",
+    "description": "Which screen edge the pill sits on."
+  },
+  {
+    "id": "overlay.follow_active_monitor",
+    "label": "Appear on the monitor I'm using (follow the active window)",
+    "type": "toggle",
+    "page": "appearance",
+    "section": "Pill details",
+    "default": true,
+    "description": "The pill follows you to whichever monitor you are working on."
+  },
+  {
+    "id": "dictation.play_sounds",
+    "label": "Play start and stop sounds",
+    "type": "toggle",
+    "page": "general",
+    "section": "Every day",
+    "default": true,
+    "description": "A soft sound when recording starts and ends; turn off for silence."
+  },
+  {
+    "id": "dictation.auto_paste",
+    "label": "Auto paste transcript",
+    "type": "toggle",
+    "page": "general",
+    "section": "Every day",
+    "default": true,
+    "description": "Types your words into the app you are using; off means copy only."
+  },
+  {
+    "id": "dictation.smart_leading_space",
+    "label": "Smart leading space",
+    "type": "toggle",
+    "page": "general",
+    "section": "Every day",
+    "default": true,
+    "description": "Adds a space before pasted text when needed so words never stick together."
+  },
+  {
+    "id": "dictation.tail_capture_ms",
+    "label": "Tail capture ms",
+    "type": "number",
+    "min": 0,
+    "max": 3000,
+    "step": 1,
+    "page": "dictation",
+    "section": "Capture and delivery",
+    "default": 520,
+    "description": "Extra listening after you release the key so your last word is not cut off."
+  },
+  {
+    "id": "dictation.min_capture_ms",
+    "label": "Minimum capture ms",
+    "type": "number",
+    "min": 0,
+    "max": 3000,
+    "step": 1,
+    "page": "dictation",
+    "section": "Capture and delivery",
+    "default": 900,
+    "description": "Shortest recording that counts; ignores accidental key taps."
+  },
+  {
+    "id": "dictation.hold_debounce_ms",
+    "label": "Hold debounce ms",
+    "type": "number",
+    "min": 0,
+    "max": 1000,
+    "step": 1,
+    "page": "dictation",
+    "section": "Capture and delivery",
+    "default": 35,
+    "description": "Ignores tiny accidental key releases while you hold to talk."
+  },
+  {
+    "id": "dictation.max_seconds",
+    "label": "Hands-free max seconds",
+    "type": "number",
+    "min": 5,
+    "max": 3600,
+    "step": 1,
+    "page": "dictation",
+    "section": "Capture and delivery",
+    "default": 300,
+    "description": "Longest a hands-free session can run before stopping itself."
+  },
+  {
+    "id": "dictation.no_speech_timeout_seconds",
+    "label": "Hands-free no speech",
+    "type": "number",
+    "min": 1,
+    "max": 3600,
+    "step": 1,
+    "page": "dictation",
+    "section": "Capture and delivery",
+    "default": 15,
+    "description": "Stops hands-free if you never start speaking within this many seconds."
+  },
+  {
+    "id": "dictation.silence_timeout_seconds",
+    "label": "Hands-free silence",
+    "type": "number",
+    "min": 1,
+    "max": 3600,
+    "step": 1,
+    "page": "dictation",
+    "section": "Capture and delivery",
+    "default": 45,
+    "description": "Stops hands-free after this many seconds of silence."
+  },
+  {
+    "id": "dictation.hold_max_seconds",
+    "label": "Hold max seconds",
+    "type": "number",
+    "min": 5,
+    "max": 3600,
+    "step": 1,
+    "page": "dictation",
+    "section": "Capture and delivery",
+    "default": 1800,
+    "description": "Longest a hold-to-talk session can run before stopping itself."
+  },
+  {
+    "id": "dictation.hold_no_speech_timeout_seconds",
+    "label": "Hold no speech",
+    "type": "number",
+    "min": 1,
+    "max": 3600,
+    "step": 1,
+    "page": "dictation",
+    "section": "Capture and delivery",
+    "default": 120,
+    "description": "Stops a hold session if no speech is heard for this long."
+  },
+  {
+    "id": "dictation.hold_silence_timeout_seconds",
+    "label": "Hold silence",
+    "type": "number",
+    "min": 1,
+    "max": 3600,
+    "step": 1,
+    "page": "dictation",
+    "section": "Capture and delivery",
+    "default": 300,
+    "description": "Stops a hold session after this much silence."
+  },
+  {
+    "id": "dictation.restore_clipboard_after_paste",
+    "label": "Keep your previous clipboard after pasting (off = keep the dictation on the clipboard)",
+    "type": "toggle",
+    "page": "dictation",
+    "section": "Capture and delivery",
+    "default": true,
+    "description": "Puts whatever you copied earlier back on the clipboard after your words paste."
+  },
+  {
+    "id": "dictation.press_enter_command",
+    "label": "Spoken press-enter command",
+    "type": "toggle",
+    "page": "dictation",
+    "section": "Capture and delivery",
+    "default": true,
+    "description": "Say 'press enter' at the end and the app sends the message for you."
+  },
+  {
+    "id": "dictation.mute_output_while_recording",
+    "label": "Mute speaker output while recording",
+    "type": "toggle",
+    "page": "dictation",
+    "section": "Capture and delivery",
+    "default": true,
+    "description": "Silences your speakers while you talk so music is not transcribed."
+  },
+  {
+    "id": "dictation.retry_failed_capture",
+    "label": "Retry failed capture from local audio",
+    "type": "toggle",
+    "page": "dictation",
+    "section": "Capture and delivery",
+    "default": true,
+    "description": "If transcription fails, tries again from the saved recording so nothing is lost."
+  },
+  {
+    "id": "dictation.safety_recording_limit",
+    "label": "Protected session limit (minimum 5)",
+    "type": "number",
+    "min": 5,
+    "max": 50,
+    "step": 1,
+    "page": "dictation",
+    "section": "Capture and delivery",
+    "default": 5,
+    "description": "How many recent recordings to keep for recovery; at least five."
+  },
+  {
+    "id": "updates.check_on_start",
+    "label": "Check for updates on start",
+    "type": "toggle",
+    "page": "general",
+    "section": "Every day",
+    "default": true,
+    "description": "Looks for new versions each time the app opens; turn off to skip."
+  },
+  {
+    "id": "updates.auto_download",
+    "label": "Auto-download update installer when a new release exists",
+    "type": "toggle",
+    "page": "general",
+    "section": "Every day",
+    "default": false,
+    "description": "Fetches updates in the background so installing later takes seconds."
+  },
+  {
+    "id": "overlay.show_on_start",
+    "label": "Show overlay on start",
+    "type": "toggle",
+    "page": "appearance",
+    "section": "Pill details",
+    "default": true,
+    "description": "Shows the pill as soon as the app opens; off hides it until needed."
+  },
+  {
+    "id": "overlay.opacity",
+    "label": "Opacity",
+    "type": "number",
+    "min": 0.2,
+    "max": 1.0,
+    "step": 0.01,
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": 0.94,
+    "description": "How solid the floating pill looks; lower is more see-through."
+  },
+  {
+    "id": "overlay.hover_fade_delay_ms",
+    "label": "Hover fade delay ms",
+    "type": "number",
+    "min": 0,
+    "max": 10000,
+    "step": 1,
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": 2000,
+    "description": "How long your mouse hovers before the pill fades out of the way."
+  },
+  {
+    "id": "overlay.hover_fade_opacity",
+    "label": "Hover fade opacity",
+    "type": "number",
+    "min": 0.18,
+    "max": 1.0,
+    "step": 0.01,
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": 0.38,
+    "description": "How faint the pill becomes while your mouse is over it."
+  },
+  {
+    "id": "overlay.active_pill_width",
+    "label": "Active pill width",
+    "type": "number",
+    "min": 80,
+    "max": 1200,
+    "step": 1,
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": 192,
+    "description": "Pill width while dictating; enlarge if it is hard to see."
+  },
+  {
+    "id": "overlay.active_pill_height",
+    "label": "Active pill height",
+    "type": "number",
+    "min": 18,
+    "max": 260,
+    "step": 1,
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": 35,
+    "description": "Pill height while dictating; enlarge if it is hard to see."
+  },
+  {
+    "id": "overlay.active_width",
+    "label": "Active window width",
+    "type": "number",
+    "min": 80,
+    "max": 1400,
+    "step": 1,
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": 192,
+    "description": "Width of the pill's window while active; usually leave alone."
+  },
+  {
+    "id": "overlay.active_height",
+    "label": "Active window height",
+    "type": "number",
+    "min": 18,
+    "max": 320,
+    "step": 1,
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": 35,
+    "description": "Height of the pill's window while active; usually leave alone."
+  },
+  {
+    "id": "overlay.compact_width",
+    "label": "Resting width",
+    "type": "number",
+    "min": 36,
+    "max": 800,
+    "step": 1,
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": 92,
+    "description": "Pill width when idle; smaller stays further out of your way."
+  },
+  {
+    "id": "overlay.compact_height",
+    "label": "Resting height",
+    "type": "number",
+    "min": 14,
+    "max": 180,
+    "step": 1,
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": 26,
+    "description": "Pill height when idle; smaller stays further out of your way."
+  },
+  {
+    "id": "overlay.bottom_margin",
+    "label": "Bottom margin",
+    "type": "number",
+    "min": 0,
+    "max": 400,
+    "step": 1,
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": 24,
+    "description": "Gap between the pill and the edge of your screen."
+  },
+  {
+    "id": "overlay.active_frame_ms",
+    "label": "Active frame ms",
+    "type": "number",
+    "min": 16,
+    "max": 200,
+    "step": 1,
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": 16,
+    "description": "Animation refresh while dictating; higher numbers use less computer power."
+  },
+  {
+    "id": "overlay.idle_frame_ms",
+    "label": "Idle frame ms",
+    "type": "number",
+    "min": 8,
+    "max": 500,
+    "step": 1,
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": 33,
+    "description": "Animation refresh while idle; higher numbers use less computer power."
+  },
+  {
+    "id": "overlay.resize_frame_ms",
+    "label": "Resize frame ms",
+    "type": "number",
+    "min": 8,
+    "max": 18,
+    "step": 1,
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": 8,
+    "description": "Speed of each step when the pill grows or shrinks."
+  },
+  {
+    "id": "overlay.resize_steps",
+    "label": "Resize steps",
+    "type": "number",
+    "min": 12,
+    "max": 40,
+    "step": 1,
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": 22,
+    "description": "How many steps the grow-and-shrink animation takes; more looks smoother."
+  },
+  {
+    "id": "overlay.active_loop_seconds",
+    "label": "Active loop seconds",
+    "type": "number",
+    "min": 0.1,
+    "max": 20.0,
+    "step": 0.01,
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": 2.6,
+    "description": "How long one cycle of the dictating animation lasts."
+  },
+  {
+    "id": "overlay.idle_loop_seconds",
+    "label": "Idle loop seconds",
+    "type": "number",
+    "min": 0.1,
+    "max": 60.0,
+    "step": 0.01,
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": 8.0,
+    "description": "How long one cycle of the idle animation lasts."
+  },
+  {
+    "id": "overlay.result_hold_ms",
+    "label": "Result hold ms",
+    "type": "number",
+    "min": 0,
+    "max": 30000,
+    "step": 1,
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": 900,
+    "description": "How long finished text stays shown on the pill."
+  },
+  {
+    "id": "overlay.error_hold_ms",
+    "label": "Error hold ms",
+    "type": "number",
+    "min": 0,
+    "max": 60000,
+    "step": 1,
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": 5200,
+    "description": "How long error messages stay visible on the pill."
+  },
+  {
+    "id": "overlay.wave_loop_start",
+    "label": "Wave loop start",
+    "type": "number",
+    "min": 0,
+    "max": 10000,
+    "step": 1,
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": 0,
+    "description": "Where the wave animation begins its repeat; purely cosmetic."
+  },
+  {
+    "id": "overlay.wave_loop_end",
+    "label": "Wave loop end",
+    "type": "number",
+    "min": 0,
+    "max": 10000,
+    "step": 1,
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": 50,
+    "description": "Where the wave animation ends its repeat; purely cosmetic."
+  },
+  {
+    "id": "overlay.fixed_position",
+    "label": "Always same bottom position",
+    "type": "toggle",
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": true,
+    "description": "Keeps the pill anchored to one spot instead of remembering where you dragged it."
+  },
+  {
+    "id": "overlay.no_activate",
+    "label": "Do not steal focus",
+    "type": "toggle",
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": true,
+    "description": "Stops the pill taking the keyboard away from the app you are typing in."
+  },
+  {
+    "id": "overlay.hide_over_fullscreen_media",
+    "label": "Hide pill over fullscreen media",
+    "type": "toggle",
+    "page": "appearance",
+    "section": "Pill details",
+    "default": true,
+    "description": "Hides the pill during fullscreen video or games."
+  },
+  {
+    "id": "overlay.show_session_over_fullscreen",
+    "label": "Show pill while dictating over fullscreen apps",
+    "type": "toggle",
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": true,
+    "description": "Brings the pill back while you are actually speaking, even in fullscreen."
+  },
+  {
+    "id": "overlay.fullscreen_poll_ms",
+    "label": "Fullscreen check ms",
+    "type": "number",
+    "min": 120,
+    "max": 3000,
+    "step": 1,
+    "page": "appearance",
+    "section": "Pill details",
+    "advanced": true,
+    "default": 450,
+    "description": "How often it checks for fullscreen apps; lower reacts faster."
+  },
+  {
+    "id": "transforms.enabled",
+    "label": "Enable transforms (polish, tone, list)",
+    "type": "toggle",
+    "page": "formatting",
+    "section": "Finishing and rewrites",
+    "default": true,
+    "description": "Turns on the rewrite tools like Polish and Turn to list."
+  },
+  {
+    "id": "cleanup.format_intensity",
+    "label": "Writing style",
+    "type": "select",
+    "page": "formatting",
+    "section": "Your writing",
+    "options": [
+      {
+        "value": "standard",
+        "label": "Chill"
+      },
+      {
+        "value": "executive",
+        "label": "Executive"
+      }
+    ],
+    "default": "standard",
+    "description": ""
+  },
+  {
+    "id": "privacy.history_backend",
+    "label": "History storage",
+    "type": "select",
+    "page": "privacy",
+    "section": "Privacy and history",
+    "options": [
+      {
+        "value": "jsonl",
+        "label": "Local text log"
+      },
+      {
+        "value": "sqlite",
+        "label": "Local database"
+      }
+    ],
+    "default": "jsonl",
+    "description": "Plain text file or a searchable local database for your history."
+  },
+  {
+    "id": "ui.app_font",
+    "label": "App text",
+    "type": "select",
+    "page": "appearance",
+    "section": "Text and motion",
+    "options": [
+      {
+        "value": "system",
+        "label": "System sans (recommended)"
+      },
+      {
+        "value": "constantia",
+        "label": "Constantia (editorial serif)"
+      },
+      {
+        "value": "candara",
+        "label": "Candara (soft sans)"
+      },
+      {
+        "value": "knight",
+        "label": "Knight AI+AV everywhere"
+      }
+    ],
+    "default": "system",
+    "description": ""
+  },
+  {
+    "id": "ui.settings_theme",
+    "label": "Color theme",
+    "type": "select",
+    "page": "appearance",
+    "section": "Colors",
+    "options": [
+      {
+        "value": "Flow Dark",
+        "label": "Flow Dark"
+      },
+      {
+        "value": "Flow Light",
+        "label": "Flow Light"
+      },
+      {
+        "value": "Roman Clay Dark",
+        "label": "Roman Clay Dark"
+      },
+      {
+        "value": "Roman Clay Light",
+        "label": "Roman Clay Light"
+      },
+      {
+        "value": "Venetian Plaster Dark",
+        "label": "Venetian Plaster Dark"
+      },
+      {
+        "value": "Venetian Plaster Light",
+        "label": "Venetian Plaster Light"
+      },
+      {
+        "value": "Lime Wash Dark",
+        "label": "Lime Wash Dark"
+      },
+      {
+        "value": "Lime Wash Light",
+        "label": "Lime Wash Light"
+      },
+      {
+        "value": "Sandstone Dark",
+        "label": "Sandstone Dark"
+      },
+      {
+        "value": "Sandstone Light",
+        "label": "Sandstone Light"
+      },
+      {
+        "value": "Slate Quarry Dark",
+        "label": "Slate Quarry Dark"
+      },
+      {
+        "value": "Slate Quarry Light",
+        "label": "Slate Quarry Light"
+      },
+      {
+        "value": "Deep Forest Dark",
+        "label": "Deep Forest Dark"
+      },
+      {
+        "value": "Deep Forest Light",
+        "label": "Deep Forest Light"
+      },
+      {
+        "value": "Oxide Copper Dark",
+        "label": "Oxide Copper Dark"
+      },
+      {
+        "value": "Oxide Copper Light",
+        "label": "Oxide Copper Light"
+      },
+      {
+        "value": "Desert Bloom Dark",
+        "label": "Desert Bloom Dark"
+      },
+      {
+        "value": "Desert Bloom Light",
+        "label": "Desert Bloom Light"
+      },
+      {
+        "value": "Ember Glass Dark",
+        "label": "Ember Glass Dark"
+      },
+      {
+        "value": "Ember Glass Light",
+        "label": "Ember Glass Light"
+      },
+      {
+        "value": "Solar Ribbon Dark",
+        "label": "Solar Ribbon Dark"
+      },
+      {
+        "value": "Solar Ribbon Light",
+        "label": "Solar Ribbon Light"
+      },
+      {
+        "value": "Crimson Bloom Dark",
+        "label": "Crimson Bloom Dark"
+      },
+      {
+        "value": "Crimson Bloom Light",
+        "label": "Crimson Bloom Light"
+      },
+      {
+        "value": "Champagne Glass Dark",
+        "label": "Champagne Glass Dark"
+      },
+      {
+        "value": "Champagne Glass Light",
+        "label": "Champagne Glass Light"
+      },
+      {
+        "value": "Teal Circuit Dark",
+        "label": "Teal Circuit Dark"
+      },
+      {
+        "value": "Teal Circuit Light",
+        "label": "Teal Circuit Light"
+      },
+      {
+        "value": "Aqua Noir Dark",
+        "label": "Aqua Noir Dark"
+      },
+      {
+        "value": "Aqua Noir Light",
+        "label": "Aqua Noir Light"
+      },
+      {
+        "value": "Arctic Aurora Dark",
+        "label": "Arctic Aurora Dark"
+      },
+      {
+        "value": "Arctic Aurora Light",
+        "label": "Arctic Aurora Light"
+      },
+      {
+        "value": "Cobalt Heat Dark",
+        "label": "Cobalt Heat Dark"
+      },
+      {
+        "value": "Cobalt Heat Light",
+        "label": "Cobalt Heat Light"
+      },
+      {
+        "value": "Graphite Pulse Dark",
+        "label": "Graphite Pulse Dark"
+      },
+      {
+        "value": "Graphite Pulse Light",
+        "label": "Graphite Pulse Light"
+      },
+      {
+        "value": "Ivory Halo Dark",
+        "label": "Ivory Halo Dark"
+      },
+      {
+        "value": "Ivory Halo Light",
+        "label": "Ivory Halo Light"
+      },
+      {
+        "value": "Midnight Ink Dark",
+        "label": "Midnight Ink Dark"
+      },
+      {
+        "value": "Midnight Ink Light",
+        "label": "Midnight Ink Light"
+      },
+      {
+        "value": "Obsidian Gold Dark",
+        "label": "Obsidian Gold Dark"
+      },
+      {
+        "value": "Obsidian Gold Light",
+        "label": "Obsidian Gold Light"
+      },
+      {
+        "value": "Violet Signal Dark",
+        "label": "Violet Signal Dark"
+      },
+      {
+        "value": "Violet Signal Light",
+        "label": "Violet Signal Light"
+      },
+      {
+        "value": "Night City Neon Dark",
+        "label": "Night City Neon Dark"
+      },
+      {
+        "value": "Night City Neon Light",
+        "label": "Night City Neon Light"
+      },
+      {
+        "value": "Neon Sakura Dark",
+        "label": "Neon Sakura Dark"
+      },
+      {
+        "value": "Neon Sakura Light",
+        "label": "Neon Sakura Light"
+      },
+      {
+        "value": "Terminal Rain Dark",
+        "label": "Terminal Rain Dark"
+      },
+      {
+        "value": "Terminal Rain Light",
+        "label": "Terminal Rain Light"
+      },
+      {
+        "value": "Amber Lantern Dark",
+        "label": "Amber Lantern Dark"
+      },
+      {
+        "value": "Amber Lantern Light",
+        "label": "Amber Lantern Light"
+      },
+      {
+        "value": "Brass Lamp Dark",
+        "label": "Brass Lamp Dark"
+      },
+      {
+        "value": "Brass Lamp Light",
+        "label": "Brass Lamp Light"
+      },
+      {
+        "value": "Fire Opal Dark",
+        "label": "Fire Opal Dark"
+      },
+      {
+        "value": "Fire Opal Light",
+        "label": "Fire Opal Light"
+      },
+      {
+        "value": "Sunset Coast Dark",
+        "label": "Sunset Coast Dark"
+      },
+      {
+        "value": "Sunset Coast Light",
+        "label": "Sunset Coast Light"
+      },
+      {
+        "value": "Rust Belt Dark",
+        "label": "Rust Belt Dark"
+      },
+      {
+        "value": "Rust Belt Light",
+        "label": "Rust Belt Light"
+      },
+      {
+        "value": "Bone China Dark",
+        "label": "Bone China Dark"
+      },
+      {
+        "value": "Bone China Light",
+        "label": "Bone China Light"
+      },
+      {
+        "value": "Paper Press Dark",
+        "label": "Paper Press Dark"
+      },
+      {
+        "value": "Paper Press Light",
+        "label": "Paper Press Light"
+      },
+      {
+        "value": "Moss Stone Dark",
+        "label": "Moss Stone Dark"
+      },
+      {
+        "value": "Moss Stone Light",
+        "label": "Moss Stone Light"
+      },
+      {
+        "value": "Olive Grove Dark",
+        "label": "Olive Grove Dark"
+      },
+      {
+        "value": "Olive Grove Light",
+        "label": "Olive Grove Light"
+      },
+      {
+        "value": "Jade Garden Dark",
+        "label": "Jade Garden Dark"
+      },
+      {
+        "value": "Jade Garden Light",
+        "label": "Jade Garden Light"
+      },
+      {
+        "value": "Rose Quartz Dark",
+        "label": "Rose Quartz Dark"
+      },
+      {
+        "value": "Rose Quartz Light",
+        "label": "Rose Quartz Light"
+      },
+      {
+        "value": "Emerald Vault Dark",
+        "label": "Emerald Vault Dark"
+      },
+      {
+        "value": "Emerald Vault Light",
+        "label": "Emerald Vault Light"
+      },
+      {
+        "value": "Neon Wire Dark",
+        "label": "Neon Wire Dark"
+      },
+      {
+        "value": "Neon Wire Light",
+        "label": "Neon Wire Light"
+      },
+      {
+        "value": "Ultraviolet Hour Dark",
+        "label": "Ultraviolet Hour Dark"
+      },
+      {
+        "value": "Ultraviolet Hour Light",
+        "label": "Ultraviolet Hour Light"
+      },
+      {
+        "value": "Plum Velvet Dark",
+        "label": "Plum Velvet Dark"
+      },
+      {
+        "value": "Plum Velvet Light",
+        "label": "Plum Velvet Light"
+      }
+    ],
+    "hidden": true,
+    "default": "Flow Dark",
+    "description": ""
+  },
+  {
+    "id": "dictation.trigger_style",
+    "label": "Capture buttons",
+    "type": "select",
+    "page": "dictation",
+    "section": "Capture controls",
+    "options": [
+      {
+        "value": "both",
+        "label": "Hold and a separate toggle"
+      },
+      {
+        "value": "hold",
+        "label": "Hold to talk"
+      },
+      {
+        "value": "toggle",
+        "label": "Tap to start and stop"
+      }
+    ],
+    "default": "both",
+    "description": ""
+  },
+  {
+    "id": "dictation.undo_replacement",
+    "label": "Replacing a correction",
+    "type": "select",
+    "page": "dictation",
+    "section": "Capture and delivery",
+    "options": [
+      {
+        "value": "auto",
+        "label": "Use undo in verified apps"
+      },
+      {
+        "value": "always",
+        "label": "Always use undo"
+      },
+      {
+        "value": "never",
+        "label": "Replace with backspace"
+      }
+    ],
+    "default": "auto",
+    "description": ""
+  },
+  {
+    "id": "dictation.sound_on",
+    "label": "Activation sound",
+    "type": "select",
+    "page": "dictation",
+    "section": "Audio and delivery",
+    "options": [
+      {
+        "value": "felted_halo",
+        "label": "Felted Halo"
+      },
+      {
+        "value": "wood_block",
+        "label": "Wood Block"
+      },
+      {
+        "value": "wood_double",
+        "label": "Wood Block Double"
+      },
+      {
+        "value": "soft_click",
+        "label": "Soft Click"
+      },
+      {
+        "value": "click_ding",
+        "label": "Click + Ding"
+      },
+      {
+        "value": "ding",
+        "label": "Ding"
+      },
+      {
+        "value": "snap",
+        "label": "Snap"
+      },
+      {
+        "value": "soft_snap",
+        "label": "Soft Snap"
+      },
+      {
+        "value": "marimba",
+        "label": "Marimba"
+      },
+      {
+        "value": "kalimba",
+        "label": "Kalimba"
+      },
+      {
+        "value": "harp_pluck",
+        "label": "Harp Pluck"
+      },
+      {
+        "value": "glass_tap",
+        "label": "Glass Tap"
+      },
+      {
+        "value": "pebble_pop",
+        "label": "Pebble Pop"
+      },
+      {
+        "value": "bubble",
+        "label": "Bubble"
+      },
+      {
+        "value": "tick",
+        "label": "Tick"
+      },
+      {
+        "value": "knock",
+        "label": "Knock"
+      },
+      {
+        "value": "felt_tap",
+        "label": "Felt Tap"
+      },
+      {
+        "value": "chime_up",
+        "label": "Chime Up"
+      },
+      {
+        "value": "chime_down",
+        "label": "Chime Down"
+      },
+      {
+        "value": "sine_ping",
+        "label": "Sine Ping"
+      }
+    ],
+    "default": "felted_halo",
+    "description": "The sound played when recording starts; preview and pick your favorite."
+  },
+  {
+    "id": "dictation.sound_off",
+    "label": "Release sound",
+    "type": "select",
+    "page": "dictation",
+    "section": "Audio and delivery",
+    "options": [
+      {
+        "value": "felted_halo",
+        "label": "Felted Halo"
+      },
+      {
+        "value": "wood_block",
+        "label": "Wood Block"
+      },
+      {
+        "value": "wood_double",
+        "label": "Wood Block Double"
+      },
+      {
+        "value": "soft_click",
+        "label": "Soft Click"
+      },
+      {
+        "value": "click_ding",
+        "label": "Click + Ding"
+      },
+      {
+        "value": "ding",
+        "label": "Ding"
+      },
+      {
+        "value": "snap",
+        "label": "Snap"
+      },
+      {
+        "value": "soft_snap",
+        "label": "Soft Snap"
+      },
+      {
+        "value": "marimba",
+        "label": "Marimba"
+      },
+      {
+        "value": "kalimba",
+        "label": "Kalimba"
+      },
+      {
+        "value": "harp_pluck",
+        "label": "Harp Pluck"
+      },
+      {
+        "value": "glass_tap",
+        "label": "Glass Tap"
+      },
+      {
+        "value": "pebble_pop",
+        "label": "Pebble Pop"
+      },
+      {
+        "value": "bubble",
+        "label": "Bubble"
+      },
+      {
+        "value": "tick",
+        "label": "Tick"
+      },
+      {
+        "value": "knock",
+        "label": "Knock"
+      },
+      {
+        "value": "felt_tap",
+        "label": "Felt Tap"
+      },
+      {
+        "value": "chime_up",
+        "label": "Chime Up"
+      },
+      {
+        "value": "chime_down",
+        "label": "Chime Down"
+      },
+      {
+        "value": "sine_ping",
+        "label": "Sine Ping"
+      }
+    ],
+    "default": "wood_block",
+    "description": "The sound played when recording stops; preview and pick your favorite."
+  },
+  {
+    "id": "audio.input_device",
+    "label": "Microphone",
+    "type": "text",
+    "page": "dictation",
+    "section": "Microphone",
+    "default": "",
+    "description": "Follow your system default or choose a microphone. Refresh after connecting a new device."
+  },
+  {
+    "id": "audio.gain_boost",
+    "label": "Microphone gain",
+    "type": "number",
+    "page": "dictation",
+    "section": "Microphone",
+    "min": 0.1,
+    "max": 16.0,
+    "step": 0.01,
+    "default": 1.0,
+    "description": ""
+  },
+  {
+    "id": "wake_word.enabled",
+    "label": "Wake word",
+    "type": "toggle",
+    "page": "dictation",
+    "section": "Wake word",
+    "default": false,
+    "description": "Optional local listening on your selected microphone. Pause stops it; after Panic Stop, switch this off and on to resume. Requires compatible model files already on this computer."
+  },
+  {
+    "id": "wake_word.model",
+    "label": "Wake-word model",
+    "type": "text",
+    "page": "dictation",
+    "section": "Wake word",
+    "default": "hey_jarvis",
+    "description": "Installed wake model name or local ONNX path, with its required inference files. Nothing downloads automatically. Use a model licensed for your intended use."
+  },
+  {
+    "id": "diagnostics.formatting_journal",
+    "label": "Keep the local formatting journal",
+    "type": "toggle",
+    "page": "formatting",
+    "section": "Your writing",
+    "default": false,
+    "description": ""
+  },
+  {
+    "id": "plugins.enabled",
+    "label": "Enable installed plugins",
+    "type": "toggle",
+    "page": "privacy",
+    "section": "Automation",
+    "default": false,
+    "description": "Runs local Python extensions you trust. They can access files and the network as your account. Failed or slow filters keep the preceding text. Save your choice before reloading.",
+    "advanced": true
+  },
+  {
+    "id": "privacy.local_only",
+    "label": "Keep speech and finishing on this computer",
+    "type": "toggle",
+    "page": "privacy",
+    "section": "Where your words go",
+    "description": "Your audio and the text you dictate stay on this computer. When enabled, this takes priority over provider choices.",
+    "default": true
+  },
+  {
+    "id": "privacy.share_usage_counts",
+    "label": "Share anonymous usage counts",
+    "type": "toggle",
+    "page": "privacy",
+    "section": "Anonymous usage counts",
+    "description": "First open, first dictation, still in use, day 7. Never your audio or text.",
+    "default": true,
+    "official_only": true
+  },
+  {
+    "id": "stt.route_mode",
+    "label": "Speech route",
+    "type": "select",
+    "page": "speech",
+    "section": "Speech route",
+    "options": [
+      {
+        "value": "local",
+        "label": "On this computer"
+      },
+      {
+        "value": "byok",
+        "label": "Your provider key"
+      }
+    ],
+    "default": "local",
+    "description": ""
+  },
+  {
+    "id": "stt.auto_download_local_model",
+    "label": "Download the selected local speech model",
+    "type": "toggle",
+    "page": "speech",
+    "section": "Local speech",
+    "default": true,
+    "description": ""
+  },
+  {
+    "id": "stt.local_live_captions",
+    "label": "Show words while you speak",
+    "type": "toggle",
+    "page": "speech",
+    "section": "Local speech",
+    "default": false,
+    "description": ""
+  },
+  {
+    "id": "transforms.llm.model",
+    "label": "Rewrite model",
+    "type": "text",
+    "page": "formatting",
+    "section": "Finishing and rewrites",
+    "default": "qwen3:1.7b",
+    "description": ""
+  },
+  {
+    "id": "transforms.llm.api_base",
+    "label": "Rewrite service address",
+    "type": "text",
+    "page": "formatting",
+    "section": "Finishing and rewrites",
+    "default": "http://localhost:11434",
+    "description": ""
+  },
+  {
+    "id": "transforms.llm.api_key",
+    "label": "Rewrite provider key",
+    "type": "secret",
+    "page": "formatting",
+    "section": "Finishing and rewrites",
+    "description": ""
+  },
+  {
+    "id": "dictionary.words",
+    "label": "Personal words",
+    "type": "textarea",
+    "page": "words",
+    "section": "Your vocabulary",
+    "codec": "words",
+    "max_length": 65536,
+    "description": "Separate names and terms with commas or new lines. For pronunciation training and suggested words, open Words & Phrases.",
+    "default": [
+      "Deepgram",
+      "OpenAI",
+      "AssemblyAI"
+    ]
+  },
+  {
+    "id": "dictionary.replacements",
+    "label": "Spelling replacements",
+    "type": "textarea",
+    "page": "words",
+    "section": "Advanced vocabulary",
+    "codec": "json-list",
+    "max_length": 65536,
+    "advanced": true,
+    "description": "Edit the existing structured entries as JSON. Changes are checked before saving.",
+    "default": []
+  },
+  {
+    "id": "snippets",
+    "label": "Voice snippets",
+    "type": "textarea",
+    "page": "words",
+    "section": "Voice snippets",
+    "codec": "json-list",
+    "max_length": 65536,
+    "advanced": true,
+    "description": "Edit the existing structured entries as JSON. Changes are checked before saving.",
+    "default": [
+      {
+        "trigger": "my email signature",
+        "text": "Best regards,\nYour Name",
+        "enabled": true
+      },
+      {
+        "trigger": "meeting link",
+        "text": "Join the meeting: ",
+        "enabled": true
+      }
+    ]
+  },
+  {
+    "id": "transforms.custom",
+    "label": "Custom rewrites",
+    "type": "textarea",
+    "page": "formatting",
+    "section": "Custom rewrites",
+    "codec": "json-list",
+    "max_length": 65536,
+    "advanced": true,
+    "description": "Edit the existing structured entries as JSON. Changes are checked before saving.",
+    "default": []
+  },
+  {
+    "id": "deepgram.extra",
+    "label": "Extra Deepgram options",
+    "type": "textarea",
+    "page": "speech",
+    "section": "Deepgram advanced options",
+    "codec": "json-object",
+    "max_length": 65536,
+    "advanced": true,
+    "description": "Edit the existing structured entries as JSON. Changes are checked before saving.",
+    "default": {},
+    "when": {
+      "stt.provider": "deepgram"
+    }
+  },
+  {
+    "id": "translation.glossary",
+    "label": "Translation glossary",
+    "type": "textarea",
+    "page": "translation",
+    "section": "Your glossary",
+    "codec": "json-list",
+    "max_length": 65536,
+    "advanced": false,
+    "description": "Add preferred source terms and translations. Existing extra entry details are kept.",
+    "default": []
+  },
+  {
+    "id": "translation.source_language",
+    "label": "Translate from",
+    "type": "select",
+    "page": "translation",
+    "section": "Translation",
+    "options": [
+      {
+        "value": "auto",
+        "label": "Follow dictation language"
+      },
+      {
+        "value": "en",
+        "label": "English (en)"
+      },
+      {
+        "value": "es",
+        "label": "Spanish (es)"
+      },
+      {
+        "value": "zh-Hans",
+        "label": "Chinese - Simplified (zh-Hans)"
+      },
+      {
+        "value": "hi",
+        "label": "Hindi (hi)"
+      },
+      {
+        "value": "ar",
+        "label": "Arabic (ar)"
+      },
+      {
+        "value": "pt",
+        "label": "Portuguese (pt)"
+      },
+      {
+        "value": "fr",
+        "label": "French (fr)"
+      },
+      {
+        "value": "de",
+        "label": "German (de)"
+      },
+      {
+        "value": "ja",
+        "label": "Japanese (ja)"
+      },
+      {
+        "value": "ru",
+        "label": "Russian (ru)"
+      },
+      {
+        "value": "id",
+        "label": "Indonesian (id)"
+      },
+      {
+        "value": "ko",
+        "label": "Korean (ko)"
+      },
+      {
+        "value": "tr",
+        "label": "Turkish (tr)"
+      },
+      {
+        "value": "vi",
+        "label": "Vietnamese (vi)"
+      },
+      {
+        "value": "it",
+        "label": "Italian (it)"
+      },
+      {
+        "value": "th",
+        "label": "Thai (th)"
+      },
+      {
+        "value": "pl",
+        "label": "Polish (pl)"
+      },
+      {
+        "value": "uk",
+        "label": "Ukrainian (uk)"
+      },
+      {
+        "value": "nl",
+        "label": "Dutch (nl)"
+      },
+      {
+        "value": "bn",
+        "label": "Bengali (bn)"
+      },
+      {
+        "value": "ur",
+        "label": "Urdu (ur)"
+      },
+      {
+        "value": "sw",
+        "label": "Swahili (sw)"
+      },
+      {
+        "value": "tl",
+        "label": "Filipino / Tagalog (tl)"
+      },
+      {
+        "value": "fa",
+        "label": "Persian / Farsi (fa)"
+      },
+      {
+        "value": "he",
+        "label": "Hebrew (he)"
+      },
+      {
+        "value": "zh-Hant",
+        "label": "Chinese - Traditional (zh-Hant)"
+      },
+      {
+        "value": "cs",
+        "label": "Czech (cs)"
+      },
+      {
+        "value": "da",
+        "label": "Danish (da)"
+      },
+      {
+        "value": "sv",
+        "label": "Swedish (sv)"
+      },
+      {
+        "value": "no",
+        "label": "Norwegian (no)"
+      },
+      {
+        "value": "fi",
+        "label": "Finnish (fi)"
+      },
+      {
+        "value": "ro",
+        "label": "Romanian (ro)"
+      },
+      {
+        "value": "hu",
+        "label": "Hungarian (hu)"
+      },
+      {
+        "value": "el",
+        "label": "Greek (el)"
+      },
+      {
+        "value": "bg",
+        "label": "Bulgarian (bg)"
+      },
+      {
+        "value": "hr",
+        "label": "Croatian (hr)"
+      },
+      {
+        "value": "sk",
+        "label": "Slovak (sk)"
+      },
+      {
+        "value": "sl",
+        "label": "Slovenian (sl)"
+      },
+      {
+        "value": "sr",
+        "label": "Serbian (sr)"
+      },
+      {
+        "value": "et",
+        "label": "Estonian (et)"
+      },
+      {
+        "value": "lv",
+        "label": "Latvian (lv)"
+      },
+      {
+        "value": "lt",
+        "label": "Lithuanian (lt)"
+      },
+      {
+        "value": "ms",
+        "label": "Malay (ms)"
+      },
+      {
+        "value": "ta",
+        "label": "Tamil (ta)"
+      },
+      {
+        "value": "te",
+        "label": "Telugu (te)"
+      },
+      {
+        "value": "mr",
+        "label": "Marathi (mr)"
+      },
+      {
+        "value": "gu",
+        "label": "Gujarati (gu)"
+      },
+      {
+        "value": "pa",
+        "label": "Punjabi (pa)"
+      },
+      {
+        "value": "ne",
+        "label": "Nepali (ne)"
+      },
+      {
+        "value": "am",
+        "label": "Amharic (am)"
+      },
+      {
+        "value": "ha",
+        "label": "Hausa (ha)"
+      },
+      {
+        "value": "ig",
+        "label": "Igbo (ig)"
+      },
+      {
+        "value": "yo",
+        "label": "Yoruba (yo)"
+      },
+      {
+        "value": "zu",
+        "label": "Zulu (zu)"
+      },
+      {
+        "value": "my",
+        "label": "Burmese (my)"
+      },
+      {
+        "value": "km",
+        "label": "Khmer (km)"
+      },
+      {
+        "value": "lo",
+        "label": "Lao (lo)"
+      }
+    ],
+    "default": "auto",
+    "description": ""
+  },
+  {
+    "id": "translation.target_language",
+    "label": "Translate into",
+    "type": "select",
+    "page": "translation",
+    "section": "Translation",
+    "options": [
+      {
+        "value": "en",
+        "label": "English (en)"
+      },
+      {
+        "value": "es",
+        "label": "Spanish (es)"
+      },
+      {
+        "value": "zh-Hans",
+        "label": "Chinese - Simplified (zh-Hans)"
+      },
+      {
+        "value": "hi",
+        "label": "Hindi (hi)"
+      },
+      {
+        "value": "ar",
+        "label": "Arabic (ar)"
+      },
+      {
+        "value": "pt",
+        "label": "Portuguese (pt)"
+      },
+      {
+        "value": "fr",
+        "label": "French (fr)"
+      },
+      {
+        "value": "de",
+        "label": "German (de)"
+      },
+      {
+        "value": "ja",
+        "label": "Japanese (ja)"
+      },
+      {
+        "value": "ru",
+        "label": "Russian (ru)"
+      },
+      {
+        "value": "id",
+        "label": "Indonesian (id)"
+      },
+      {
+        "value": "ko",
+        "label": "Korean (ko)"
+      },
+      {
+        "value": "tr",
+        "label": "Turkish (tr)"
+      },
+      {
+        "value": "vi",
+        "label": "Vietnamese (vi)"
+      },
+      {
+        "value": "it",
+        "label": "Italian (it)"
+      },
+      {
+        "value": "th",
+        "label": "Thai (th)"
+      },
+      {
+        "value": "pl",
+        "label": "Polish (pl)"
+      },
+      {
+        "value": "uk",
+        "label": "Ukrainian (uk)"
+      },
+      {
+        "value": "nl",
+        "label": "Dutch (nl)"
+      },
+      {
+        "value": "bn",
+        "label": "Bengali (bn)"
+      },
+      {
+        "value": "ur",
+        "label": "Urdu (ur)"
+      },
+      {
+        "value": "sw",
+        "label": "Swahili (sw)"
+      },
+      {
+        "value": "tl",
+        "label": "Filipino / Tagalog (tl)"
+      },
+      {
+        "value": "fa",
+        "label": "Persian / Farsi (fa)"
+      },
+      {
+        "value": "he",
+        "label": "Hebrew (he)"
+      },
+      {
+        "value": "zh-Hant",
+        "label": "Chinese - Traditional (zh-Hant)"
+      },
+      {
+        "value": "cs",
+        "label": "Czech (cs)"
+      },
+      {
+        "value": "da",
+        "label": "Danish (da)"
+      },
+      {
+        "value": "sv",
+        "label": "Swedish (sv)"
+      },
+      {
+        "value": "no",
+        "label": "Norwegian (no)"
+      },
+      {
+        "value": "fi",
+        "label": "Finnish (fi)"
+      },
+      {
+        "value": "ro",
+        "label": "Romanian (ro)"
+      },
+      {
+        "value": "hu",
+        "label": "Hungarian (hu)"
+      },
+      {
+        "value": "el",
+        "label": "Greek (el)"
+      },
+      {
+        "value": "bg",
+        "label": "Bulgarian (bg)"
+      },
+      {
+        "value": "hr",
+        "label": "Croatian (hr)"
+      },
+      {
+        "value": "sk",
+        "label": "Slovak (sk)"
+      },
+      {
+        "value": "sl",
+        "label": "Slovenian (sl)"
+      },
+      {
+        "value": "sr",
+        "label": "Serbian (sr)"
+      },
+      {
+        "value": "et",
+        "label": "Estonian (et)"
+      },
+      {
+        "value": "lv",
+        "label": "Latvian (lv)"
+      },
+      {
+        "value": "lt",
+        "label": "Lithuanian (lt)"
+      },
+      {
+        "value": "ms",
+        "label": "Malay (ms)"
+      },
+      {
+        "value": "ta",
+        "label": "Tamil (ta)"
+      },
+      {
+        "value": "te",
+        "label": "Telugu (te)"
+      },
+      {
+        "value": "mr",
+        "label": "Marathi (mr)"
+      },
+      {
+        "value": "gu",
+        "label": "Gujarati (gu)"
+      },
+      {
+        "value": "pa",
+        "label": "Punjabi (pa)"
+      },
+      {
+        "value": "ne",
+        "label": "Nepali (ne)"
+      },
+      {
+        "value": "am",
+        "label": "Amharic (am)"
+      },
+      {
+        "value": "ha",
+        "label": "Hausa (ha)"
+      },
+      {
+        "value": "ig",
+        "label": "Igbo (ig)"
+      },
+      {
+        "value": "yo",
+        "label": "Yoruba (yo)"
+      },
+      {
+        "value": "zu",
+        "label": "Zulu (zu)"
+      },
+      {
+        "value": "my",
+        "label": "Burmese (my)"
+      },
+      {
+        "value": "km",
+        "label": "Khmer (km)"
+      },
+      {
+        "value": "lo",
+        "label": "Lao (lo)"
+      }
+    ],
+    "default": "es",
+    "description": ""
+  },
+  {
+    "id": "translation.model",
+    "label": "Local translation model",
+    "type": "select",
+    "page": "translation",
+    "section": "Translation",
+    "options": [
+      {
+        "value": "translategemma:4b",
+        "label": "TranslateGemma 4B - Balanced"
+      },
+      {
+        "value": "translategemma:12b",
+        "label": "TranslateGemma 12B - High quality"
+      },
+      {
+        "value": "translategemma:27b",
+        "label": "TranslateGemma 27B - Maximum quality"
+      }
+    ],
+    "default": "translategemma:4b",
+    "description": ""
+  },
+  {
+    "id": "translation.formality",
+    "label": "Translation tone",
+    "type": "select",
+    "page": "translation",
+    "section": "Translation",
+    "options": [
+      {
+        "value": "natural",
+        "label": "Natural"
+      },
+      {
+        "value": "formal",
+        "label": "Formal"
+      },
+      {
+        "value": "informal",
+        "label": "Informal"
+      },
+      {
+        "value": "literal",
+        "label": "Literal"
+      }
+    ],
+    "default": "natural",
+    "description": ""
+  },
+  {
+    "id": "hotkeys.push_to_talk",
+    "label": "Push to talk",
+    "type": "hotkey",
+    "page": "dictation",
+    "section": "Keyboard shortcuts",
+    "max_length": 512,
+    "description": "Click Record, press the keys together, then release. Esc cancels. Mouse and controller buttons are also available.",
+    "default": [
+      [
+        "ctrl",
+        "cmd"
+      ]
+    ]
+  },
+  {
+    "id": "hotkeys.hands_free",
+    "label": "Hands free",
+    "type": "hotkey",
+    "page": "dictation",
+    "section": "Keyboard shortcuts",
+    "max_length": 512,
+    "description": "Click Record, press the keys together, then release. Esc cancels. Mouse and controller buttons are also available.",
+    "default": [
+      [
+        "ctrl",
+        "cmd",
+        "space"
+      ]
+    ]
+  },
+  {
+    "id": "hotkeys.command_mode",
+    "label": "Command mode",
+    "type": "hotkey",
+    "page": "dictation",
+    "section": "Keyboard shortcuts",
+    "max_length": 512,
+    "description": "Click Record, press the keys together, then release. Esc cancels. Mouse and controller buttons are also available.",
+    "default": [
+      [
+        "ctrl",
+        "cmd",
+        "alt"
+      ]
+    ]
+  },
+  {
+    "id": "hotkeys.cancel",
+    "label": "Cancel",
+    "type": "hotkey",
+    "page": "dictation",
+    "section": "Keyboard shortcuts",
+    "max_length": 512,
+    "description": "Click Record, press the keys together, then release. Esc cancels. Mouse and controller buttons are also available.",
+    "default": [
+      [
+        "esc"
+      ]
+    ]
+  },
+  {
+    "id": "hotkeys.panic",
+    "label": "Panic",
+    "type": "hotkey",
+    "page": "dictation",
+    "section": "Keyboard shortcuts",
+    "max_length": 512,
+    "description": "Click Record, press the keys together, then release. Esc cancels. Mouse and controller buttons are also available.",
+    "default": [
+      [
+        "ctrl",
+        "cmd",
+        "esc"
+      ]
+    ]
+  },
+  {
+    "id": "hotkeys.paste_last",
+    "label": "Paste last",
+    "type": "hotkey",
+    "page": "dictation",
+    "section": "Keyboard shortcuts",
+    "max_length": 512,
+    "description": "Click Record, press the keys together, then release. Esc cancels. Mouse and controller buttons are also available.",
+    "default": [
+      [
+        "shift",
+        "alt",
+        "z"
+      ]
+    ]
+  },
+  {
+    "id": "hotkeys.fix_that",
+    "label": "Fix that",
+    "type": "hotkey",
+    "page": "dictation",
+    "section": "Keyboard shortcuts",
+    "max_length": 512,
+    "description": "Click Record, press the keys together, then release. Esc cancels. Mouse and controller buttons are also available.",
+    "default": [
+      [
+        "ctrl",
+        "alt",
+        "f"
+      ]
+    ]
+  },
+  {
+    "id": "hotkeys.read_back",
+    "label": "Read back",
+    "type": "hotkey",
+    "page": "dictation",
+    "section": "Keyboard shortcuts",
+    "max_length": 512,
+    "description": "Click Record, press the keys together, then release. Esc cancels. Mouse and controller buttons are also available.",
+    "default": []
+  },
+  {
+    "id": "hotkeys.copy_last",
+    "label": "Copy last",
+    "type": "hotkey",
+    "page": "dictation",
+    "section": "Keyboard shortcuts",
+    "max_length": 512,
+    "description": "Click Record, press the keys together, then release. Esc cancels. Mouse and controller buttons are also available.",
+    "default": [
+      [
+        "shift",
+        "alt",
+        "x"
+      ]
+    ]
+  },
+  {
+    "id": "hotkeys.polish",
+    "label": "Polish",
+    "type": "hotkey",
+    "page": "dictation",
+    "section": "Keyboard shortcuts",
+    "max_length": 512,
+    "description": "Click Record, press the keys together, then release. Esc cancels. Mouse and controller buttons are also available.",
+    "default": [
+      [
+        "cmd",
+        "alt",
+        "1"
+      ]
+    ]
+  },
+  {
+    "id": "hotkeys.prompt_engineer",
+    "label": "Prompt engineer",
+    "type": "hotkey",
+    "page": "dictation",
+    "section": "Keyboard shortcuts",
+    "max_length": 512,
+    "description": "Click Record, press the keys together, then release. Esc cancels. Mouse and controller buttons are also available.",
+    "default": [
+      [
+        "cmd",
+        "alt",
+        "2"
+      ]
+    ]
+  },
+  {
+    "id": "hotkeys.turn_to_list",
+    "label": "Turn to list",
+    "type": "hotkey",
+    "page": "dictation",
+    "section": "Keyboard shortcuts",
+    "max_length": 512,
+    "description": "Click Record, press the keys together, then release. Esc cancels. Mouse and controller buttons are also available.",
+    "default": [
+      [
+        "cmd",
+        "alt",
+        "3"
+      ]
+    ]
+  },
+  {
+    "id": "hotkeys.view_diff",
+    "label": "View diff",
+    "type": "hotkey",
+    "page": "dictation",
+    "section": "Keyboard shortcuts",
+    "max_length": 512,
+    "description": "Click Record, press the keys together, then release. Esc cancels. Mouse and controller buttons are also available.",
+    "default": [
+      [
+        "cmd",
+        "alt",
+        "o"
+      ]
+    ]
+  },
+  {
+    "id": "hotkeys.scratchpad",
+    "label": "Scratchpad",
+    "type": "hotkey",
+    "page": "dictation",
+    "section": "Keyboard shortcuts",
+    "max_length": 512,
+    "description": "Click Record, press the keys together, then release. Esc cancels. Mouse and controller buttons are also available.",
+    "default": []
+  },
+  {
+    "id": "hotkeys.pin_last",
+    "label": "Pin last",
+    "type": "hotkey",
+    "page": "dictation",
+    "section": "Keyboard shortcuts",
+    "max_length": 512,
+    "description": "Click Record, press the keys together, then release. Esc cancels. Mouse and controller buttons are also available.",
+    "default": []
+  },
+  {
+    "id": "hotkeys.meeting_mode",
+    "label": "Meeting mode",
+    "type": "hotkey",
+    "page": "dictation",
+    "section": "Keyboard shortcuts",
+    "max_length": 512,
+    "description": "Click Record, press the keys together, then release. Esc cancels. Mouse and controller buttons are also available.",
+    "default": []
+  },
+  {
+    "id": "hotkeys.translate_last",
+    "label": "Translate last",
+    "type": "hotkey",
+    "page": "dictation",
+    "section": "Keyboard shortcuts",
+    "max_length": 512,
+    "description": "Click Record, press the keys together, then release. Esc cancels. Mouse and controller buttons are also available.",
+    "default": []
+  },
+  {
+    "id": "hotkeys.translate_toggle",
+    "label": "Translate toggle",
+    "type": "hotkey",
+    "page": "dictation",
+    "section": "Keyboard shortcuts",
+    "max_length": 512,
+    "description": "Click Record, press the keys together, then release. Esc cancels. Mouse and controller buttons are also available.",
+    "default": []
+  },
+  {
+    "id": "overlay.width",
+    "label": "Pill width",
+    "type": "number",
+    "page": "appearance",
+    "section": "Pill details",
+    "min": 14,
+    "max": 1400,
+    "step": 1,
+    "advanced": true,
+    "default": 192,
+    "description": ""
+  },
+  {
+    "id": "overlay.height",
+    "label": "Pill height",
+    "type": "number",
+    "page": "appearance",
+    "section": "Pill details",
+    "min": 14,
+    "max": 1400,
+    "step": 1,
+    "advanced": true,
+    "default": 35,
+    "description": ""
+  },
+  {
+    "id": "stt.providers.local.custom_models",
+    "label": "Your own speech models",
+    "type": "textarea",
+    "codec": "json-list",
+    "default": [],
+    "page": "models",
+    "section": "Advanced model settings",
+    "advanced": true,
+    "max_length": 32768,
+    "description": "A JSON list of Hugging Face CTranslate2 Whisper model ids or existing converted-model folder paths. Removing an entry keeps its source files."
+  },
+  {
+    "id": "overlay.menu_order",
+    "label": "Menu order",
+    "type": "textarea",
+    "codec": "json-list",
+    "page": "appearance",
+    "section": "Pill menu",
+    "default": [],
+    "hidden": true,
+    "max_length": 2048
+  }
+]

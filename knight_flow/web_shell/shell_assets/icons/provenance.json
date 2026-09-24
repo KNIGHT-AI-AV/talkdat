@@ -1,0 +1,9 @@
+{
+  "generator": "OpenAI image generation",
+  "date": "2026-09-20",
+  "asset": "line-art-atlas.png",
+  "format": "4 by 4 white monoline icons on opaque black; CSS luminance mask",
+  "prompt": "Pristine professional UI icon sprite, 4x4, pure black opaque background, white rounded monoline strokes, 55 percent cell occupancy. Sliders, book, history, palette; microphone, shield, account, question mark without circle; clipboard, speech bubble, globe, headphones; upload, restart, power, search. No texture, gradients, grunge, shadows, grid lines or labels.",
+  "runtime_generation": false,
+  "integrity": "sha256-shM99WubCE/FLeGrOwqA2c1qVyBU67fVmkqk71IJ6kw="
+}

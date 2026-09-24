@@ -1,0 +1,32 @@
+websockets>=14.0,<16.0
+sounddevice>=0.5.1
+pynput>=1.8.1
+pyperclip>=1.9.0
+pyautogui>=0.9.54
+pystray>=0.19.5
+pillow>=11.0.0
+numpy>=1.26
+faster-whisper>=1.2.1,<2
+onnx-asr[hub]>=0.11,<1
+# X-408: DirectML on Windows drives any DirectX 12 GPU with no CUDA install;
+# the CPU build stays for everything else. Never install both on one machine.
+onnxruntime-directml>=1.20,!=1.24.1; sys_platform == "win32"
+onnxruntime>=1.18.1,!=1.24.1; sys_platform != "win32"
+openwakeword>=0.6.0,<1
+cryptography>=48.0.1,<49
+# X-86: the pooled cloud transport. Keeping a connection alive between
+# dictations removes ~490ms of TLS handshake from every single one.
+requests>=2.32
+comtypes>=1.4.16,<2; sys_platform == "win32"
+# Shared settings/menu chrome; Windows WebView2 and macOS WKWebView.
+pywebview==6.2.1; sys_platform == "win32" or sys_platform == "darwin"
+# Unicode document layout and grapheme shaping; release probes cover the
+# native wheels and the separately replaceable fpdf2 source package.
+fpdf2==2.8.8
+fonttools==4.65.0
+uharfbuzz==0.56.1
+regex==2026.9.10
+
+# Explicit system-output capture and the existing bundled resampler.
+PyAudioWPatch==0.2.12.8; sys_platform == "win32"
+av==18.1.0

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Hardened runtime entitlements for the notarised macOS build.
+
+Notarisation requires the hardened runtime, and the hardened runtime blocks
+several things this application legitimately does. Each entitlement below is
+here because leaving it out breaks something specific, not as a precaution.
+
+Deliberately absent: com.apple.security.app-sandbox. A sandboxed application
+cannot post synthetic keystrokes into another application, which is how the
+dictated text is delivered - the product would not work. Developer ID
+distribution does not require the sandbox; the App Store would, and that is why
+Talk DAT! is not an App Store product.
+-->
+<plist version="1.0">
+<dict>
+    <!-- Recording. Without this the hardened runtime refuses the input device
+         even after the user has granted microphone permission. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+
+    <!-- PyInstaller bundles a Python interpreter, and CPython allocates
+         executable memory for ctypes and for the compiled extensions in
+         onnxruntime and ctranslate2. The hardened runtime forbids that by
+         default and the app dies at import. -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!-- The bundled .so files are signed with our identity rather than the
+         team that built them upstream. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!-- Python reads PYTHONPATH and PYTHONHOME to locate the bundled runtime;
+         the hardened runtime scrubs them without this. -->
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+
+    <!-- Accessibility: posting the synthetic paste chord into the frontmost
+         application, which is the delivery mechanism for every dictation. -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+</dict>
+</plist>

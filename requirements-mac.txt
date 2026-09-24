@@ -1,0 +1,30 @@
+# macOS-only dependencies, on top of requirements.txt.
+#
+# These were installed by hand while porting and never written down, which is
+# the same class of problem as a hidden import: the build works on the machine
+# that built it and a clean checkout is quietly missing pieces. pyobjc ships one
+# distribution per framework, so each one has to be asked for by name.
+#
+#     pip install -r requirements.txt -r requirements-mac.txt
+
+# NSWorkspace, NSScreen, NSStatusItem, NSAppleEventManager -- the menu bar item,
+# screen geometry, frontmost-app tracking and the talkdat:// handler.
+pyobjc-framework-Cocoa>=10.0
+
+# AXIsProcessTrusted and AXUIElement: the Accessibility permission check and
+# reading the focused window of another app.
+pyobjc-framework-ApplicationServices>=10.0
+
+# CGWindowList, CGEventSourceKeyState -- window geometry and physical key state.
+pyobjc-framework-Quartz>=10.0
+
+# AVCaptureDevice authorization: the microphone permission state and the prompt
+# that asks for it. Without this the check answers "unknown" on every machine
+# and X-23's checklist can never tick. Input Monitoring needs no package -- it
+# is read from IOKit through ctypes, which has no distribution to forget.
+pyobjc-framework-AVFoundation>=10.0
+# X-451: the Mac keychain store (knight_flow/credentials.py KeychainCredentialStore)
+# reaches the Security framework through keyring. Without it the bundle has no
+# credential store and no Mac sign-in can finish ("your macOS Keychain could not
+# save the signed license", his log, 2026-08-16 and every day since).
+keyring>=25.0

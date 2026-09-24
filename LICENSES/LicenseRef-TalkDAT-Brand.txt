@@ -1,0 +1,16 @@
+Talk DAT! brand assets
+Copyright 2026 Knight AI+AV LLC. All rights reserved.
+
+The files annotated with LicenseRef-TalkDAT-Brand in REUSE.toml (the Talk
+Stone logo and application icon, The Pill artwork and animation frames, the
+Knight Display typeface, the onboarding and installer art, and the shared
+material art) are brand assets of Knight AI+AV LLC. They are NOT licensed
+under the Apache License, Version 2.0, and no license to them is granted by
+their presence in this repository.
+
+You may use them unmodified only to build and run Talk DAT! from this source
+for yourself or inside your organization. Distributing them, in a build or
+otherwise, or using them for any other purpose requires the written
+permission of Knight AI+AV LLC. See TRADEMARKS.md.
+
+Contact: Build@KnightAIAV.com

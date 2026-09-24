@@ -1,0 +1,902 @@
+[
+  {
+    "label": "Account & license",
+    "tab": "Account",
+    "tip": "Sign in or out. Talk DAT! is free; an account only keeps your preferences in step."
+  },
+  {
+    "label": "Words & phrases",
+    "tab": "Words",
+    "tip": "Teach the app names and jargon it should spell correctly."
+  },
+  {
+    "label": "Race",
+    "tab": "Advanced",
+    "tip": "Runs cloud and on-device speech head-to-head to see which suits you."
+  },
+  {
+    "label": "Mic Doctor",
+    "tab": "Mic Doctor",
+    "tip": "Step-by-step checkup when your microphone sounds wrong or too quiet."
+  },
+  {
+    "label": "Share an idea",
+    "tab": "General",
+    "tip": "Send a feature request straight to the maker."
+  },
+  {
+    "label": "Active brand",
+    "tab": "General",
+    "tip": "Shows which speech service is listening now; change it on the Speech page."
+  },
+  {
+    "label": "Active model",
+    "tab": "General",
+    "tip": "Shows the exact speech model in use right now."
+  },
+  {
+    "label": "Language",
+    "tab": "General",
+    "tip": "The language you dictate in, like en-US; change it if you speak another language."
+  },
+  {
+    "label": "Auto Cleanup",
+    "tab": "General",
+    "tip": "How much tidying your words get; high removes ums and stumbles, none keeps everything."
+  },
+  {
+    "label": "Settings menu theme",
+    "tab": "General",
+    "tip": "Pick this window's colors; the Colors tab shows live previews of every theme."
+  },
+  {
+    "label": "App font",
+    "tab": "General",
+    "tip": "Changes the typeface used across the whole app, applied instantly."
+  },
+  {
+    "label": "Installed version",
+    "tab": "General",
+    "tip": "The version you are running; handy when asking for help."
+  },
+  {
+    "label": "Latest seen",
+    "tab": "General",
+    "tip": "The newest version the updater has spotted online."
+  },
+  {
+    "label": "Updater",
+    "tab": "General",
+    "tip": "Click to check for and install the newest version now."
+  },
+  {
+    "label": "Check for updates on start",
+    "tab": "General",
+    "tip": "Looks for new versions each time the app opens; turn off to skip."
+  },
+  {
+    "label": "Auto-download update installer when a new release exists",
+    "tab": "General",
+    "tip": "Fetches updates in the background so installing later takes seconds."
+  },
+  {
+    "label": "Save local transcript history",
+    "tab": "General",
+    "tip": "Keeps a private copy of your dictations on this computer; off keeps no record."
+  },
+  {
+    "label": "Play start and stop sounds",
+    "tab": "General",
+    "tip": "A soft sound when recording starts and ends; turn off for silence."
+  },
+  {
+    "label": "Auto paste transcript",
+    "tab": "General",
+    "tip": "Types your words into the app you are using; off means copy only."
+  },
+  {
+    "label": "Smart leading space",
+    "tab": "General",
+    "tip": "Adds a space before pasted text when needed so words never stick together."
+  },
+  {
+    "label": "Update channel",
+    "tab": "General",
+    "tip": "stable gets tested releases; beta gets new features earlier with more rough edges."
+  },
+  {
+    "label": "Enable user plugins (loads Python files from the plugins folder)",
+    "tab": "General",
+    "tip": "Runs your own add-ons; leave off unless you wrote or trust them."
+  },
+  {
+    "label": "Enable local control API for automations (127.0.0.1 only)",
+    "tab": "General",
+    "tip": "Lets programs on this computer control Talk DAT!; leave off unless you automate."
+  },
+  {
+    "label": "Opacity",
+    "tab": "General",
+    "tip": "How solid the floating pill looks; lower is more see-through."
+  },
+  {
+    "label": "Hover fade delay ms",
+    "tab": "General",
+    "tip": "How long your mouse hovers before the pill fades out of the way."
+  },
+  {
+    "label": "Hover fade opacity",
+    "tab": "General",
+    "tip": "How faint the pill becomes while your mouse is over it."
+  },
+  {
+    "label": "Active pill width",
+    "tab": "General",
+    "tip": "Pill width while dictating; enlarge if it is hard to see."
+  },
+  {
+    "label": "Active pill height",
+    "tab": "General",
+    "tip": "Pill height while dictating; enlarge if it is hard to see."
+  },
+  {
+    "label": "Active window width",
+    "tab": "General",
+    "tip": "Width of the pill's window while active; usually leave alone."
+  },
+  {
+    "label": "Active window height",
+    "tab": "General",
+    "tip": "Height of the pill's window while active; usually leave alone."
+  },
+  {
+    "label": "Resting width",
+    "tab": "General",
+    "tip": "Pill width when idle; smaller stays further out of your way."
+  },
+  {
+    "label": "Resting height",
+    "tab": "General",
+    "tip": "Pill height when idle; smaller stays further out of your way."
+  },
+  {
+    "label": "Bottom margin",
+    "tab": "General",
+    "tip": "Gap between the pill and the edge of your screen."
+  },
+  {
+    "label": "Active frame ms",
+    "tab": "General",
+    "tip": "Animation refresh while dictating; higher numbers use less computer power."
+  },
+  {
+    "label": "Idle frame ms",
+    "tab": "General",
+    "tip": "Animation refresh while idle; higher numbers use less computer power."
+  },
+  {
+    "label": "Resize frame ms",
+    "tab": "General",
+    "tip": "Speed of each step when the pill grows or shrinks."
+  },
+  {
+    "label": "Resize steps",
+    "tab": "General",
+    "tip": "How many steps the grow-and-shrink animation takes; more looks smoother."
+  },
+  {
+    "label": "Active loop seconds",
+    "tab": "General",
+    "tip": "How long one cycle of the dictating animation lasts."
+  },
+  {
+    "label": "Idle loop seconds",
+    "tab": "General",
+    "tip": "How long one cycle of the idle animation lasts."
+  },
+  {
+    "label": "Result hold ms",
+    "tab": "General",
+    "tip": "How long finished text stays shown on the pill."
+  },
+  {
+    "label": "Error hold ms",
+    "tab": "General",
+    "tip": "How long error messages stay visible on the pill."
+  },
+  {
+    "label": "Wave loop start",
+    "tab": "General",
+    "tip": "Where the wave animation begins its repeat; purely cosmetic."
+  },
+  {
+    "label": "Wave loop end",
+    "tab": "General",
+    "tip": "Where the wave animation ends its repeat; purely cosmetic."
+  },
+  {
+    "label": "Show overlay on start",
+    "tab": "General",
+    "tip": "Shows the pill as soon as the app opens; off hides it until needed."
+  },
+  {
+    "label": "Always same bottom position",
+    "tab": "General",
+    "tip": "Keeps the pill anchored to one spot instead of remembering where you dragged it."
+  },
+  {
+    "label": "Do not steal focus",
+    "tab": "General",
+    "tip": "Stops the pill taking the keyboard away from the app you are typing in."
+  },
+  {
+    "label": "Hide pill over fullscreen media",
+    "tab": "General",
+    "tip": "Hides the pill during fullscreen video or games."
+  },
+  {
+    "label": "Show pill while dictating over fullscreen apps",
+    "tab": "General",
+    "tip": "Brings the pill back while you are actually speaking, even in fullscreen."
+  },
+  {
+    "label": "Fullscreen check ms",
+    "tab": "General",
+    "tip": "How often it checks for fullscreen apps; lower reacts faster."
+  },
+  {
+    "label": "Pill position",
+    "tab": "General",
+    "tip": "Which screen edge the pill sits on."
+  },
+  {
+    "label": "Reduce motion (skip pill animations)",
+    "tab": "General",
+    "tip": "Turns animations off; good if motion distracts you or the PC is slow."
+  },
+  {
+    "label": "Appear on the monitor I'm using (follow the active window)",
+    "tab": "General",
+    "tip": "The pill follows you to whichever monitor you are working on."
+  },
+  {
+    "label": "History limit",
+    "tab": "General",
+    "tip": "Most dictations kept in history; 0 means keep everything."
+  },
+  {
+    "label": "History storage",
+    "tab": "General",
+    "tip": "Plain text file or a searchable local database for your history."
+  },
+  {
+    "label": "Redact emails, phone numbers, cards, SSNs before pasting",
+    "tab": "General",
+    "tip": "Blanks out personal details before text lands anywhere; use for sensitive work."
+  },
+  {
+    "label": "Censor profanity",
+    "tab": "General",
+    "tip": "Replaces swear words with asterisks in your transcripts."
+  },
+  {
+    "label": "Theme",
+    "tab": "Colors",
+    "tip": "Click any color bar to switch the whole app to that theme instantly."
+  },
+  {
+    "label": "Microphone",
+    "tab": "Dictation",
+    "tip": "Which mic the app listens to; pick your headset if the wrong one is used."
+  },
+  {
+    "label": "Input gain boost",
+    "tab": "Dictation",
+    "tip": "Turn the knob up if the app hears you too quietly."
+  },
+  {
+    "label": "Whisper-quiet mode (extra gain for soft speech)",
+    "tab": "Dictation",
+    "tip": "Extra volume boost for speaking softly, like in a shared office."
+  },
+  {
+    "label": "Quiet mode boost",
+    "tab": "Dictation",
+    "tip": "How much extra loudness whisper-quiet mode adds."
+  },
+  {
+    "label": "Mic check",
+    "tab": "Dictation",
+    "tip": "Records one second and tells you whether your mic level is healthy."
+  },
+  {
+    "label": "Wake word activation (local beta, openWakeWord ...)",
+    "tab": "Dictation",
+    "tip": "Say a phrase like 'hey Jarvis' to start dictating; audio never leaves this computer."
+  },
+  {
+    "label": "Wake word model",
+    "tab": "Dictation",
+    "tip": "Which wake phrase the app listens for."
+  },
+  {
+    "label": "Paste method",
+    "tab": "Dictation",
+    "tip": "How text lands in your app; auto works nearly everywhere, try others if pasting misbehaves."
+  },
+  {
+    "label": "Typing interval ms",
+    "tab": "Dictation",
+    "tip": "Delay between typed characters in typing mode; raise it if letters go missing."
+  },
+  {
+    "label": "Clipboard paste delay ms",
+    "tab": "Dictation",
+    "tip": "Small wait before pasting; raise it if slow apps miss the paste."
+  },
+  {
+    "label": "Activation sound",
+    "tab": "Dictation",
+    "tip": "The sound played when recording starts; preview and pick your favorite."
+  },
+  {
+    "label": "Release sound",
+    "tab": "Dictation",
+    "tip": "The sound played when recording stops; preview and pick your favorite."
+  },
+  {
+    "label": "Dictation preset",
+    "tab": "Dictation",
+    "tip": "One-click timing bundles: Balanced is safe, Snappy feels faster, Long-form waits for slow speech."
+  },
+  {
+    "label": "Tail capture ms",
+    "tab": "Dictation",
+    "tip": "Extra listening after you release the key so your last word is not cut off."
+  },
+  {
+    "label": "Minimum capture ms",
+    "tab": "Dictation",
+    "tip": "Shortest recording that counts; ignores accidental key taps."
+  },
+  {
+    "label": "Hold debounce ms",
+    "tab": "Dictation",
+    "tip": "Ignores tiny accidental key releases while you hold to talk."
+  },
+  {
+    "label": "Hands-free max seconds",
+    "tab": "Dictation",
+    "tip": "Longest a hands-free session can run before stopping itself."
+  },
+  {
+    "label": "Hands-free no speech",
+    "tab": "Dictation",
+    "tip": "Stops hands-free if you never start speaking within this many seconds."
+  },
+  {
+    "label": "Hands-free silence",
+    "tab": "Dictation",
+    "tip": "Stops hands-free after this many seconds of silence."
+  },
+  {
+    "label": "Hold max seconds",
+    "tab": "Dictation",
+    "tip": "Longest a hold-to-talk session can run before stopping itself."
+  },
+  {
+    "label": "Hold no speech",
+    "tab": "Dictation",
+    "tip": "Stops a hold session if no speech is heard for this long."
+  },
+  {
+    "label": "Hold silence",
+    "tab": "Dictation",
+    "tip": "Stops a hold session after this much silence."
+  },
+  {
+    "label": "Keep your previous clipboard after pasting (off = keep the dictation on the clipboard)",
+    "tab": "Dictation",
+    "tip": "Puts whatever you copied earlier back on the clipboard after your words paste."
+  },
+  {
+    "label": "Spoken press-enter command",
+    "tab": "Dictation",
+    "tip": "Say 'press enter' at the end and the app sends the message for you."
+  },
+  {
+    "label": "Instant correction",
+    "tab": "Dictation",
+    "tip": "How corrections replace already-typed text; Automatic picks the least jarring way."
+  },
+  {
+    "label": "Mute speaker output while recording",
+    "tab": "Dictation",
+    "tip": "Silences your speakers while you talk so music is not transcribed."
+  },
+  {
+    "label": "Retry failed capture from local audio",
+    "tab": "Dictation",
+    "tip": "If transcription fails, tries again from the saved recording so nothing is lost."
+  },
+  {
+    "label": "Protect every voice session locally",
+    "tab": "Dictation",
+    "tip": "Always on: each session is saved privately on this computer so words cannot be lost."
+  },
+  {
+    "label": "Protected session limit (minimum 5)",
+    "tab": "Dictation",
+    "tip": "How many recent recordings to keep for recovery; at least five."
+  },
+  {
+    "label": "Trigger style",
+    "tab": "Dictation",
+    "tip": "One button or two: hold while talking, tap on and off, or both."
+  },
+  {
+    "label": "Push-to-talk",
+    "tab": "Dictation",
+    "tip": "The keys you hold down while speaking; release to finish."
+  },
+  {
+    "label": "Hands-free toggle",
+    "tab": "Dictation",
+    "tip": "Tap once to start dictating, tap again to stop."
+  },
+  {
+    "label": "Command mode",
+    "tab": "Dictation",
+    "tip": "Shortcut for speaking commands to your computer instead of writing text."
+  },
+  {
+    "label": "Panic stop",
+    "tab": "Dictation",
+    "tip": "Instantly stops everything: recording, transcribing, and pasting."
+  },
+  {
+    "label": "Cancel",
+    "tab": "Dictation",
+    "tip": "Throws away the current recording without pasting anything."
+  },
+  {
+    "label": "Paste last",
+    "tab": "Dictation",
+    "tip": "Pastes your most recent dictation again."
+  },
+  {
+    "label": "Copy last",
+    "tab": "Dictation",
+    "tip": "Copies your most recent dictation to the clipboard."
+  },
+  {
+    "label": "Polish",
+    "tab": "Dictation",
+    "tip": "Rewrites your last dictation more cleanly using AI."
+  },
+  {
+    "label": "Prompt engineer",
+    "tab": "Dictation",
+    "tip": "Turns your last dictation into a well-structured AI prompt."
+  },
+  {
+    "label": "Turn to list",
+    "tab": "Dictation",
+    "tip": "Reformats your last dictation into a tidy list."
+  },
+  {
+    "label": "Copy cleanup diff",
+    "tab": "Dictation",
+    "tip": "Copies a before-and-after view showing exactly what cleanup changed."
+  },
+  {
+    "label": "Scratchpad",
+    "tab": "Dictation",
+    "tip": "Opens a notepad window that collects your dictations."
+  },
+  {
+    "label": "Translate last dictation",
+    "tab": "Dictation",
+    "tip": "Translates the last thing you said into your chosen language."
+  },
+  {
+    "label": "Auto-translate on/off",
+    "tab": "Dictation",
+    "tip": "Switches automatic translation of every dictation on or off."
+  },
+  {
+    "label": "Pin last transcript",
+    "tab": "Dictation",
+    "tip": "Keeps the last transcript on screen so you cannot lose it."
+  },
+  {
+    "label": "Meeting mode",
+    "tab": "Dictation",
+    "tip": "Starts long-running capture built for meetings."
+  },
+  {
+    "label": "Smart formatting: structure every dictation",
+    "tab": "Formatting",
+    "tip": "Automatically adds punctuation, capitals, and lists to everything you dictate."
+  },
+  {
+    "label": "Formatting engine",
+    "tab": "Formatting",
+    "tip": "auto picks the best available; ai uses your AI provider; heuristic works offline; off disables."
+  },
+  {
+    "label": "Protect numbers, links, quotes, and intent during AI cleanup",
+    "tab": "Formatting",
+    "tip": "Stops AI cleanup from ever changing numbers, links, quotes, or your meaning."
+  },
+  {
+    "label": "Enable transforms (polish, tone, list)",
+    "tab": "Formatting",
+    "tip": "Turns on the rewrite tools like Polish and Turn to list."
+  },
+  {
+    "label": "AI rewrite provider",
+    "tab": "Formatting",
+    "tip": "Which AI powers rewrites; none turns AI off, ollama runs free on your computer."
+  },
+  {
+    "label": "Local formatting quality",
+    "tab": "Formatting",
+    "tip": "Bigger local tiers format better but take longer; Realtime is the fast default."
+  },
+  {
+    "label": "AI model (blank = <local formatter model> for Ollama)",
+    "tab": "Formatting",
+    "tip": "Exact AI model name to use; leave blank for the recommended one."
+  },
+  {
+    "label": "Formatting time budget ms",
+    "tab": "Formatting",
+    "tip": "Longest the AI may spend formatting before built-in rules take over."
+  },
+  {
+    "label": "AI API key",
+    "tab": "Formatting",
+    "tip": "The key for your paid AI account, if your provider needs one."
+  },
+  {
+    "label": "AI API base (optional)",
+    "tab": "Formatting",
+    "tip": "Custom server address for the AI; leave blank unless told otherwise."
+  },
+  {
+    "label": "Translate to",
+    "tab": "Formatting",
+    "tip": "The language used when you run a translate transform."
+  },
+  {
+    "label": "Get / update Ollama",
+    "tab": "Formatting",
+    "tip": "Opens the download page for the free on-device AI engine."
+  },
+  {
+    "label": "Download formatter model",
+    "tab": "Formatting",
+    "tip": "Downloads the local AI formatter (about 1.4 GB) so formatting works offline."
+  },
+  {
+    "label": "Use realtime recommended",
+    "tab": "Formatting",
+    "tip": "Resets formatting to the fast recommended setup."
+  },
+  {
+    "label": "Custom transforms JSON",
+    "tab": "Formatting",
+    "tip": "Advanced: define your own rewrite commands here."
+  },
+  {
+    "label": "Voice shortcuts",
+    "tab": "Formatting",
+    "tip": "Say a saved phrase and the full text pastes, like your email signature."
+  },
+  {
+    "label": "Words, one per line",
+    "tab": "Formatting",
+    "tip": "Names and jargon the recognizer should know; paste lists split by commas or lines."
+  },
+  {
+    "label": "Replacements JSON",
+    "tab": "Formatting",
+    "tip": "Advanced: always swap one exact phrase for another after transcription."
+  },
+  {
+    "label": "Suggest from history",
+    "tab": "Formatting",
+    "tip": "Scans your past dictations and suggests words worth adding."
+  },
+  {
+    "label": "Export pack...",
+    "tab": "Formatting",
+    "tip": "Saves your words, replacements, and shortcuts to a file to share or back up."
+  },
+  {
+    "label": "Import pack...",
+    "tab": "Formatting",
+    "tip": "Loads a saved pack of words and shortcuts onto this computer."
+  },
+  {
+    "label": "Enable translation",
+    "tab": "Formatting",
+    "tip": "Master switch for all translation features."
+  },
+  {
+    "label": "Auto-translate every dictation",
+    "tab": "Formatting",
+    "tip": "Everything you dictate is translated before it is pasted."
+  },
+  {
+    "label": "Translation route",
+    "tab": "Formatting",
+    "tip": "translation runs privately on this computer."
+  },
+  {
+    "label": "Translation source",
+    "tab": "Formatting",
+    "tip": "The language you speak; Auto detects it from your dictation."
+  },
+  {
+    "label": "Translation target",
+    "tab": "Formatting",
+    "tip": "The language your words are translated into."
+  },
+  {
+    "label": "Translation quality",
+    "tab": "Formatting",
+    "tip": "Bigger models translate better but download more and run slower."
+  },
+  {
+    "label": "Translation register",
+    "tab": "Formatting",
+    "tip": "Tone of the translation: natural, formal, informal, or word-for-word."
+  },
+  {
+    "label": "Preserve paragraphs, lists, numbers, links, and email addresses",
+    "tab": "Formatting",
+    "tip": "Keeps layout, numbers, links, and emails untouched while translating."
+  },
+  {
+    "label": "Open translation workspace",
+    "tab": "Formatting",
+    "tip": "Opens the full translation window for longer text."
+  },
+  {
+    "label": "Manage local model",
+    "tab": "Formatting",
+    "tip": "Install or remove the on-device translation model."
+  },
+  {
+    "label": "Request another language",
+    "tab": "Formatting",
+    "tip": "Ask for a language that is not listed yet."
+  },
+  {
+    "label": "Glossary - one exact source => target pair per line",
+    "tab": "Formatting",
+    "tip": "Your fixed translations: each line forces one phrase to translate a specific way."
+  },
+  {
+    "label": "Speech model routing (Local / Bring your own)",
+    "tab": "Speech",
+    "tip": "Pick who does the listening: private on-device, or your own provider account."
+  },
+  {
+    "label": "Brand",
+    "tab": "Speech",
+    "tip": "The company whose speech service you want to use."
+  },
+  {
+    "label": "Model",
+    "tab": "Speech",
+    "tip": "The specific speech model from that company; newer usually hears better."
+  },
+  {
+    "label": "Mode / trim",
+    "tab": "Speech",
+    "tip": "Variant of the model, like streaming or a smaller faster cut."
+  },
+  {
+    "label": "Secret / credential",
+    "tab": "Speech",
+    "tip": "The key from your provider account; stored safely on this computer."
+  },
+  {
+    "label": "API base",
+    "tab": "Speech",
+    "tip": "The provider's server address; keep the default unless support says otherwise."
+  },
+  {
+    "label": "Provider links",
+    "tab": "Speech",
+    "tip": "Quick buttons to the provider's login, API-key, and documentation pages."
+  },
+  {
+    "label": "Docs",
+    "tab": "Speech",
+    "tip": "Link to the selected provider's documentation."
+  },
+  {
+    "label": "Advanced options JSON",
+    "tab": "Speech",
+    "tip": "Extra provider settings; leave empty unless a support doc asks for them."
+  },
+  {
+    "label": "Open local model manager",
+    "tab": "Speech",
+    "tip": "Jumps to the page where on-device models are downloaded and activated."
+  },
+  {
+    "label": "Compare researched models",
+    "tab": "Speech",
+    "tip": "Opens a side-by-side guide of speech models we have tested."
+  },
+  {
+    "label": "Automatically download the selected local model (recommended)",
+    "tab": "Speech",
+    "tip": "Fetches a chosen model on first use so dictation just works."
+  },
+  {
+    "label": "Compare ready and upcoming models",
+    "tab": "Speech",
+    "tip": "Opens the model guide comparing quality, size, and speed."
+  },
+  {
+    "label": "Use",
+    "tab": "Speech",
+    "tip": "Makes this model the active on-device listener."
+  },
+  {
+    "label": "Download",
+    "tab": "Speech",
+    "tip": "Downloads this model now instead of waiting for first use; retries resume, not restart."
+  },
+  {
+    "label": "Delete",
+    "tab": "Speech",
+    "tip": "Removes this model's downloaded files to free disk space."
+  },
+  {
+    "label": "Remove",
+    "tab": "Speech",
+    "tip": "Takes your custom model off the list."
+  },
+  {
+    "label": "Add your own model",
+    "tab": "Speech",
+    "tip": "Paste a Hugging Face model id or folder path to dictate with your own model."
+  },
+  {
+    "label": "Deepgram API key",
+    "tab": "Speech",
+    "tip": "Your Deepgram account key; only needed when using Deepgram directly."
+  },
+  {
+    "label": "Deepgram model",
+    "tab": "Speech",
+    "tip": "Which Deepgram model transcribes; nova-3 is the strong default."
+  },
+  {
+    "label": "Sample rate",
+    "tab": "Speech",
+    "tip": "Audio samples per second; keep 16000 unless a support doc says otherwise."
+  },
+  {
+    "label": "Channels",
+    "tab": "Speech",
+    "tip": "Mono or stereo capture; keep 1 for dictation."
+  },
+  {
+    "label": "Encoding",
+    "tab": "Speech",
+    "tip": "Raw audio format sent to the provider; keep linear16."
+  },
+  {
+    "label": "Endpointing ms",
+    "tab": "Speech",
+    "tip": "Silence length before the service decides a phrase has ended."
+  },
+  {
+    "label": "Utterance end ms",
+    "tab": "Speech",
+    "tip": "Silence length before a whole thought is marked finished."
+  },
+  {
+    "label": "Smart format",
+    "tab": "Speech",
+    "tip": "Provider formats dates, times, and numbers nicely on its own."
+  },
+  {
+    "label": "Punctuation",
+    "tab": "Speech",
+    "tip": "Provider inserts periods, commas, and question marks for you."
+  },
+  {
+    "label": "Interim results",
+    "tab": "Speech",
+    "tip": "Shows live partial words while you are still speaking."
+  },
+  {
+    "label": "VAD speech events",
+    "tab": "Speech",
+    "tip": "Provider signals when it hears speech start and stop."
+  },
+  {
+    "label": "Include provider filler words",
+    "tab": "Speech",
+    "tip": "Keeps ums and uhs in the transcript instead of dropping them."
+  },
+  {
+    "label": "Dictation mode",
+    "tab": "Speech",
+    "tip": "Say punctuation aloud, like 'comma', and get the symbol."
+  },
+  {
+    "label": "Numerals",
+    "tab": "Speech",
+    "tip": "Writes numbers as digits (3) instead of words (three)."
+  },
+  {
+    "label": "Deepgram MIP opt-out",
+    "tab": "Speech",
+    "tip": "Keeps your audio out of Deepgram's improvement program; leave on for privacy."
+  },
+  {
+    "label": "Extra Deepgram params JSON",
+    "tab": "Speech",
+    "tip": "Advanced extra request options; leave empty unless support asks."
+  },
+  {
+    "label": "Export diagnostics ZIP",
+    "tab": "Advanced",
+    "tip": "Bundles logs into a ZIP you can send when reporting a problem."
+  },
+  {
+    "label": "Backup settings...",
+    "tab": "Advanced",
+    "tip": "Saves all your settings into one ZIP file."
+  },
+  {
+    "label": "Restore backup...",
+    "tab": "Advanced",
+    "tip": "Brings settings back from a backup ZIP; restart afterwards to load them."
+  },
+  {
+    "label": "Race: cloud vs your machine",
+    "tab": "Advanced",
+    "tip": "Runs both speech routes on the same audio to see which wins for you."
+  },
+  {
+    "label": "Save",
+    "tab": "All tabs (bottom bar)",
+    "tip": "Writes every change on every tab to disk."
+  },
+  {
+    "label": "Status",
+    "tab": "All tabs (bottom bar)",
+    "tip": "Opens the live status window."
+  },
+  {
+    "label": "History",
+    "tab": "All tabs (bottom bar)",
+    "tip": "Opens your dictation history."
+  },
+  {
+    "label": "Scratchpad",
+    "tab": "All tabs (bottom bar)",
+    "tip": "Opens the scratchpad notepad."
+  },
+  {
+    "label": "Close",
+    "tab": "All tabs (bottom bar)",
+    "tip": "Closes settings; warns first if you have unsaved changes."
+  },
+  {
+    "label": "Start over...",
+    "tab": "All tabs (bottom bar)",
+    "tip": "Opens a reset picker to return settings to defaults; nothing resets without asking."
+  }
+]

@@ -1,0 +1,88 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.serena/
+.uv-cache/
+.uv-python/
+.firebase/
+.playwright-cli/
+node_modules/
+
+# Local secrets and user state
+.env
+.env.*
+!.env.example
+config.json
+history.jsonl
+full-transcript-history.txt
+live-transcript-draft.txt
+scratchpad.md
+scratchpad-tabs.json
+audio-spool/
+*.log
+# Build/smoke stderr captures (build-138.err, smoke-138.err). Same class as
+# *.log above: transient, per-run, and one stray git add -A from a commit.
+*.err
+
+# Build and installer output
+build/
+dist/
+release/
+*.spec
+# The macOS spec is source, not build output: the cryptography guard test
+# reads it, and a gitignored spec makes that test error on a clean checkout.
+!TalkDat-mac.spec
+# The app spec is curated by hand (cryptography collection, generated
+# version resource) and MUST be tracked -- an untracked spec is how a
+# PyInstaller CLI run silently clobbered it on 2026-08-08.
+!Talk Dat!.spec
+*.lnk
+*.msi
+*.msix
+
+# Local visual/audio experiments
+tmp-*/
+tmp-*.png
+tmp-*.jpg
+tmp-*.jpeg
+tmp-*.mp4
+tmp-*.wav
+talk-dat-*.png
+talk_dat_chime_*.wav
+marketing/generated/
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# macOS build output. TalkDat.icns and the iconset are generated from
+# knight_flow/assets/app_icon.png by build-mac.sh, so they are artifacts too.
+build-mac/
+dist-mac/
+
+# X-205: Apple and Android signing material, anywhere in the tree.
+credentials.json
+*.p8
+*.p12
+*.mobileprovision
+*.keystore
+*.jks
+
+# Local release artifacts. Built, never committed.
+dist-mac/
+
+# Test and build scratch output. Regenerated, never committed.
+output/
+
+# Generated at build time by scripts/write_build_flags.py (OFFICIAL or SOURCE,
+# see knight_flow/official_build.py). Never committed, never exported.
+knight_flow/_build_flags.py

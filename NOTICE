@@ -1,0 +1,56 @@
+Talk DAT!
+Copyright 2026 Knight AI+AV LLC
+
+This product includes software developed by Knight AI+AV LLC
+(https://www.talkdat.app/).
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Trademarks: "Talk DAT!", "Talk Stone", "The Pill", "Knight AI+AV", the
+Talk DAT! logo and application icon, The Pill artwork, and the Knight
+Display typeface are trademarks or proprietary brand assets of Knight AI+AV
+LLC. They are NOT licensed under the Apache License; see TRADEMARKS.md and
+REUSE.toml for the exact files.
+
+Talk DAT! versions up to and including v0.3.39-beta were released under the
+GNU General Public License version 3; recipients of those versions retain
+the rights that license granted.
+
+Binary distributions of Talk DAT! bundle third-party components under their
+own licenses (including the LGPL-3.0 libraries pynput, pystray and fpdf2,
+and FFmpeg with the GPL-2.0 libraries x264 and x265 inside PyAV). Their
+notices and license texts are in THIRD_PARTY_NOTICES.md and in
+THIRD_PARTY_LICENSES.txt, which the build generates and ships with every
+binary.
+
+NVIDIA cuDNN (cudnn64_9.dll, inside CTranslate2 in the Windows binaries) is
+licensed under NVIDIA's cuDNN license terms, not the Apache License, and may
+be used only as part of Talk DAT!; see "NVIDIA components" in EULA.md.
+
+Models are not included. At the user's request the application downloads
+them from their publishers:
+
+  Parakeet TDT 0.6B v3 (the default speech model) by NVIDIA Corporation,
+  licensed under the Creative Commons Attribution 4.0 International License
+  (https://creativecommons.org/licenses/by/4.0/). Source:
+  https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3. ONNX conversion by
+  istupakov (https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx).
+  Provided as is, without warranties.
+
+  Other NVIDIA Parakeet, Canary and Nemotron speech models: CC BY 4.0, by
+  NVIDIA Corporation; see each model card for its exact terms.
+
+  Whisper and faster-whisper conversions (OpenAI, SYSTRAN), Distil-Whisper
+  (Hugging Face) and GigaAM (Sber): MIT License.
+
+  Qwen3 1.7B, the optional local formatter, by the Qwen team, Alibaba Cloud:
+  Apache License 2.0, pulled by the user through Ollama.
+
+  TranslateGemma, the optional local translator, by Google: Gemma Terms of
+  Use (https://ai.google.dev/gemma/terms), pulled by the user through Ollama.
+
+  Ollama (https://ollama.com/), the local model runtime the user installs
+  separately: MIT License.
+
+  openWakeWord pre-trained models are licensed CC BY-NC-SA 4.0 upstream and
+  are not downloaded by Talk DAT!; a wake-word model is prepared by the user.

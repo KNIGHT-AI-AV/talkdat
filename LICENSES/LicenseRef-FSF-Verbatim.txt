@@ -1,0 +1,6 @@
+Everyone is permitted to copy and distribute verbatim copies of this license
+document, but changing it is not allowed.
+
+(The notice carried by the GNU General Public License and the GNU Lesser
+General Public License texts, Copyright (C) 2007 Free Software Foundation,
+Inc. <https://fsf.org/>.)

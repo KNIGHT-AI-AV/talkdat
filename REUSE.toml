@@ -1,0 +1,49 @@
+# REUSE (https://reuse.software) licensing map for Talk DAT!.
+# Everything is Apache-2.0 unless an annotation below says otherwise.
+# Brand assets are proprietary and NOT licensed under Apache-2.0: see
+# TRADEMARKS.md. The LicenseRef text lives in LICENSES/LicenseRef-TalkDAT-Brand.txt.
+version = 1
+
+[[annotations]]
+path = "**"
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 Knight AI+AV LLC"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = [
+    "knight_flow/assets/app_icon.ico",
+    "knight_flow/assets/app_icon.png",
+    "knight_flow/assets/logo.ico",
+    "knight_flow/assets/logo.png",
+    "knight_flow/assets/favicon.ico",
+    "knight_flow/assets/favicon.png",
+    "knight_flow/assets/flow_pill_240.png",
+    "knight_flow/assets/flow_pill_240.json",
+    "knight_flow/assets/loading_pill_240.png",
+    "knight_flow/assets/loading_pill_240.json",
+    "knight_flow/assets/ui/processing-spectrum-loop-4k.png",
+    "knight_flow/assets/ui/installer-clay.jpg",
+    "knight_flow/assets/fonts/KnightDisplay.ttf",
+    "knight_flow/web_shell/shell_assets/fonts/KnightDisplay.ttf",
+    "knight_flow/assets/onboarding/*.png",
+    "knight_flow/assets/materials/shared/**",
+    "installer/splash.png",
+    "packaging/dmg-background.png",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Knight AI+AV LLC"
+SPDX-License-Identifier = "LicenseRef-TalkDAT-Brand"
+
+# License texts of the LGPL runtime the PDF export ships as replaceable source.
+# Verbatim copies are permitted by the Free Software Foundation.
+[[annotations]]
+path = [
+    "knight_flow/assets/licenses/pdf/GPL-3.0.txt",
+    "knight_flow/assets/licenses/pdf/LGPL-3.0.txt",
+    "knight_flow/assets/licenses/GPL-2.0.txt",
+    "knight_flow/assets/licenses/LGPL-2.1.txt",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "1989, 1991, 1999, 2007 Free Software Foundation, Inc. <https://fsf.org/>"
+SPDX-License-Identifier = "LicenseRef-FSF-Verbatim"

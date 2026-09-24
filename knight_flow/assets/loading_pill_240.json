@@ -1,0 +1,11 @@
+{
+  "columns": 16,
+  "frame_count": 240,
+  "frame_width": 320,
+  "frame_height": 58,
+  "fps": 240,
+  "loop_seconds": 1.6,
+  "direction": "left-to-right",
+  "source": "Talk Dat generated full-spectrum optical texture mapped through The Pill",
+  "transparent_background": true
+}

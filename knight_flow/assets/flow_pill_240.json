@@ -1,0 +1,10 @@
+{
+  "columns": 16,
+  "frame_count": 240,
+  "frame_width": 320,
+  "frame_height": 58,
+  "fps": 240,
+  "source": "wave_strip frames 0-50 with baked 240-frame transparent seamless bridge",
+  "bridge_start_frame": 184,
+  "transparent_background": true
+}

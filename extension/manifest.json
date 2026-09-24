@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Talk Dat! Companion",
+  "version": "0.1.0",
+  "description": "Insert your latest Talk Dat! transcript into the focused field and toggle hands-free dictation from the browser.",
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": ["http://127.0.0.1/*"],
+  "background": { "service_worker": "background.js" },
+  "commands": {
+    "insert-last-transcript": {
+      "suggested_key": { "default": "Alt+Shift+V" },
+      "description": "Insert the latest Talk Dat! transcript into the focused field"
+    },
+    "toggle-dictation": {
+      "suggested_key": { "default": "Alt+Shift+D" },
+      "description": "Toggle Talk Dat! hands-free dictation"
+    }
+  },
+  "action": { "default_title": "Talk Dat! Companion" }
+}
