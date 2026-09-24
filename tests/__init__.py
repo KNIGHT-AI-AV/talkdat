@@ -45,3 +45,28 @@ os.environ.setdefault("TALK_DAT_FIELD_READ_OFF", "1")
 # Mac keychain. Reset and save tests must never use the person's actual vault.
 from tests.credential_sandbox import install as _isolate_credentials
 _isolate_credentials()
+
+# 2026-09-24: Tk's garbage dies on the main thread. Twice in three full runs the
+# suite aborted inside Tcl ("async handler deleted by the wrong thread", no
+# summary at all) in test_deepgram_live, 200 tests after test_captions_lifecycle:
+# an earlier Tk test left StringVars for the garbage collector, a worker thread's
+# allocation set the collection off, and tkinter's Variable.__del__ called Tcl
+# from that thread. Collecting on the main thread whenever the suite moves to a
+# new test class keeps that garbage where Tcl can take it. unittest calls this
+# hook before EVERY test and returns early inside a class; so does this.
+import gc as _gc
+import threading as _threading
+import unittest.suite as _unittest_suite
+
+_tear_down_previous_class = _unittest_suite.TestSuite._tearDownPreviousClass
+
+
+def _tear_down_previous_class_then_collect(self, test, result):
+    previous = getattr(result, "_previousTestClass", None)
+    _tear_down_previous_class(self, test, result)
+    if (previous is not None and previous is not test.__class__
+            and _threading.current_thread() is _threading.main_thread()):
+        _gc.collect()
+
+
+_unittest_suite.TestSuite._tearDownPreviousClass = _tear_down_previous_class_then_collect

@@ -47,7 +47,12 @@ class AppShell:
         actions = self._actions()
         from knight_flow.smart_formatting import shared as smart_formatting
         from .finish_choice import FinishChoice
+        from .update_offer import UpdateOffer
         self.finish_choice = FinishChoice(app.choose_finish)
+        self.update_offer = UpdateOffer(
+            notify=lambda kind, message: app._cross_thread_calls.put(
+                lambda: self.overlay.set_state(kind, message, "")),
+            open_url=self._open_release_page, count_dismissal=self._count_update_dismissal)
         self.backend = ShellBackend(app.config, self.assets, self._persist, self._applied,
                                     self.overlay._settings_palette, actions=actions, menu=self._menu,
                                     system_preferences=self._preferences, models=self.models,
@@ -292,6 +297,29 @@ class AppShell:
         except Exception as error:
             log.warning('Web settings could not open (%s)', type(error).__name__)
             return False
+
+    def offer_update(self, data, install, skip):
+        """X-611: a release ready to install, shown on Home."""
+        if self._legacy:
+            return False
+        if not self.update_offer.offer(data, install, skip):
+            # An install is already running there: bring it forward.
+            return self.open_settings("home")
+        if self.open_settings("home"):
+            return True
+        self.update_offer.withdraw()  # Home did not open: the Tk window takes it
+        return False
+
+    @staticmethod
+    def _open_release_page(url):
+        import webbrowser
+        webbrowser.open(url)
+
+    def _count_update_dismissal(self):
+        # X-47: the Update window's Later spent one of three reminder strikes.
+        updates = self.app.config.setdefault("updates", {})
+        updates["dialog_dismissals"] = int(updates.get("dialog_dismissals", 0) or 0) + 1
+        self.app.save_settings()
 
     def offer_finish_choice(self, chill, executive):
         """X-610: the third-dictation finish choice, on the Writing page."""

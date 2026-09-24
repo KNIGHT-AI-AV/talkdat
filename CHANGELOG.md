@@ -3,6 +3,17 @@
 All notable product changes to Talk DAT! are recorded here. The project uses beta
 versions while broader field verification remains in progress.
 
+## 0.4.165-beta
+
+Updates now happen on Home.
+
+- When a new version is ready, Home shows it: what changed, the size, and the
+  checks Talk DAT! runs before installing. Install now, Later, Skip this
+  version and View on GitHub are all there, and the download progress shows
+  in place. This replaces the separate Update window.
+- While an update is installing, Home stays open until it is done, so the
+  install cannot be cut off halfway.
+
 ## 0.4.164-beta
 
 Fewer old-style windows.

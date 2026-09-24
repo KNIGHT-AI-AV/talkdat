@@ -108,8 +108,42 @@ window.TalkDatHome=({container,el,request,notice})=>{
       tile("Typing time saved",minutes(a.minutes_saved),"Estimate from saved dictation"),
       tile("Streak",`${number(a.streak_days)} ${a.streak_days===1?"day":"days"}`,"In a row, on this computer"));
   }
+  // X-611: an update ready to install is answered here. It was the Tk Update
+  // window every existing user met on every release. The install is the
+  // app's own verified path; this panel shows its words and its progress.
+  const offerPanel=el("section",{class:"home-offer","aria-label":"Update ready",hidden:true});
+  let offerPainted="",lastOffer=null;
+  function renderOffer(o){
+    lastOffer=o||null;
+    if(!o){offerPanel.hidden=true;offerPanel.replaceChildren();offerPainted="";return;}
+    offerPanel.hidden=false;
+    const shape=JSON.stringify([o.latest,o.phase,o.can_install]);
+    if(shape!==offerPainted){
+      const button=(text,op,primary)=>el("button",{type:"button",text,class:primary?"primary":"quiet","data-op":op,onclick:()=>update(op)});
+      const buttons=[];
+      if(o.can_install&&o.phase!=="started")buttons.push(button(o.phase==="failed"?"Try again":"Install now","update_install",true));
+      buttons.push(button("View on GitHub","update_github",false));
+      if(o.phase!=="started")buttons.push(button("Skip this version","update_skip",false),button("Later","update_later",false));
+      const details=(o.details||[]).length?"  ·  "+o.details.join("  ·  "):"";
+      offerPanel.replaceChildren(
+        el("h2",{text:"A new version of Talk DAT! is ready"}),
+        el("p",{class:"home-offer-version",text:`${o.current} → ${o.latest}${details}`}),
+        el("div",{class:"home-offer-notes",tabindex:"0","aria-label":"What changed",text:o.notes||"This release has no notes."}),
+        el("progress",{class:"home-offer-progress",max:"100","aria-label":"Update download"}),
+        el("p",{class:"home-offer-status",role:"status","aria-live":"polite"}),
+        el("div",{class:"action-list home-offer-actions"},buttons));
+      offerPainted=shape;
+    }
+    const installing=o.phase==="installing";
+    offerPanel.querySelectorAll("button").forEach(b=>{if(b.dataset.op!=="update_github")b.disabled=installing;});
+    const bar=offerPanel.querySelector("progress");
+    bar.hidden=o.percent==null;if(o.percent!=null)bar.value=o.percent;
+    const line=offerPanel.querySelector(".home-offer-status");
+    line.textContent=o.status||"";line.setAttribute("role",o.phase==="failed"?"alert":"status");
+  }
   async function update(operation){
     clearTimeout(timer);
+    const offerOperation=operation.startsWith("update_");
     const asked=operation==="check_updates"||operation==="install_update";
     if(asked)checkButton.disabled=true;
     try{
@@ -121,10 +155,14 @@ window.TalkDatHome=({container,el,request,notice})=>{
       status.hidden=!status.textContent;
       if(result.activity&&result.phase!=="loading"&&result.revision!==painted){renderMetrics(result.activity);painted=result.revision;}
       renderUpdate(result.update);
+      renderOffer(result.offer);
+      if(result.notice)notice(result.notice);
       const checking=result.update?.phase==="checking";
-      if(result.phase==="loading"||checking)timer=setTimeout(()=>update("status"),result.phase==="loading"?180:300);
+      const installing=result.offer?.phase==="installing";
+      if(result.phase==="loading"||checking||installing)timer=setTimeout(()=>update("status"),result.phase==="loading"?180:installing?250:300);
     }catch(error){
       if(disposed)return;
+      if(offerOperation){notice(error.message||"That update action did not finish.",true);return;}
       if(asked){
         checkButton.disabled=false;
         renderUpdate({phase:"failed",message:error.message||"Couldn't check for updates. Try again in a minute."});
@@ -139,6 +177,12 @@ window.TalkDatHome=({container,el,request,notice})=>{
     action("Scratchpad","Write and keep notes","scratchpad"),
     action("Translate","Translate text into another language","translation"),
     action("Settings","Shortcuts, speech and formatting","general")]);
-  root.append(hero,quick,metrics,news,status);container.append(root);update("refresh");
-  return {root,page:"home",leave:async()=>true,dispose:()=>{disposed=true;clearTimeout(timer);}};
+  root.append(hero,offerPanel,quick,metrics,news,status);container.append(root);update("refresh");
+  // Leaving (or closing) while the verified installer runs is refused, as the
+  // Update window refused it.
+  const leave=async()=>{
+    if(lastOffer?.phase!=="installing")return true;
+    notice("The verified installer is being prepared. Wait for it to finish.",true);return false;
+  };
+  return {root,page:"home",leave,dispose:()=>{disposed=true;clearTimeout(timer);}};
 };

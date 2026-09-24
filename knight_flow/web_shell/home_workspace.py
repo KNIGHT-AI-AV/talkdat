@@ -165,6 +165,9 @@ class HomeWorkspace:
     """
 
     OPERATIONS = frozenset({"status", "refresh", "check_updates", "install_update"})
+    # X-611: the offer the Update window used to carry, answered on Home.
+    OFFER_OPERATIONS = {"update_install": "install", "update_later": "later",
+                        "update_skip": "skip", "update_github": "github"}
 
     def __init__(self, config, dispatch, loader=load_activity, greeter=home_greeting, updates=None):
         self.config, self.dispatch, self.loader, self.greeter = config, dispatch, loader, greeter
@@ -178,11 +181,18 @@ class HomeWorkspace:
         self._update_ticket = 0
 
     def handle(self, payload):
-        if type(payload) is not dict or set(payload) != {"operation"} or payload["operation"] not in self.OPERATIONS:
+        if (type(payload) is not dict or set(payload) != {"operation"}
+                or payload["operation"] not in self.OPERATIONS | set(self.OFFER_OPERATIONS)):
             raise ValueError("That Home action is unavailable.")
         if self.closed:
             raise ValueError("Home is closed. Open it again to refresh.")
         operation = payload["operation"]
+        notice = ""
+        if operation in self.OFFER_OPERATIONS:
+            offer = getattr(self.updates, "offer", None)
+            if offer is None:
+                raise ValueError("There is no update waiting.")
+            notice = offer.act(self.OFFER_OPERATIONS[operation])
         if operation == "check_updates":
             self._check_updates()
         elif operation == "install_update":
@@ -222,9 +232,11 @@ class HomeWorkspace:
             log.exception("home greeting could not build")
             greeting = {"name": "", "version": "", "summary": [], "notes": [], "more_notes": 0,
                         "shortcuts": {}, "speech": {}}
+        offer = getattr(self.updates, "offer", None)
         return {"phase": self.phase, "message": self.message, "revision": self.revision,
                 "greeting": greeting, "activity": copy.deepcopy(self.activity),
-                "update": copy.deepcopy(self.update)}
+                "update": copy.deepcopy(self.update),
+                "offer": offer.snapshot() if offer is not None else None, "notice": notice}
 
     def _check_updates(self):
         if self.update.get("phase") == "checking":
@@ -256,7 +268,10 @@ class HomeWorkspace:
         if self.updates is None or self.update.get("phase") != "available":
             raise ValueError("Check for updates first.")
         self.updates.install()
-        self.update = {**self.update, "message": f"The update window is open. Version {self.update.get('version', '')} installs from there."}
+        if getattr(self.updates, "offer", None) is not None and self.updates.offer.snapshot():
+            self.update = {**self.update, "message": ""}  # X-611: the offer below carries it now
+        else:
+            self.update = {**self.update, "message": f"The update window is open. Version {self.update.get('version', '')} installs from there."}
 
     def close(self):
         self.closed = True
@@ -269,6 +284,14 @@ class HomeUpdates:
 
     def __init__(self, app):
         self.app = app
+
+    @property
+    def offer(self):
+        """X-611: the update waiting on Home, when the web shell holds one."""
+        from .update_offer import UpdateOffer
+
+        offer = getattr(getattr(self.app, "web_shell", None), "update_offer", None)
+        return offer if isinstance(offer, UpdateOffer) else None
 
     def check(self, report):
         self.app.check_updates(silent=False, report=report)

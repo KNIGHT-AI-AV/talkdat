@@ -5078,13 +5078,17 @@ class TalkDatApp:
             "publisher_signature_required": bool(info.artifact_signing_enabled),
             "predownloaded": predownloaded is not None,
         }
-        self.overlay.open_update_window(
-            data,
-            on_install=lambda set_progress, set_status, on_done: self.install_update(
-                info, predownloaded, set_progress, set_status, on_done
-            ),
-            on_skip=lambda: self.skip_update_version(info.latest_version),
-        )
+        def install(set_progress: Any, set_status: Any, on_done: Any) -> None:
+            self.install_update(info, predownloaded, set_progress, set_status, on_done)
+
+        def skip() -> None:
+            self.skip_update_version(info.latest_version)
+
+        # X-611: Home carries the offer now; the Tk window is the fallback.
+        shell = getattr(self, "web_shell", None)
+        if shell is not None and shell.offer_update(data, install, skip):
+            return
+        self.overlay.open_update_window(data, on_install=install, on_skip=skip)
 
     def install_update(
         self,
