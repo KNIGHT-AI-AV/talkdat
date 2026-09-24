@@ -448,6 +448,7 @@ class TalkDatApp:
             "read_back": self.read_back_last,
             "command_mode_stop": self.stop_session,
             "save_settings": self.save_settings,
+            "choose_finish": self.choose_finish,
             "onboarding_save": self.save_onboarding_settings,
             "quit": self.quit,
             "show": self.show_overlay,
@@ -512,6 +513,7 @@ class TalkDatApp:
                 callbacks["web_settings"] = self.web_shell.open_settings
                 callbacks["web_menu"] = self.web_shell.open_menu
                 callbacks["web_menu_close"] = self.web_shell.menu_controller.hide
+                callbacks["web_finish_choice"] = self.web_shell.offer_finish_choice
         except Exception as error:
             log.warning("Web shell unavailable; using the existing windows (%s)", type(error).__name__)
 
@@ -899,6 +901,14 @@ class TalkDatApp:
     def maybe_show_whats_new(self) -> None:
         previous = self._previous_version
         if not previous or previous == APP_VERSION:
+            return
+        if self._home_opened_at_launch():
+            # X-610: Home (the web shell) already opened at this launch and
+            # leads with this version's notes. Every upgrade used to put this
+            # Tk window on top of it 1.5 s later: two windows, one of them the
+            # square Tk kind. Home is the one place now; Help keeps the full
+            # history. The Tk window remains for launches without Home.
+            log.info("what's new: shown on Home for %s (was %s)", APP_VERSION, previous)
             return
 
         def worker() -> None:
@@ -5463,6 +5473,30 @@ class TalkDatApp:
     def finish_reset(self):
         from .web_shell.reset_adapter import actions_for_app
         actions_for_app(self).finish()
+
+    def _home_opened_at_launch(self) -> bool:
+        """The same test the launch uses before it opens Home (run())."""
+        shell = getattr(self, "web_shell", None)
+        return (
+            shell is not None
+            and not getattr(shell, "_legacy", False)
+            and bool(self.config.get("ui", {}).get("show_home_on_start", True))
+            and not self.needs_onboarding()
+        )
+
+    def choose_finish(self, key: str) -> str:
+        """X-137/X-610: the finish picked after the third real dictation.
+
+        One save for both places it can be picked: the web Writing page and
+        the Tk fallback window. Returns the confirmation to show there."""
+        key = "executive" if key == "executive" else "standard"
+        cleanup = self.config.setdefault("cleanup", {})
+        cleanup["format_intensity"] = key
+        cleanup["intensity_default_migrated"] = True
+        self.save_settings()
+        label = "Executive" if key == "executive" else "Chill"
+        self.overlay.set_state("captured", f"{label} is your default finish.", "Flip it any time from the pill menu.")
+        return f"{label} is your default finish. You can switch any time from the Pill menu."
 
     def save_settings(self, *, persist: bool = True) -> None:
         if getattr(self, "_reset_in_progress", False) is True:

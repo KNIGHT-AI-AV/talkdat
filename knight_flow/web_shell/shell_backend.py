@@ -207,9 +207,10 @@ def normalize_settings(candidate, changed, previous=None):
 
 
 class ShellBackend:
-    def __init__(self, config, assets, persist, applied, palette, *, actions=None, menu=None, system_preferences=None, models=None, menu_layout=None, microphones=None, workspaces=None, formatting=None):
+    def __init__(self, config, assets, persist, applied, palette, *, actions=None, menu=None, system_preferences=None, models=None, menu_layout=None, microphones=None, workspaces=None, formatting=None, finish_choice=None):
         self.config, self.assets = config, Path(assets)
         self.formatting = formatting
+        self.finish_choice = finish_choice
         self.applied, self.palette = applied, palette
         self.actions, self.menu = dict(actions or {}), menu or (lambda: [])
         self.system_preferences = system_preferences or (lambda: {})
@@ -271,6 +272,7 @@ class ShellBackend:
                 'intensity': read_path(self.config, 'cleanup.format_intensity', DEFAULT_CONFIG['cleanup']['format_intensity']),
                 'models': self.models.snapshot() if self.models is not None else [],
                 'smart_formatting': self.formatting_snapshot(),
+                'finish_choice': self.finish_choice.snapshot() if self.finish_choice is not None else None,
                 'model_catalog_date': MODEL_CATALOG_VERIFIED_ON,
                 'model_guide': [{'label':entry.label,'provider':entry.provider,'mode':entry.mode,
                                  'status':MODEL_CATALOG_STATUS_LABELS[entry.status], 'status_id':entry.status, 'notes':entry.notes}
@@ -334,6 +336,11 @@ class ShellBackend:
                 result = dict(handlers[operation]())
                 result['smart_formatting'] = self.formatting_snapshot()
                 return result
+            if self.finish_choice is not None and payload['name'].startswith('finish_choice:'):
+                # X-610: the finish picked on the Writing page; the whole state
+                # comes back so the page shows the new default at once.
+                message = self.finish_choice.act(payload['name'].split(':', 1)[1])
+                return {'message': message, 'state': self.snapshot()}
             if payload['name'] not in self.actions:
                 raise ValueError('This action is not available from this window.')
             result = self.actions[payload['name']]()

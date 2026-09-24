@@ -24232,6 +24232,12 @@ class Overlay:
         finishes side by side, one click decides. Shown once, at the third
         real dictation; the pill-menu toggle carries the decision forever
         after."""
+        # X-610: the web Writing page draws this now; this window is the
+        # fallback when the renderer is unavailable.
+        callbacks = getattr(self, "callbacks", {})
+        web_finish = callbacks.get("web_finish_choice") if isinstance(callbacks, dict) else None
+        if callable(web_finish) and web_finish(chill, executive):
+            return
         self.force_visible()
         theme = self._settings_theme_key()
         palette = self._settings_palette(theme)
@@ -24283,14 +24289,18 @@ class Overlay:
         ).grid(row=1, column=0, columnspan=2, sticky="ew", pady=ui_scale.spacing((0, 12), self.config))
 
         def choose(key: str) -> None:
-            cleanup = self.config.setdefault("cleanup", {})
-            cleanup["format_intensity"] = key
-            cleanup["intensity_default_migrated"] = True
-            callback = self.callbacks.get("save_settings")
-            if callable(callback):
-                callback()
-            label = "Executive" if key == "executive" else "Chill"
-            self.set_state("captured", f"{label} is your default finish.", "Flip it any time from the pill menu.")
+            shared = self.callbacks.get("choose_finish")
+            if callable(shared):
+                shared(key)  # X-610: the one save the web page uses too
+            else:
+                cleanup = self.config.setdefault("cleanup", {})
+                cleanup["format_intensity"] = key
+                cleanup["intensity_default_migrated"] = True
+                callback = self.callbacks.get("save_settings")
+                if callable(callback):
+                    callback()
+                label = "Executive" if key == "executive" else "Chill"
+                self.set_state("captured", f"{label} is your default finish.", "Flip it any time from the pill menu.")
             self._request_utility_close(window)
 
         def pane(column: int, title: str, color: str, content: str, key: str, button_text: str) -> tk.Frame:

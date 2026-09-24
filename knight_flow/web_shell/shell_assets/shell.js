@@ -400,6 +400,7 @@
     if(page.id === "scribe") activeWorkspace=window.TalkDatScribe({container:main,el,request:rpc,notice,changed:updateSaveStrip});
     if(page.id === "ramble") activeWorkspace=window.TalkDatRamble({container:main,el,request:rpc,notice,changed:updateSaveStrip});
     if(page.id === "translation") activeWorkspace=window.TalkDatTranslation({container:main,el,request:rpc,notice,changed:updateSaveStrip});
+    if(page.id === "formatting" && state.data?.finish_choice) main.append(renderFinishChoice(state.data.finish_choice));
     if(page.id === "formatting") { main.append(el("section", {id:"smart-formatting", class:"section smart-formatting", "aria-label":"Smart formatting"})); renderSmartFormatting(); }
     for (const section of page.sections || []) {
       if (page.id === "words") continue;
@@ -585,6 +586,21 @@
   }
   // Settings > Formatting: the local writing model's state, with the one
   // action that state allows. Same machinery as the Getting started step.
+  // X-610: the finish picked after the third real dictation, with the
+  // person's own words both ways. It used to be a square Tk window.
+  function renderFinishChoice(choice) {
+    const card = (title, detail, text, key, primary) => el("article", {class:"finish-card"}, [
+      el("h3", {text:title}), el("p", {class:"secondary", text:detail}),
+      el("div", {class:"finish-text", tabindex:"0", "aria-label":title + " version of your last dictation", text:text || "No words came back for this finish."}),
+      el("button", {text:"Use " + title, ...(primary ? {class:"primary"} : {}), onclick:event => action("finish_choice:" + key, {}, event.currentTarget)})]);
+    return el("section", {id:"finish-choice", class:"section finish-choice", "aria-label":"Pick your finish"}, [
+      el("h2", {text:"Pick your finish"}),
+      el("p", {class:"secondary", text:"Your last dictation, finished both ways. Pick the one you want every time. You can switch any time from the Pill menu."}),
+      el("div", {class:"finish-cards"}, [
+        card("Chill", "Your words, tidied: punctuation, capitals and lists.", choice.chill, "standard", true),
+        card("Executive", "Also polished for work: filler gone, grammar fixed.", choice.executive, "executive", false)]),
+      el("div", {class:"action-list"}, [el("button", {class:"quiet", text:"Decide later", onclick:event => action("finish_choice:later", {}, event.currentTarget)})])]);
+  }
   function renderSmartFormatting() {
     const panel = $("smart-formatting"); if (!panel) return;
     const f = state.data?.smart_formatting; panel.hidden = !f; panel.replaceChildren(); if (!f) return;

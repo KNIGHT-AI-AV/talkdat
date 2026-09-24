@@ -46,11 +46,13 @@ class AppShell:
         self.workspaces.reset_actions = self.reset_actions
         actions = self._actions()
         from knight_flow.smart_formatting import shared as smart_formatting
+        from .finish_choice import FinishChoice
+        self.finish_choice = FinishChoice(app.choose_finish)
         self.backend = ShellBackend(app.config, self.assets, self._persist, self._applied,
                                     self.overlay._settings_palette, actions=actions, menu=self._menu,
                                     system_preferences=self._preferences, models=self.models,
                                     menu_layout=self._menu_layout, microphones=self.devices.snapshot, workspaces=self.workspaces,
-                                    formatting=smart_formatting(app.config))
+                                    formatting=smart_formatting(app.config), finish_choice=self.finish_choice)
         self.settings_controller = controller_factory(self.assets, app._cross_thread_calls.put,
                                                      self.backend.handle, on_failure=self._settings_failed)
         self.menu_controller = controller_factory(self.assets, app._cross_thread_calls.put,
@@ -290,6 +292,16 @@ class AppShell:
         except Exception as error:
             log.warning('Web settings could not open (%s)', type(error).__name__)
             return False
+
+    def offer_finish_choice(self, chill, executive):
+        """X-610: the third-dictation finish choice, on the Writing page."""
+        if self._legacy:
+            return False
+        self.finish_choice.offer(chill, executive)
+        if self.open_settings("formatting"):
+            return True
+        self.finish_choice.pending = None
+        return False
 
     def open_menu(self, x, y):
         if self._legacy:

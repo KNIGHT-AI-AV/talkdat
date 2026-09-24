@@ -3,6 +3,16 @@
 All notable product changes to Talk DAT! are recorded here. The project uses beta
 versions while broader field verification remains in progress.
 
+## 0.4.164-beta
+
+Fewer old-style windows.
+
+- After your third dictation, the choice between Chill and Executive now
+  opens on the Writing page, in the same design as the rest of Talk DAT!. It
+  shows your own last dictation finished both ways, side by side.
+- An update now opens one window, not two. Home already shows what changed,
+  so the separate What's New window no longer opens on top of it.
+
 ## 0.4.163-beta
 
 Long dictations keep their sentences together.
