@@ -39,7 +39,7 @@ CASES = (
     ('one of a kind', 'one of a kind'),
     ('no one came', 'no one came'),
     ('I will be there in a second', 'I will be there in a second'),
-    ('one on one', 'one on one'),
+    ('one on one', 'one-on-one'),  # X-607: commandment 61 over the older pin
     ('call me when one of them arrives', 'call me when one of them arrives'),
     ('the phone is one of a kind', 'the phone is one of a kind'),
     ('my card is one of those old ones', 'my card is one of those old ones'),

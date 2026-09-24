@@ -38,6 +38,20 @@ $PreexistingVersion = if (Test-Path -LiteralPath $AppExe) {
 }
 $AppWasRunning = [bool](Get-Process -Name "Talk Dat!" -ErrorAction SilentlyContinue)
 
+# X-606: and which shortcuts it had. The uninstall removes all three, and the
+# restore's silent install decides them afresh (Start with Windows only if its
+# shortcut still exists, which after an uninstall it never does), so every
+# smoke on the owner's PC quietly switched off Start with Windows. Restored
+# exactly, both ways: what was there comes back, what was not stays gone.
+$ProgramsDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
+$ShortcutPaths = @(
+    (Join-Path $ProgramsDir "Startup\Talk DAT!.lnk"),
+    (Join-Path $ProgramsDir "Talk DAT!.lnk"),
+    (Join-Path ([Environment]::GetFolderPath("Desktop")) "Talk DAT!.lnk")
+)
+$ShortcutsBefore = @{}
+foreach ($path in $ShortcutPaths) { $ShortcutsBefore[$path] = Test-Path -LiteralPath $path }
+
 function Invoke-SilentOperation {
     param(
         [Parameter(Mandatory = $true)]
@@ -172,6 +186,22 @@ if ($PreexistingVersion) {
             -SuccessPattern "Silent install completed\." `
             -FailurePattern "Silent install failed:"
         Assert-InstalledState
+    }
+    $shell = New-Object -ComObject WScript.Shell
+    foreach ($path in $ShortcutPaths) {
+        $had = $ShortcutsBefore[$path]
+        $has = Test-Path -LiteralPath $path
+        if ($had -and -not $has) {
+            $link = $shell.CreateShortcut($path)
+            $link.TargetPath = $AppExe
+            $link.WorkingDirectory = $InstallDir
+            $link.IconLocation = "$AppExe,0"
+            $link.Save()
+            Write-Output "Put back the shortcut this machine had: $path"
+        } elseif ($has -and -not $had) {
+            Remove-Item -LiteralPath $path -Force
+            Write-Output "Removed a shortcut this machine did not have: $path"
+        }
     }
     if ($AppWasRunning) {
         Start-Process -FilePath $AppExe | Out-Null

@@ -61,15 +61,27 @@ class OnboardingHighDpiLayoutTests(unittest.TestCase):
         # for a widget it has not placed yet, not a measurement, so waiting for
         # a real number is the difference between measuring the layout and
         # measuring whether the layout had finished.
-        for _pass in range(40):
+        #
+        # And settle on the CLOCK, not on a pass count (2026-09-24). While a
+        # label still wraps at 1 px the wizard re-measures after 60 ms
+        # (_queue_content_extent_sync), so on an idle machine forty passes
+        # finished inside that window, the re-measure never ran, and five of
+        # these tests failed on code that had passed the day before under load.
+        deadline = time.monotonic() + 2.0
+        passes = 0
+        while True:
             wizard.window.geometry("1040x720+0+0")
             root.update_idletasks()
             root.update()
-            if _pass >= 2 and wizard.content.winfo_width() > 1:
+            passes += 1
+            if passes > 2 and wizard.content.winfo_width() > 1:
                 return
+            if time.monotonic() > deadline:
+                break
+            time.sleep(0.01)
         self.fail(
             f"the {step_id} page never laid out: "
-            f"content is {wizard.content.winfo_width()}px wide after 40 passes"
+            f"content is {wizard.content.winfo_width()}px wide after {passes} passes over 2 s"
         )
         # X-460c's own retry lives on a 60ms `after`, which needs real
         # wall-clock time to fire -- a back-to-back-window run (e.g. right

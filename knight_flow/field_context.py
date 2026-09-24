@@ -46,6 +46,8 @@ def is_terminal_app(name: object) -> bool:
 
 def _win32_edit_is_multiline(hwnd: int) -> bool | None:
     """A classic Win32 edit or rich edit states it in its own window style."""
+    if sys.platform != "win32":
+        return None
     import ctypes
 
     user32 = ctypes.windll.user32

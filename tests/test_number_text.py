@@ -44,7 +44,10 @@ class NumberNormalizationTests(unittest.TestCase):
                 self.assertIsNone(cardinal(text))
 
     def test_money_does_not_invent_units_or_cross_sentence_boundaries(self):
-        self.assertEqual(normalize_numbers("the cost is forty nine ninety nine"), "the cost is 49 99")
+        # X-607 (commandment 55): straight after a price word it is one price.
+        self.assertEqual(normalize_numbers("the cost is forty nine ninety nine"), "the cost is 49.99")
+        self.assertEqual(normalize_numbers("the price is nineteen ninety nine"), "the price is 19.99")
+        self.assertEqual(normalize_numbers("we met in nineteen ninety nine"), "we met in 1999")
         self.assertEqual(normalize_numbers("the plan costs nineteen dollars and the pro one is forty nine ninety nine"), "the plan costs $19 and the pro one is $49.99")
         self.assertEqual(normalize_numbers("nineteen dollars. The code is forty nine ninety nine"), "$19. The code is 4999")
 

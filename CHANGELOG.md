@@ -3,6 +3,30 @@
 All notable product changes to Talk DAT! are recorded here. The project uses beta
 versions while broader field verification remains in progress.
 
+## 0.4.162-beta
+
+Names come out right, and Talk DAT! stays out of the way when Windows restarts.
+
+- Names the speech engine wasn't sure of are put back. If you have Kaelyn in
+  your words list and the engine hears "Kalen", you get Kaelyn. This only
+  happens when the engine itself was unsure of that word and it sounds like
+  a name you gave it (from your words list, or a name on screen if screen
+  names are on). Words it heard clearly are never changed.
+- Fix a name by hand once and Talk DAT! learns the mishearing too. After you
+  correct "Kalen" to Kaelyn and the word is saved, "Kalen" becomes Kaelyn
+  from then on.
+- Talk DAT! no longer holds up a Windows restart or shutdown. Before, an open
+  right-click menu or Settings window could make Windows wait on it.
+- "press enter" in the middle of a sentence is written "press Enter".
+- "The price is nineteen ninety nine" becomes 19.99, while "we met in
+  nineteen ninety nine" still becomes 1999.
+- "One on one" becomes one-on-one and "fifty fifty" becomes 50/50.
+- "First we open settings and then we check privacy" stays one sentence.
+- Near-verbatim mode starts with a capital and keeps every other word as you
+  said it.
+- On a Mac, chat apps drop a lone full stop Talk DAT! added, the same as on
+  Windows. A full stop you say out loud stays.
+
 ## 0.4.161-beta
 
 Talk DAT! now knows what kind of box you are typing into.

@@ -53,15 +53,16 @@ class APlainWordIsNeverStoredOnRepetitionTests(unittest.TestCase):
 class AnOfferIsAQuestionNotADecisionTests(unittest.TestCase):
     def test_the_caller_only_remembers_on_learn(self) -> None:
         tick = re.search(r"def _clipboard_learn_tick.*?\n    def ", APP, re.S).group(0)
-        self.assertIn('if verdict == "learn" and remember(captured, self.config):', tick)
-        self.assertNotIn('if verdict != "ignore" and remember(', tick,
+        # X-608: learn_spelling is remember() plus the misheard alias, if any.
+        self.assertIn('if verdict == "learn" and learn_spelling(captured, self.config, delivered, unsure):', tick)
+        self.assertNotIn('if verdict != "ignore"', tick,
                          "an offer is being stored before anybody is asked")
 
     def test_an_offer_shows_a_pop_over_that_writes_only_on_yes(self) -> None:
         tick = re.search(r"def _clipboard_learn_tick.*?\n    def ", APP, re.S).group(0)
         branch = tick[tick.index('elif verdict == "offer":'):]
         self.assertIn("def accept(", branch)
-        self.assertIn("remember(word, self.config)", branch)
+        self.assertIn("learn_spelling(word, self.config, delivered, unsure)", branch)
         self.assertIn("offer_learned_word(captured, accept)", branch)
 
     def test_the_pop_over_asks_rather_than_announces(self) -> None:

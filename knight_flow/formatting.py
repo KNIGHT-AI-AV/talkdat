@@ -1660,8 +1660,14 @@ def _soft_break_run_on(line: str) -> str:
     if len(line.split()) < 18 and not _SOFT_BREAK_RE.search(line):
         return line
 
+    # X-607 (commandment 50): "first we open settings and then we check
+    # privacy" is one sentence with an ordinal pair, not two sentences.
+    first_then = re.match(r"\s*first\b", line, re.I)
+
     def render_transition(match: re.Match[str]) -> str:
         cue = match.group(1)
+        if first_then and cue.lower() == "and then":
+            return match.group(0)
         cue = re.sub(
             r"^and\s+(?=after that\b|before that\b|then\b)",
             "",

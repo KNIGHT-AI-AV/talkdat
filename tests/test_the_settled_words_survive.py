@@ -158,8 +158,10 @@ class NumbersAndNamesTests(unittest.TestCase):
         from tests.parity_battery import preset_config
 
         config = preset_config(local_config(None), "verbatim")
+        # X-607 (spec section 3.1): near-verbatim starts with a capital; the
+        # address stays as said.
         self.assertEqual(process_dictation("email jane dot doe at gmail dot com", config, local_only=True).text,
-                         "email jane dot doe at gmail dot com")
+                         "Email jane dot doe at gmail dot com")
 
 
 class ExactlyOneSpaceAtTheCaretTests(unittest.TestCase):

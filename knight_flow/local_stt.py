@@ -1072,16 +1072,81 @@ def _run(engine: Any, call: Callable[[], Any]) -> Any:
         return call()
 
 
-def _recognize_onnx(engine: Any, audio: Any, sample_rate: int) -> str:
+def word_confidence(result: Any) -> dict[str, float]:
+    """X-608: how sure the recognizer was of each word it wrote.
+
+    onnx_asr's timestamped result carries one log-probability per token. A
+    token that begins with a space begins a word; a word's confidence is its
+    least certain letter-bearing token (a trailing "?" is not the word). Keys
+    are the word in lower case, letters and apostrophes only, and a word said
+    twice keeps its lower score. Numbers are left out: nothing repairs them.
+    """
+    import math
+
+    tokens = list(getattr(result, "tokens", None) or [])
+    logprobs = list(getattr(result, "logprobs", None) or [])
+    words: dict[str, float] = {}
+    spelled, lowest = "", 1.0
+
+    def close() -> None:
+        key = "".join(ch for ch in spelled.lower() if ch.isalpha() or ch == "'").strip("'")
+        if key:
+            words[key] = min(lowest, words.get(key, lowest))
+
+    for token, logprob in zip(tokens, logprobs):
+        token = str(token)
+        if token.startswith((" ", "▁")):
+            close()
+            spelled, lowest = "", 1.0
+        spelled += token
+        if any(ch.isalpha() for ch in token):
+            try:
+                lowest = min(lowest, math.exp(float(logprob)))
+            except (TypeError, ValueError, OverflowError):
+                pass
+    close()
+    return words
+
+
+def _merge_confidence(into: dict[str, float] | None, heard: dict[str, float]) -> None:
+    if into is not None:
+        for word, value in heard.items():
+            into[word] = min(value, into.get(word, value))
+
+
+def _recognize_once(engine: Any, audio: Any, sample_rate: int, confidence: dict[str, float] | None) -> str:
+    """One recognition; with `confidence`, also how sure it was of each word.
+
+    The timestamped call is the same decode asking for log-probabilities as
+    well, so it costs nothing measurable (2026-09-24: 0.26 s either way once
+    warm). An engine without it -- a test double, an older onnx_asr -- answers
+    the plain way and simply reports no confidence.
+    """
+    stamped = getattr(engine, "with_timestamps", None) if confidence is not None else None
+    if callable(stamped):
+        result = stamped().recognize(audio, sample_rate=sample_rate)
+        _merge_confidence(confidence, word_confidence(result))
+        return result if isinstance(result, str) else str(getattr(result, "text", "") or "")
+    result = engine.recognize(audio, sample_rate=sample_rate)
+    return result if isinstance(result, str) else str(getattr(result, "text", "") or "")
+
+
+def _recognize_onnx(engine: Any, audio: Any, sample_rate: int,
+                    confidence: dict[str, float] | None = None) -> str:
     # Models cap out around 20-30s per utterance; chain VAD for longer takes.
     if len(audio) > sample_rate * _ONNX_UTTERANCE_CAP_S:
         try:
             import onnx_asr
 
             vad = onnx_asr.load_vad("silero")
-            results = _run(engine, lambda: engine.with_vad(vad, **_VAD_OPTIONS).recognize(audio, sample_rate=sample_rate))
+            chain = engine.with_vad(vad, **_VAD_OPTIONS)
+            if confidence is not None and callable(getattr(chain, "with_timestamps", None)):
+                chain = chain.with_timestamps()
+            results = _run(engine, lambda: list(chain.recognize(audio, sample_rate=sample_rate)))
             parts = []
             for result in results:
+                if confidence is not None:
+                    _merge_confidence(confidence, word_confidence(result))
                 text = getattr(result, "text", result)
                 if isinstance(text, str) and text.strip():
                     parts.append(text.strip())
@@ -1100,7 +1165,7 @@ def _recognize_onnx(engine: Any, audio: Any, sample_rate: int) -> str:
                 _ONNX_UTTERANCE_CAP_S,
                 exc_info=True,
             )
-            return _recognize_onnx_chunked(engine, audio, sample_rate)
+            return _recognize_onnx_chunked(engine, audio, sample_rate, confidence)
     if is_gpu_engine(engine) and len(audio):
         import numpy as np
 
@@ -1108,11 +1173,11 @@ def _recognize_onnx(engine: Any, audio: Any, sample_rate: int) -> str:
         target = int(padded_seconds(seconds) * sample_rate)
         if target > len(audio):
             audio = np.pad(audio, (0, target - len(audio)))
-    result = _run(engine, lambda: engine.recognize(audio, sample_rate=sample_rate))
-    return result if isinstance(result, str) else str(getattr(result, "text", "") or "")
+    return _run(engine, lambda: _recognize_once(engine, audio, sample_rate, confidence))
 
 
-def _recognize_onnx_chunked(engine: Any, audio: Any, sample_rate: int) -> str:
+def _recognize_onnx_chunked(engine: Any, audio: Any, sample_rate: int,
+                            confidence: dict[str, float] | None = None) -> str:
     """Fallback for long recordings when the VAD chain is unavailable.
 
     Fixed windows can split a word at a boundary; losing everything past the
@@ -1123,8 +1188,7 @@ def _recognize_onnx_chunked(engine: Any, audio: Any, sample_rate: int) -> str:
     window = sample_rate * _ONNX_UTTERANCE_CAP_S
     parts = []
     for start in range(0, len(audio), window):
-        result = engine.recognize(audio[start : start + window], sample_rate=sample_rate)
-        text = result if isinstance(result, str) else str(getattr(result, "text", "") or "")
+        text = _recognize_once(engine, audio[start : start + window], sample_rate, confidence)
         if text.strip():
             parts.append(text.strip())
     return " ".join(parts)
@@ -1217,7 +1281,10 @@ def transcribe(
     task: str = "",
     status_cb: StatusCallback | None = None,
     vocabulary: tuple[str, ...] = (),
+    word_confidence: dict[str, float] | None = None,
 ) -> str:
+    """Local speech to text. With `word_confidence` (a dict to fill), the
+    Parakeet path also records how sure it was of each word (X-608)."""
     model = local_model_for_id(model_id)
     # X-473: once CUDA has proved it cannot run here, stop paying for it. The
     # attempt costs a model load and a failure on every dictation otherwise.
@@ -1240,7 +1307,7 @@ def transcribe(
         if registered:
             _GPU_ENGINE_IDS.add(id(adapted))
         try:
-            return _recognize_onnx(adapted, audio, sample_rate)
+            return _recognize_onnx(adapted, audio, sample_rate, word_confidence)
         finally:
             if registered:
                 _GPU_ENGINE_IDS.discard(id(adapted))

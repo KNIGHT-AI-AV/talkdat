@@ -169,6 +169,37 @@ def remember_correction(misheard: str, spelling: str, config: dict) -> bool:
     return True
 
 
+def misheard_form(spelling: str, delivered: str, unsure: object) -> str:
+    """X-608 (commandment 99): the word a hand-fix replaced, or "".
+
+    The person copied `spelling` after a dictation that did not contain it.
+    If that dictation held exactly one word that SOUNDS like it (name_repair's
+    skeleton, three sounds or more) AND the recognizer was unsure of that
+    word, the copy is a correction of it: remember_correction stores it as
+    the spelling's sounds-like alias, so the same mishearing is fixed from
+    then on. Confidence is what keeps an ordinary word out: "clean" sounds
+    like Kaelyn, but the recognizer is sure of "clean", so it is never paired.
+    """
+    from .name_repair import MIN_SOUNDS, sound_skeleton, unsure_words
+
+    doubtful = unsure_words(unsure)
+    key = sound_skeleton(spelling)
+    if not doubtful or len(key) < MIN_SOUNDS:
+        return ""
+    found = {word.lower() for word in re.findall(r"[A-Za-z][A-Za-z']*", delivered or "")
+             if word.lower() in doubtful and word.lower() != spelling.lower()
+             and sound_skeleton(word) == key}
+    return found.pop() if len(found) == 1 else ""
+
+
+def learn_spelling(spelling: str, config: dict, delivered: str = "", unsure: object = None) -> bool:
+    """remember(), and when the fix names what it replaced, remember that too."""
+    misheard = misheard_form(spelling, delivered, unsure)
+    if misheard and remember_correction(misheard, spelling, config):
+        return True
+    return remember(spelling, config)
+
+
 def forget(token: str, config: dict) -> bool:
     """Remove a word this feature added. Only 'learned' entries are touched --
     a hand-added term is a decision, and Don't-save on a pop-over must never

@@ -334,6 +334,13 @@ def _cardinals(text: str) -> str:
                     else:
                         groups.append(str(UNITS.get(word, TENS.get(word))))
                         index += 1
+                # X-607 (commandment 55): straight after a price word, two
+                # spoken groups are one price: "the price is nineteen ninety
+                # nine" -> 19.99. No symbol, because no currency was said.
+                if (len(groups) == 2 and len(groups[1]) == 2 and 10 <= int(groups[1]) <= 99
+                        and re.search(r"\b(?:prices?|priced|costs?|costing|charges?|fee)\b"
+                                      r"(?:\s+(?:is|was|are|were|at|of|comes to|came to))?\s*$", before, re.I)):
+                    return f"{groups[0]}.{groups[1]}"
                 context = _number_context(before)
                 separator = '' if context in {'identifier', 'ssn', 'card', 'phone'} else ', ' if context == 'list' else ' '
                 return separator.join(groups)
@@ -510,9 +517,12 @@ def _date_years(text: str) -> str:
 
 
 _IDIOMS = (
-    # Idiomatic numbers keep their idiom (commandment 61). "one on one"
-    # stays as said: tests/test_number_intent.py pins it in words.
+    # Idiomatic numbers are written the way people write them (commandment
+    # 61): 24/7, 50/50, one-on-one. X-607, owner's call 2026-09-24: the spec
+    # wins over the older pinned "one on one".
     (re.compile(r"\btwenty[ -]four[ -]seven\b", re.IGNORECASE), "24/7"),
+    (re.compile(r"\bfifty[ -]fifty\b", re.IGNORECASE), "50/50"),
+    (re.compile(r"\bone[ -]on[ -]one\b", re.IGNORECASE), lambda m: "One-on-one" if m[0][0] == "O" else "one-on-one"),
 )
 
 

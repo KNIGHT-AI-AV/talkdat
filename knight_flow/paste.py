@@ -1035,6 +1035,11 @@ def left_context_char(previous_clipboard: str, timeout: float = 0.08) -> str:
 MESSENGER_PROCESSES = {
     "discord.exe", "slack.exe", "whatsapp.exe", "telegram.exe", "teams.exe",
     "ms-teams.exe", "signal.exe", "messenger.exe",
+    # The Mac reports app bundles (mac_support.frontmost_app_name), so the
+    # rule never fired there until these were listed. Messages is iMessage.
+    "discord.app", "slack.app", "whatsapp.app", "telegram.app", "telegram desktop.app",
+    "microsoft teams.app", "microsoft teams (work or school).app", "signal.app",
+    "messenger.app", "messages.app",
 }
 
 

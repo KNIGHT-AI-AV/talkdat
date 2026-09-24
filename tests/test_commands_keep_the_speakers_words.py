@@ -115,10 +115,12 @@ class EnterFiresOnlyOnAStandaloneTrailingCommandTests(unittest.TestCase):
     def test_through_the_pipeline_including_near_verbatim(self) -> None:
         config = local_config()
         result = process_dictation("to submit the form just press enter", config, local_only=True)
-        self.assertEqual((result.text, result.send_enter), ("To submit the form just press enter.", False))
+        # X-607 (commandment 96): the key keeps its name, Enter.
+        self.assertEqual((result.text, result.send_enter), ("To submit the form just press Enter.", False))
         verbatim = preset_config(local_config(), "verbatim")
         result = process_dictation("to submit the form just press enter", verbatim, local_only=True)
-        self.assertEqual((result.text, result.send_enter), ("to submit the form just press enter", False))
+        # Near-verbatim keeps every word as said and still starts with a capital (spec 3.1).
+        self.assertEqual((result.text, result.send_enter), ("To submit the form just press enter", False))
         result = process_dictation("press enter", preset_config(local_config(), "verbatim"), local_only=True)
         self.assertEqual((result.text, result.send_enter), ("", True))
 

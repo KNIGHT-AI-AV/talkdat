@@ -190,6 +190,13 @@ class AChatAppKeepsASaidPeriodTests(unittest.TestCase):
             self.assertEqual(paste.strip_messenger_trailing_period("Sounds good."), "Sounds good")
             self.assertEqual(paste.strip_messenger_trailing_period("Sounds good.", keep=True), "Sounds good.")
 
+    def test_mac_chat_apps_are_chat_apps_too(self):
+        from knight_flow import paste
+
+        for app in ("slack.app", "messages.app", "whatsapp.app", "discord.app"):
+            with self.subTest(app=app), patch.object(paste, "foreground_process_name", return_value=app):
+                self.assertEqual(paste.strip_messenger_trailing_period("Sounds good."), "Sounds good")
+
 
 if __name__ == "__main__":
     unittest.main()

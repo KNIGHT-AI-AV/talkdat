@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-APP_VERSION = "0.4.161-beta"
+APP_VERSION = "0.4.162-beta"
 APP_REPOSITORY = "KNIGHT-AI-AV/talk-dat-releases"
 APP_PRODUCT_URL = "https://www.talkdat.app/"
 APP_RELEASES_URL = f"https://github.com/{APP_REPOSITORY}/releases"

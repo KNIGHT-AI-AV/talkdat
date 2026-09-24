@@ -934,6 +934,10 @@ def process_dictation(raw: str, config: dict[str, Any], *, local_only: bool = Fa
         rejection = last_rejection_reason() if route.endswith("rules_after_rejection") else ""
     else:
         text = cleanup_text(text, config)
+        if str(cleanup.get("level", "")).lower() == "none":
+            # X-607 (spec section 3.1): near-verbatim keeps every word as
+            # said, and the take still starts with a capital.
+            text = re.sub(r"^(\W*)([a-z])", lambda m: m[1] + m[2].upper(), text, count=1)
 
     # Applied to BOTH paths, after formatting, because the false "?" arrives
     # from the provider's intonation reading and survives every route --
@@ -941,6 +945,10 @@ def process_dictation(raw: str, config: dict[str, Any], *, local_only: bool = Fa
     from .formatting import demote_false_questions
 
     text = demote_false_questions(text)
+    if str(cleanup.get("level", "")).lower() != "none":
+        # X-607 (commandment 96): a "press enter" that stayed in the text is
+        # an instruction about the key, and the key is called Enter.
+        text = re.sub(r"\b(press|hit|tap)\s+enter\b", lambda m: m[1] + " Enter", text, flags=re.I)
 
     # X-13, the real field bug: vocabulary used to run BEFORE formatting, so
     # the moment it produced "Talk DAT!" the sentence machinery read the
@@ -1007,6 +1015,15 @@ def complete_prepared_dictation(processed: ProcessedText, config: dict[str, Any]
         return processed
     started = time.perf_counter() if started is None else started
     text = processed.text
+    if config.get("_asr_confidence") and str(config.get("_field") or "") != "console":
+        # X-608 (commandments 6 and 7): a name the recognizer was unsure of,
+        # put back from the dictionary or the screen. Here, on the finished
+        # text, so the prepared and the fresh route both get it and the
+        # progressive formatter's cache never has to know about confidence.
+        # Never in a terminal: a command's arguments are not names.
+        from .name_repair import repair_names
+
+        text = repair_names(text, config)
     if processed.notice:
         from .formatting import note_local_finish_refusal
         note_local_finish_refusal(processed.notice)

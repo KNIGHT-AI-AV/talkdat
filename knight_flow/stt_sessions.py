@@ -118,6 +118,10 @@ class BatchSTTSession:
         self._audio = bytearray()
         self._transport_lock = threading.Lock()
         self._transport_reasons: list[str] = []
+        # X-608: how sure the local recognizer was of each word of this take
+        # (lowest score wins across segments). Read once the take is done.
+        self.word_confidence: dict[str, float] = {}
+        self._confidence_lock = threading.Lock()
 
     @property
     def running(self) -> bool:
@@ -221,7 +225,7 @@ class BatchSTTSession:
                 partials=LivePartials(),
                 tail_span=progressive["planner"].tail_span,
                 audio_slice=lambda start, end: bytes(self._audio[start:end]),
-                decode=lambda pcm: self._transcribe_local(self._wav_bytes(pcm)).strip(),
+                decode=lambda pcm: self._transcribe_local(self._wav_bytes(pcm), record=False).strip(),
                 on_text=lambda text: self._safe_update(text, False),
                 sample_rate=self.sample_rate,
                 channels=self.channels,
@@ -637,7 +641,9 @@ class BatchSTTSession:
         data = json.loads(raw.decode("utf-8", errors="replace"))
         return extract_text(data)
 
-    def _transcribe_local(self, wav_bytes: bytes) -> str:
+    def _transcribe_local(self, wav_bytes: bytes, *, record: bool = True) -> str:
+        """`record=False` for the live caption tail: a rolling guess at a
+        half-said word is not evidence about the words that land."""
         from . import local_stt
         # X-405: transcribe the bytes this call was handed. This used to read
         # the whole buffer whatever it was given, so every progressive
@@ -647,7 +653,8 @@ class BatchSTTSession:
         if not pcm16:
             pcm16 = bytes(self._audio)
 
-        return local_stt.transcribe(
+        heard: dict[str, float] | None = {} if record else None
+        text = local_stt.transcribe(
             model_id=self.model,
             pcm16=pcm16,
             sample_rate=self.sample_rate,
@@ -657,7 +664,13 @@ class BatchSTTSession:
             task="translate" if self.extra.get("translate") else "",
             status_cb=self._safe_status,
             vocabulary=self.recognition_vocabulary,
+            word_confidence=heard,
         )
+        if heard:
+            with self._confidence_lock:
+                for word, value in heard.items():
+                    self.word_confidence[word] = min(value, self.word_confidence.get(word, value))
+        return text
 
     def _transcribe_gemini(self, wav_bytes: bytes) -> str:
         base = self.api_base or "https://generativelanguage.googleapis.com"

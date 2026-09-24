@@ -2661,6 +2661,8 @@ class TalkDatApp:
                                "" if self._secure_take(token) else preview(raw_text, 112))
         with self.lock:
             session = self.session
+            # X-608: the recognizer's unsure words ride with this take only.
+            self._take_confidence = (token, dict(getattr(session, "word_confidence", None) or {}))
             capture = (
                 getattr(self, "safety_capture", None)
                 if token is getattr(self, "safety_capture_token", None)
@@ -3223,6 +3225,16 @@ class TalkDatApp:
             effective_config = {**effective_config, "_screen_names": screen_names}
         formatter = getattr(self, "_progressive_formatter", None)
         prepared = formatter.take(raw_text, effective_config) if formatter is not None else None
+        # X-608: added after the prepared lookup, whose cache is keyed on the
+        # config; the name repair runs at completion, on either route.
+        from .name_repair import unsure_words
+
+        saved_confidence = getattr(self, "_take_confidence", None)
+        if explicit_flight and saved_confidence is not None and saved_confidence[0] is delivery_token:
+            unsure = unsure_words(saved_confidence[1])
+            if unsure:
+                effective_config = {**effective_config, "_asr_confidence": {
+                    word: saved_confidence[1][word] for word in saved_confidence[1] if word in unsure}}
         if prepared is not None:
             from .text_pipeline import complete_prepared_dictation
             processed = complete_prepared_dictation(prepared, effective_config, started=format_started)
@@ -3528,6 +3540,9 @@ class TalkDatApp:
         if not secure_take:
             self.last_original = processed.original
             self.last_transcript = processed.text
+            # X-608: which of these words the recognizer was unsure of, for
+            # the clipboard learner to pair a hand-fix with what it fixed.
+            self._last_take_unsure = (processed.text, dict(effective_config.get("_asr_confidence") or {}))
             self.last_diff = unified_diff(processed.original, processed.text)
             # X-137: the raw words behind the last result, kept for the finish
             # chooser (both onboarding's and the day-two prompt's A/B preview).
@@ -4024,7 +4039,7 @@ class TalkDatApp:
             if bool(self.config.get("dictionary", {}).get("auto_learn", True)) and self.last_transcript:
                 import pyperclip
 
-                from .learned_words import forget, note_fix_evidence, remember
+                from .learned_words import forget, learn_spelling, note_fix_evidence
 
                 from .paste import clipboard_is_private
 
@@ -4043,11 +4058,16 @@ class TalkDatApp:
                     # its second deliberate fix inside two weeks; a dismissal
                     # is a tombstone and never comes back.
                     verdict = note_fix_evidence(captured, self.config, time.time())
+                    # X-608: the take's unsure words, while the text they
+                    # belong to is still the last thing delivered.
+                    delivered, unsure = getattr(self, "_last_take_unsure", None) or ("", {})
+                    if delivered != self.last_transcript:
+                        unsure = {}
                     # X-466: "learn" and "offer" are different answers and used
                     # to do the same thing -- both called remember() and the
                     # difference reached the log alone, so the setting that was
                     # meant to ask never asked.
-                    if verdict == "learn" and remember(captured, self.config):
+                    if verdict == "learn" and learn_spelling(captured, self.config, delivered, unsure):
                         self.save_settings()
                         log.info("learned a corrected word from the clipboard")
 
@@ -4063,8 +4083,8 @@ class TalkDatApp:
                         # yes writes it to the dictionary.
                         log.info("offering a word from the clipboard")
 
-                        def accept(word: str = captured) -> None:
-                            if remember(word, self.config):
+                        def accept(word: str = captured, delivered: str = delivered, unsure: dict = unsure) -> None:
+                            if learn_spelling(word, self.config, delivered, unsure):
                                 self.save_settings()
 
                         self.overlay.root.after(

@@ -201,6 +201,11 @@ class _RendererApi:
             self._window.move(x, y)
 
     def _closing(self):
+        if session_is_ending():
+            # Never veto Windows: the window closes with the session.
+            self._force_close = True
+            self._close_event(True)
+            return True
         if self._mode == 'menu' and not self._force_close:
             threading.Timer(0.01, self._window.hide).start()
             return False
@@ -267,6 +272,40 @@ def _install_mac_policy():
     BrowserView.BrowserDelegate = TalkDatBundledDelegate
 
 
+#: Set when Windows announces the session is ending (SystemEvents.SessionEnding).
+_SESSION_ENDING = threading.Event()
+
+
+def session_is_ending():
+    """Windows is signing out, restarting or shutting down.
+
+    X-606, 2026-09-24: the owner's PC restarted and Windows logged "Talk Dat!.exe
+    attempted to veto the shutdown". _closing cancels a close to hide the menu
+    or to let Settings ask about a draft, and a cancelled close during shutdown
+    IS a veto. Two independent signals, because the order in which Windows
+    asks each window is not defined: SM_SHUTTINGDOWN, and the session-ending
+    event this process subscribed to.
+    """
+    if _SESSION_ENDING.is_set():
+        return True
+    if sys.platform != 'win32':
+        return False
+    try:
+        import ctypes
+        return bool(ctypes.WinDLL('user32').GetSystemMetrics(0x2000))  # SM_SHUTTINGDOWN
+    except Exception:
+        return False
+
+
+def _watch_session_end():
+    """Flag the session end the moment Windows announces it (pythonnet only)."""
+    if sys.platform != 'win32':
+        return
+    with contextlib.suppress(Exception):
+        from Microsoft.Win32 import SystemEvents
+        SystemEvents.SessionEnding += lambda _sender, _args: _SESSION_ENDING.set()
+
+
 def _run_window(connection, html, page, hidden=False, mode='settings', bounds=None):
     import webview
     webview.settings['ALLOW_DOWNLOADS'] = False
@@ -297,6 +336,7 @@ def _run_window(connection, html, page, hidden=False, mode='settings', bounds=No
     window = webview.create_window('Talk DAT!', html=html, js_api=api, hidden=hidden or mode == 'menu',
                                    background_color='#061012', zoomable=mode != 'menu', **options)
     api._window = window
+    _watch_session_end()
     def protect_navigation():
         if sys.platform == 'win32':
             native = window.native.browser.webview

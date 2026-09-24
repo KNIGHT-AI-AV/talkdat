@@ -299,7 +299,7 @@ def run_hold(config: dict, hold_seconds: float = 3.0, *, cancel: bool = False) -
     def open_stream(**kwargs):
         return FakeStream(kwargs["callback"], chunks), 16000, 1, None
 
-    def fake_local(self, wav_bytes: bytes) -> str:
+    def fake_local(self, wav_bytes: bytes, **_options) -> str:  # X-608: record=
         pcm = stt_sessions.pcm16_from_wav(wav_bytes)
         return f"words for {len(pcm) // 32000} seconds"
 

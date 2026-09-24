@@ -78,7 +78,7 @@ _CARET_KEYS = frozenset({"left", "right", "previous_take"})
 # Context the formatter never receives. Running the case without it is the
 # test: the output may not depend on what was on screen.
 _UNREAD_CONTEXT = frozenset({"document_text", "thread_text", "thread_language", "reply_to", "today",
-                             "clipboard", "app", "asr_confidence"})
+                             "clipboard", "app"})
 
 SKIP_AUDIO = "end_to_end: needs recorded audio (docs/DICTATION-COMMANDMENTS.md section 6.1)"
 SKIP_NATIVE = "native delivery (focus, clipboard timing): paste layer, not the formatter"
@@ -189,6 +189,9 @@ def case_config(case: dict[str, Any], base: dict[str, Any]) -> dict[str, Any]:
         config["_screen_names"] = names
     if str(context.get("field", "")) in _FIELD_KINDS:
         config["_field"] = str(context["field"])
+    if context.get("asr_confidence"):
+        # X-608: what local_stt reports for the take (word -> probability).
+        config["_asr_confidence"] = dict(context["asr_confidence"])
     return config
 
 
