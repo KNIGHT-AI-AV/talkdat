@@ -190,7 +190,7 @@ class _RendererApi:
             # Tk's anchor and monitor rectangles are physical pixels. pywebview's
             # move/resize multiply by monitor DPI, so apply these bounds directly.
             hwnd = int(self._window.native.Handle.ToInt64())
-            position = ctypes.windll.user32.SetWindowPos
+            position = ctypes.WinDLL('user32', use_last_error=True).SetWindowPos  # private: argtypes below
             position.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
                                  ctypes.c_int, ctypes.c_int, wintypes.UINT)
             position.restype = wintypes.BOOL
@@ -240,6 +240,9 @@ class _RendererApi:
                             self._place_menu(message.get('bounds'))
                         self._window.evaluate_js('window.TalkDat.navigate(' + json.dumps(page) + ');true')
                         self._show()
+                        if self._mode == 'menu':
+                            # Whatever showing did, the menu ends on the Pill.
+                            self._place_menu(message.get('bounds'))
                     continue
                 with self._requests_lock:
                     pending = self._pending.get(message.get('id'))
@@ -284,6 +287,13 @@ def _run_window(connection, html, page, hidden=False, mode='settings', bounds=No
                    'frameless': True, 'easy_drag': False, 'on_top': True, 'resizable': False}
         if bounds is not None and sys.platform != 'win32':
             options.update(zip(('x', 'y', 'width', 'height'), bounds))
+        elif sys.platform == 'win32':
+            # X-605: with no position pywebview starts the form CenterScreen,
+            # and WinForms applies that on the FIRST Show() -- after
+            # _place_menu had already put the window on the Pill. The first
+            # menu after every launch opened centred somewhere else, often on
+            # another monitor. A manual start keeps _place_menu's position.
+            options.update(x=0, y=0)
     window = webview.create_window('Talk DAT!', html=html, js_api=api, hidden=hidden or mode == 'menu',
                                    background_color='#061012', zoomable=mode != 'menu', **options)
     api._window = window
@@ -304,6 +314,7 @@ def _run_window(connection, html, page, hidden=False, mode='settings', bounds=No
             api._place_menu(bounds)
             if not hidden:
                 api._show()
+                api._place_menu(bounds)
         api._ready.set()
     window.events.loaded += ready
     threading.Thread(target=api._read, name='TalkDatShellReplies', daemon=True).start()

@@ -42,7 +42,7 @@ check of its own.
 |---|---|---|
 | Speech model download | `huggingface.co`, pinned revisions | the first time you pick a local model (the default model is prepared on first launch) |
 | NVIDIA CUDA runtime | `files.pythonhosted.org` | only if you ask for GPU acceleration on an NVIDIA card |
-| Ollama | `ollama.com` (opened in your browser) and the local Ollama server on `127.0.0.1` | only if you set up local formatting or translation |
+| Ollama | `ollama.com` (opened in your browser) and the local Ollama server on `127.0.0.1`. On a Mac without Homebrew, Set up smart formatting downloads the Ollama app from `ollama.com/download/Ollama-darwin.zip`, which is served from Ollama's GitHub releases; with Homebrew, Homebrew downloads it | only if you set up local formatting or translation; the Mac download only when you choose Set up smart formatting |
 | Your own provider | the provider whose key you added (Deepgram, OpenAI and others) | only on that route, and never while the Local route is on: `knight_flow/net_fence.py` refuses the connection |
 | Links | talkdat.app pages, provider sign-up pages | opened in your browser when you click them |
 

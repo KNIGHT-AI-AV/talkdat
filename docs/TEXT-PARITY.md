@@ -390,3 +390,59 @@ now does ("a dot" became "a period", a synonym the literal annotation
 counts). Contracts deliberately reversed: "it was kind of slow" keeps "kind
 of" (tests/test_the_model_formats_every_take.py), and fresh installs default
 to Chill (tests/test_formatter_route.py).
+
+## September 23 (X-603): the Executive polish keeps the speaker's words
+
+Executive is the owner's own finish, and X-602 left it rewording faithful
+dictation ("just" -> "simply", "doc" -> "document", "Don't" -> "Do not",
+"you know what I mean" -> "I mean that."). Full tables and failing ids:
+docs/COMMANDMENT-RESULTS.md.
+
+- **The polish is grammar and filler phrases.** An Executive answer is
+  held to the speaker's words like Chill (`words_added`, `words_dropped`,
+  `correction_reversed`), except that it may drop "so basically" and "like"
+  and make "gonna"/"wanna"/"gotta" "will"/"want"/"have". Anything else is
+  refused into the existing Chill retry.
+- **Both finishes, new checks**: a joining word nobody said, a conjunction
+  dropped or swapped (counted per word), digits turned into words or given
+  precision ("3" -> "3:00"), the verb "you know" dropped, a correction cue
+  dropped with both versions kept (`correction_unresolved`), a list made of
+  prose with a dictated semicolon. "I'm sorry" and "can't make it" are no
+  longer correction cues.
+- **Repairs instead of refusals** for three 4B habits: the speaker's
+  contractions come back, a greeting without a sign-off stays on its line,
+  and a minus the draft never had is dropped.
+- **Rules**: a correction that names what it replaces, one word set off and
+  corrected, a counted list with a participle and prose after it, the
+  addressee's capital, comma and question mark, and "like" as padding
+  between a copula and an intensifier.
+- **Prompt**: the Executive line says "fix grammar ("gonna" becomes
+  "will") and drop filler phrases ... no synonyms" and its example changes
+  only "So basically" and "is gonna" (894 of 900 estimated tokens).
+
+Measured on the owner's PC on 2026-09-23 with the 4B, no other Ollama
+client running; "before" is X-602 as committed (`27d9ffb`) re-measured the
+same day. Three commandment runs per model lane on each side were
+byte-identical; the parity rows are one run each.
+
+| Lane | Corpus | Exact before -> after | Acceptable | Data loss | Meaning chg | Enter wrong | Critical failing |
+|---|---|---|---|---|---|---|---|
+| Rules | commandment cases (205 run) | 121 -> **130** | 143 -> **153** pass | | | 0 -> 0 | 6 -> **3** |
+| Rules | 09-18 + 09-22 (193 scored) | 156 -> **157** | 160 -> 161 | 0 -> 0 | 0 -> 0 | 0 -> 0 | |
+| Rules | 09-23 (100 scored) | 84 -> **85** | 92 -> 93 | 0 -> 0 | 0 -> 0 | 0 -> 0 | |
+| 4B Chill | commandment cases | 136 -> **145** | 159 -> **171** pass | | | 0 -> 0 | 5 -> **3** |
+| 4B Chill | 09-18 + 09-22 | 176 -> **179** | 186 -> 188 | 0 -> 0 | 1 -> 1 | 0 -> 0 | |
+| 4B Chill | 09-23 | 84 -> **88** | 92 -> 96 | 0 -> 0 | 0 -> 0 | 0 -> 0 | |
+| 4B Executive | commandment cases | 112 -> **144** | 125 -> **168** pass | | | 0 -> 0 | 22 -> **2** |
+| 4B Executive | 09-18 + 09-22 | 136 -> **171** | 148 -> 184 | 0 -> 0 | 3 -> **1** | 0 -> 0 | |
+| 4B Executive | 09-23 | 75 -> **86** | 80 -> 92 | 0 -> 0 | 7 -> **0** | 0 -> 0 | |
+
+Unresolved corrections: rules 7 -> 7, Chill 1 -> 0, Executive 0 -> 0. The
+one meaning change left on each model lane is the same row ("count list
+clauses"). Five rows lost an exact match, none a safety check, all flipped
+by the prompt change: Chill "signoff name only" and "lang french street";
+Executive "em dash in" (an added "on"), "repeat so so" and "cmd song
+title". Latency on the commandment cases, same machine: Executive median
+214-220 -> 202-206 ms, p90 411-429 -> 393-402 ms; the validator change
+alone had pushed the p90 to 471 ms (62 Chill retries, 22 after the prompt
+change). The validator costs 0.75 ms median per answer (0.66 before).

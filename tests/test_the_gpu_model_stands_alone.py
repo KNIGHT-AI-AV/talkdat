@@ -38,6 +38,13 @@ def no_process(*_a, **_k):
 
 class Clean(unittest.TestCase):
     def setUp(self):
+        # This suite tests the cross-platform upgrade path, not the Mac's own
+        # memory gate (that's tests/test_mac_smart_formatting_setup.py); a
+        # Mac under 16 GB running this suite for real would otherwise never
+        # see the 4B upgrade these tests exercise.
+        patcher = mock.patch("knight_flow.mac_support.gpu_model_fits", return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.addCleanup(self.reset)
         self.reset()
 

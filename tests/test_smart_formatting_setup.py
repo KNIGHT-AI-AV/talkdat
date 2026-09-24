@@ -63,6 +63,7 @@ class EngineFixture(unittest.TestCase):
             "knight_flow.llm.local_finish_speed": lambda base, model: None,
             "knight_flow.llm.warm_local_finish": lambda base, model: self.calls.append(("warm", model)),
             "knight_flow.smart_formatting.engine_installer_available": lambda: True,
+            "knight_flow.mac_support.IS_MAC": False,
             "urllib.request.urlopen": no_network,
             "webbrowser.open": self.browser,
         }

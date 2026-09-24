@@ -2000,6 +2000,12 @@ class TalkDatApp:
             token = object()
             self.session_token = token
             self._session_profile = (token, profile)
+            # X-604: the kind of field this take is going into (password,
+            # terminal, single line), read off this thread while the person's
+            # focus is still on it. Nothing here waits for the answer.
+            from .field_context import FieldProbe
+
+            self._session_field = (token, FieldProbe.start())
             progressive_formatter = getattr(self, "_progressive_formatter", None)
             if progressive_formatter is not None:
                 progressive_formatter.reset()
@@ -2500,7 +2506,25 @@ class TalkDatApp:
             return "Microphone access is off. Turn Talk DAT! on in Privacy & Security."
         return "No speech heard. Closing mic to protect credits."
 
+    def _field_probe(self, token: object) -> Any:
+        saved = getattr(self, "_session_field", None)
+        return saved[1] if saved is not None and saved[0] is token else None
+
+    def _secure_take(self, token: object) -> bool:
+        """X-604 (commandment 78): a take whose words must not be shown or kept.
+
+        While the field read is still answering, the take counts as secure for
+        anything that would put its words on screen or on disk.
+        """
+        probe = self._field_probe(token)
+        return probe is not None and probe.secure_or_pending()
+
     def prepare_stable_dictation(self, token: object, text: str, config: dict[str, Any]) -> None:
+        from .field_context import CONSOLE
+
+        probe = self._field_probe(token)
+        if probe is not None and (probe.secure_or_pending() or probe.result(0) == CONSOLE):
+            return  # no model runs on a password, and a command is never rewritten
         with self.lock:
             formatter = getattr(self, "_progressive_formatter", None)
             if self.session_token is token and formatter is not None:
@@ -2511,6 +2535,10 @@ class TalkDatApp:
             return
         state = "command" if mode == "command" else "listening"
         label = "Command" if mode == "command" else ("Captured" if is_final else "Hearing")
+        if self._secure_take(token):
+            # X-604: a password field. No preview, no caption, no crash draft.
+            self.overlay.set_state(state, "Password field: your words are not shown.", "")
+            return
         self.write_live_draft(mode, text, is_final)
         # X-32: the caption strip eats the same partial stream the pill
         # previews -- no second transcription, no extra latency.
@@ -2629,7 +2657,8 @@ class TalkDatApp:
         # Some providers complete without first emitting a finalizing status.
         # Enter processing before any recovery or cleanup work so release always
         # hands directly from the live pill to the rainbow progress state.
-        self.overlay.set_state("processing", "Finalizing captured speech.", preview(raw_text, 112))
+        self.overlay.set_state("processing", "Finalizing captured speech.",
+                               "" if self._secure_take(token) else preview(raw_text, 112))
         with self.lock:
             session = self.session
             capture = (
@@ -3162,13 +3191,26 @@ class TalkDatApp:
         )
         guided_delivery_reserved = callable(reserved_sink)
         post_stt_started = time.perf_counter()
-        self.overlay.set_state("processing", "Formatting transcript.", preview(raw_text, 112))
+        from .field_context import CONSOLE, PASSWORD, SINGLE_LINE
+
+        saved_field = getattr(self, "_session_field", None)
+        field_probe = (saved_field[1] if explicit_flight and saved_field is not None
+                       and saved_field[0] is delivery_token else None)
+        field = field_probe.result() if field_probe is not None else ""
+        secure_take = field == PASSWORD
+        self.overlay.set_state("processing", "Formatting transcript.",
+                               "" if secure_take else preview(raw_text, 112))
         saved_profile = getattr(self, "_session_profile", None)
         if explicit_flight and saved_profile is not None and saved_profile[0] is delivery_token:
             profile = saved_profile[1]
         else:
             profile = active_profile(self.config)
         effective_config = apply_profile(self.config, profile)
+        if field in {PASSWORD, CONSOLE, SINGLE_LINE}:
+            # Only these change the text, so only these change the config the
+            # progressive formatter keyed its prepared result on.
+            effective_config = {**effective_config, "_field": field}
+        translate_ok = field not in {PASSWORD, CONSOLE}
         # Safe single delivery: wait for the final formatting result and insert
         # it exactly once. The older speculative route pasted a local draft and
         # later used Ctrl+Z/Ctrl+V to replace it. If Ctrl+Z committed but Ctrl+V
@@ -3196,7 +3238,7 @@ class TalkDatApp:
         translation_receipt: dict[str, Any] | None = None
         translation_error = ""
         skip_translation = False
-        if processed.text and auto_translation_enabled(effective_config):
+        if processed.text and translate_ok and auto_translation_enabled(effective_config):
             # X-30: bilingual auto-detect, opt-in and conservative. Its ONLY
             # power is to skip the translation when the utterance is already
             # decisively in the target language -- flip to Spanish mid-flow
@@ -3217,7 +3259,7 @@ class TalkDatApp:
                 skip_translation = False
             if skip_translation:
                 log.info("bilingual auto-detect: already in the target language; delivered untouched")
-        if processed.text and auto_translation_enabled(effective_config) and not skip_translation:
+        if processed.text and translate_ok and auto_translation_enabled(effective_config) and not skip_translation:
             self.overlay.set_state("processing", "Translating.", preview(processed.text, 112))
             try:
                 translated = translate_text(processed.text, effective_config)
@@ -3236,9 +3278,10 @@ class TalkDatApp:
             return cancelled_result()
 
         if not processed.text and not processed.send_enter:
-            self.last_original = processed.original
-            self.last_transcript = processed.text
-            self.last_diff = unified_diff(processed.original, processed.text)
+            if not secure_take:
+                self.last_original = processed.original
+                self.last_transcript = processed.text
+                self.last_diff = unified_diff(processed.original, processed.text)
             log.info(
                 "dictation processed: raw_chars=%s final_chars=0 format_ms=%s paste_ms=0 post_stt_ms=%s",
                 len(raw_text),
@@ -3340,7 +3383,8 @@ class TalkDatApp:
             caret_reader = getattr(self, "_caret_context_reader", None)
             caret_started = time.perf_counter()
             caret = None
-            if (callable(caret_reader) and effective_config.get("cleanup", {}).get("smart_format", True)
+            if (callable(caret_reader) and not secure_take
+                    and effective_config.get("cleanup", {}).get("smart_format", True)
                     and self.config.get("dictation", {}).get("paste_mode", "auto") != "copy_only"):
                 try:
                     caret = caret_reader()
@@ -3374,6 +3418,14 @@ class TalkDatApp:
                     self.config.get("dictation", {}).get("clipboard_paste_delay_ms"), 10
                 ),
             }
+            from .caret_context import ends_with_spoken_mark
+
+            paste_options["keep_final_period"] = ends_with_spoken_mark(raw_text)
+            if secure_take:
+                # A password never touches the clipboard, where clipboard
+                # history, the cloud clipboard and clipboard managers keep
+                # copies: it is typed, with no leading space.
+                paste_options.update(paste_mode="type", smart_leading_space=False, restore_clipboard=False)
             if explicit_flight:
                 # This predicate is checked inside the paste implementation
                 # immediately before Ctrl+V, Shift+Insert, Enter, and every
@@ -3429,6 +3481,7 @@ class TalkDatApp:
             receipt is not None
             and not receipt.success
             and receipt.method != "protected_rich_clipboard"
+            and not secure_take
         ):
             recovery_options: dict[str, Any] = {"paste_mode": "copy_only"}
             if explicit_flight:
@@ -3472,12 +3525,13 @@ class TalkDatApp:
         # resolves into this one dict, so this is the single honest moment.
         if delivery.get("success"):
             self.play_landing_sound()
-        self.last_original = processed.original
-        self.last_transcript = processed.text
-        self.last_diff = unified_diff(processed.original, processed.text)
-        # X-137: the raw words behind the last result, kept for the finish
-        # chooser (both onboarding's and the day-two prompt's A/B preview).
-        self.last_raw_transcript = raw_text
+        if not secure_take:
+            self.last_original = processed.original
+            self.last_transcript = processed.text
+            self.last_diff = unified_diff(processed.original, processed.text)
+            # X-137: the raw words behind the last result, kept for the finish
+            # chooser (both onboarding's and the day-two prompt's A/B preview).
+            self.last_raw_transcript = raw_text
         paste_ms = int(round((time.perf_counter() - paste_started) * 1000.0))
         if speculative:
             self._refine_after_paste(
@@ -3509,7 +3563,7 @@ class TalkDatApp:
         # back ONCE more after onboarding, at the third real dictation, with
         # the person's own words as the example. One-shot, stamped, never
         # again.
-        if not guided_delivery_reserved and delivery.get("success"):
+        if not guided_delivery_reserved and delivery.get("success") and not secure_take:
             try:
                 onboarding_cfg = self.config.setdefault("onboarding", {})
                 if not onboarding_cfg.get("finish_prompt_2_done"):
@@ -3526,7 +3580,7 @@ class TalkDatApp:
             except Exception:
                 log.debug("finish re-prompt skipped", exc_info=True)
 
-        if self.config.get("privacy", {}).get("save_history", True):
+        if not secure_take and self.config.get("privacy", {}).get("save_history", True):
             self.add_history(
                 {
                     "type": "dictation",
@@ -3541,6 +3595,20 @@ class TalkDatApp:
             )
 
         if not flight_is_current():
+            return result
+        if secure_take:
+            self.overlay.set_state(
+                "captured" if delivery.get("success") else "error",
+                "Password field: typed as you said it. Nothing was kept."
+                if delivery.get("success")
+                else "Could not type into the password field. Nothing was kept.",
+                "",
+            )
+            return result
+        if getattr(processed, "held_enter", False) and delivery.get("success"):
+            from .platform_copy import ENTER_KEY
+
+            self.overlay.set_state("captured", f"Typed into the terminal. Press {ENTER_KEY} to run it.", "")
             return result
         # X-465: a local-only install has no cloud to quietly rescue a
         # formatter that could not run, so the reason is said out loud once.
@@ -3958,7 +4026,11 @@ class TalkDatApp:
 
                 from .learned_words import forget, note_fix_evidence, remember
 
-                captured = str(pyperclip.paste() or "").strip()
+                from .paste import clipboard_is_private
+
+                # X-604: a copy its app marked private (a password manager's)
+                # is never read, learned, or shown in the pop-over.
+                captured = "" if clipboard_is_private() else str(pyperclip.paste() or "").strip()
                 previous = getattr(self, "_learn_last_clip", None)
                 self._learn_last_clip = captured
                 if (

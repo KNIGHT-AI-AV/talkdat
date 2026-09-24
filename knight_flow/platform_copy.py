@@ -35,3 +35,6 @@ THIS_COMPUTER = "this Mac" if IS_MAC else "this PC"
 #: renders "This mac"; `.title()` renders "this PC" as "This Pc". Both have
 #: shipped in other products and both look like a typo rather than a platform.
 THIS_COMPUTER_SENTENCE = THIS_COMPUTER[0].upper() + THIS_COMPUTER[1:]
+
+#: The key that runs a command or sends a message: Return on a Mac keyboard.
+ENTER_KEY = "Return" if IS_MAC else "Enter"

@@ -126,6 +126,22 @@ class LeadingReachesTheWidgetTests(unittest.TestCase):
         self.assertEqual(int(ui.cget("spacing2")), ui_extra, "the pixels must reach Tk")
         self.assertEqual(int(prose.cget("spacing2")), prose_extra)
 
+    def test_a_high_density_screen_still_gets_leading(self) -> None:
+        """X-604: the owner's 4K screen runs at 150% (Tk scaling 2.0).
+
+        The 96-DPI conversion made the target smaller than the rendered line
+        there, so body copy got 0 px; this failed the full suite whenever an
+        earlier test had made the test process DPI aware.
+        """
+        for scaling in (1.3333, 2.0, 2.6667):  # 100%, 150%, 200%
+            with self.subTest(scaling=scaling):
+                self.root.tk.call("tk", "scaling", scaling)
+                ui = tk.Text(self.root, font=("Segoe UI", type_scale.BODY))
+                prose = tk.Text(self.root, font=("Segoe UI", type_scale.BODY))
+                ui_extra = leading.apply(ui)
+                self.assertGreater(ui_extra, 0)
+                self.assertGreater(leading.apply(prose, prose=True), ui_extra)
+
     def test_a_pixel_sized_font_is_converted_before_it_is_measured(self) -> None:
         """A negative Tk size is pixels, not points.
 

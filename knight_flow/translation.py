@@ -227,7 +227,9 @@ def _ollama_executable() -> str:
 
 
 def _ollama_models(api_base: str, *, timeout: float = 0.8) -> set[str] | None:
-    request = urllib.request.Request(api_base.rstrip("/") + "/api/tags", method="GET")
+    from .net_fence import loopback_ipv4
+
+    request = urllib.request.Request(loopback_ipv4(api_base.rstrip("/") + "/api/tags"), method="GET")
     try:
         with urllib.request.urlopen(request, timeout=max(0.1, timeout)) as response:
             payload = json.loads(response.read().decode("utf-8"))
@@ -470,8 +472,10 @@ def _translate_chunk(
         glossary=glossary,
         protected_tokens=list(protected),
     )
+    from .net_fence import loopback_ipv4
+
     request = urllib.request.Request(
-        api_base.rstrip("/") + "/api/chat",
+        loopback_ipv4(api_base.rstrip("/") + "/api/chat"),
         data=json.dumps(
             {
                 "model": model,

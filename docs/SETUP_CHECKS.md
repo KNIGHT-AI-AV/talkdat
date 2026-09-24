@@ -13,16 +13,26 @@ turn off that privacy setting for you.
 
 The Voice section also offers Smart formatting: the local writing model that
 formats your dictation on this computer. Set up smart formatting installs the
-Ollama engine (Windows, through Windows Package Manager) if it is missing and
-downloads the model once: the 2.5 GB model on a computer with a supported
-graphics card, the 1.4 GB model otherwise. If the larger model turns out not to
-fit on the card, Talk DAT measures that and falls back to the smaller one. It is recommended when the card is there and the disk has
+Ollama engine if it is missing and downloads the model once: the 2.5 GB model
+on a computer with a supported graphics card, the 1.4 GB model otherwise. If the
+larger model turns out not to fit on the card, Talk DAT measures that and falls
+back to the smaller one. It is recommended when the card is there and the disk has
 room, offered either way, and never required: Finish setup works while it is
 still downloading or after Not now. The model is warmed as soon as it lands, so
 the next dictation uses it without a restart. Settings, Formatting shows the
-same job (Ready, Not set up, Downloading, Failed with Retry). On a Mac, where
-the engine cannot be installed for you, the step appears once the Ollama app is
-installed; until then Settings offers Get Ollama and Check again.
+same job (Ready, Not set up, Downloading, Failed with Retry). Nothing is
+installed until you choose Set up smart formatting.
+
+On Windows the engine comes from Windows Package Manager. On a Mac it is the
+Ollama app. If you have Homebrew, Homebrew installs it. Otherwise Talk DAT
+downloads the app from Ollama and installs it only after macOS confirms it is
+intact, notarized and signed by Ollama. It goes in the Applications folder in
+your home folder, so no administrator password is needed. The first time Ollama
+opens it may ask for your password to add its command line tool; Talk DAT works
+whether you allow that or cancel. A Mac with Apple silicon counts as a
+supported graphics card: it gets the 2.5 GB model with 16 GB of memory or more,
+and the 1.4 GB model otherwise. If the install does not finish, Settings offers
+Retry, Get Ollama and Check again.
 
 A missing selected microphone stays selected and is marked unavailable.
 Reconnect it or choose another input explicitly. The microphone check does not

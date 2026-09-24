@@ -73,6 +73,16 @@ _YOU_KNOW_OBJECTS = frozenset(
     "everything nothing something anything everyone someone anyone exactly".split()
 )
 _FILLER_WORD_RE = re.compile(r"[A-Za-z']+")
+# X-603 (commandment 10, C010): "like" between a copula and an intensifier is
+# padding ("it was like really slow", "she's like so tired"). Everywhere else
+# it may be the verb or a comparison ("I like it", "it was like a dream",
+# "the effect is like so many others"), and the words stay.
+_PADDING_LIKE_RE = re.compile(
+    r"\b(?P<copula>is|was|were|are|am|be|been|it's|that's|he's|she's|we're|they're|i'm|you're)\s*,?\s+like\s*,?\s+"
+    r"(?=(?:really|totally|so(?!\s+(?:many|much|few|little)\b)|very|super|literally|completely|absolutely|pretty|"
+    r"kinda|kind of|sort of)\b)",
+    re.IGNORECASE,
+)
 
 
 def remove_fillers(text: str) -> str:
@@ -93,7 +103,8 @@ def remove_fillers(text: str) -> str:
                 return match.group(0)
         return ""
 
-    return FILLER_RE.sub(drop, text)
+    text = FILLER_RE.sub(drop, text)
+    return _PADDING_LIKE_RE.sub(lambda match: match["copula"] + " ", text)
 PUNCT_SPACE_RE = re.compile(r"\s+([,.;:!?])")
 END_PRESS_ENTER_RE = re.compile(r"(?:\s+|^)(?:press|hit)\s+enter[\s.!?]*$", re.IGNORECASE)
 URL_RE = re.compile(r"https?://\S+|www\.\S+|\[[^\]]+\]\([^)]+\)|<a\s+[^>]*>.*?</a>", re.IGNORECASE)
@@ -121,6 +132,9 @@ class ProcessedText:
     notice: str = ""
     # The validator's reason code when a model answer was refused ("" else).
     rejection: str = ""
+    # X-604: a spoken Enter that was NOT pressed because the take went into a
+    # terminal, where Talk DAT! never runs a command for the person.
+    held_enter: bool = False
 
 
 def normalize_spaces(text: str) -> str:
@@ -624,6 +638,100 @@ _I_MEAN_SHARED_OBJECT_RE = re.compile(
 )
 
 
+# --- X-603: open-slot corrections the words settle (commandments 18 to 20) ---
+#
+# "tell Alex I'll send it Friday. actually, don't promise Friday; say early
+# next week": the correction NAMES what it replaces and supplies the
+# replacement, so it may reach into the previous sentence (MIX06, spec case
+# 6). Only when the named words appear earlier in the take, word for word,
+# and the replacement is a phrase, not a new clause: "don't promise Friday,
+# we can't commit to a day" is a new thought and every word stays.
+_NAMED_SLOT_CORRECTION_RE = re.compile(
+    r"(?:^|(?<=[.!?;,]))\s*(?:actually|no|no wait|wait|sorry)\s*,?\s+"
+    r"(?:don't|do not)\s+(?:promise|say|write|put|use|mention|send|book|pick|choose)\s+"
+    r"(?P<old>[^,.;:!?\n]{1,40}?)\s*[;,]\s*"
+    r"(?:say|put|write|use|make it|go with|book|pick|choose|send)\s+"
+    r"(?P<new>[^,.;:!?\n]{1,40}?)\s*(?:[.!?]+\s*)?$",
+    re.IGNORECASE,
+)
+_CLAUSE_WORDS = frozenset(
+    "i we you they he she it that this there is are was were will would can can't cannot could should "
+    "must might may do does did don't doesn't didn't won't have has had am be been".split()
+)
+
+
+def _resolve_named_slot_corrections(text: str) -> str:
+    match = _NAMED_SLOT_CORRECTION_RE.search(text)
+    if not match:
+        return text
+    old, new = match["old"].strip(), match["new"].strip()
+    words = [w.lower() for w in re.findall(r"[A-Za-z']+", new)]
+    if not words or len(words) > 5 or any(word in _CLAUSE_WORDS for word in words):
+        return text
+    before = text[:match.start()]
+    earlier = list(re.finditer(rf"(?<![\w'-]){re.escape(old)}(?![\w'-])", before, re.IGNORECASE))
+    if not earlier:
+        return text
+    last = earlier[-1]
+    return normalize_spaces(before[:last.start()] + new + before[last.end():])
+
+
+# "please send the deck to marketing, actually legal, by friday": one word
+# set off by commas and corrected by one word of the same kind (MIX17). The
+# commas are the evidence: "I actually liked it", "we went, actually, on
+# Monday" and "call sam, actually tomorrow, about it" (a time for a name)
+# all keep their words.
+_SLOT_WORD_CORRECTION_RE = re.compile(
+    r"(?<![\w'-])(?P<old>[A-Za-z][A-Za-z'-]{2,}),\s*(?:actually|no wait|wait no|i mean)\s+"
+    r"(?P<new>[A-Za-z][A-Za-z'-]{2,})(?P<end>\s*,\s*|\s*(?=[.!?]|$))",
+    re.IGNORECASE,
+)
+_SLOT_FUNCTION_WORDS = frozenset((
+    "the a an this that these those my your our their his her its me him them us you we they it "
+    "and but or so because then than if when while with without from for to of on in at by about "
+    "is are was were be been being am do does did have has had will would can could should must might may "
+    "not no yes yeah okay ok well really very just still even again also too there here now once twice "
+    "always never maybe probably actually basically literally like mean know think guess"
+).split())
+_SLOT_TIME_WORDS = frozenset((
+    "today tonight tomorrow yesterday morning afternoon evening noon midnight later soon "
+    "monday tuesday wednesday thursday friday saturday sunday weekend week month year"
+).split())
+# The closing comma was the correction's; it stays only where the sentence
+# needs it anyway ("it was great, thanks"), not before the slot's own words
+# ("legal by friday").
+_SLOT_KEEPS_COMMA_BEFORE = frozenset(
+    "thanks thank please cheers but so because which who although though since".split()
+)
+
+
+def _resolve_slot_word_corrections(text: str) -> str:
+    from .number_text import contains_numeric_language
+
+    def settle(match: re.Match[str]) -> str:
+        old, new = match["old"].lower(), match["new"].lower()
+        if old in _SLOT_FUNCTION_WORDS or new in _SLOT_FUNCTION_WORDS or new.endswith("ly"):
+            return match[0]
+        # "we invited the manager, actually Sam, to the meeting": the slot is
+        # "the manager", and one word cannot say what replaces the article.
+        before = re.findall(r"[A-Za-z']+", match.string[:match.start()])
+        if before and before[-1].lower() in {"the", "a", "an", "my", "our", "your", "their", "his", "her", "its",
+                                             "this", "that", "these", "those"}:
+            return match[0]
+        # Numbers have their own resolver, with units and currency.
+        if contains_numeric_language(old) or contains_numeric_language(new):
+            return match[0]
+        if (old in _SLOT_TIME_WORDS) != (new in _SLOT_TIME_WORDS):
+            return match[0]
+        if not match["end"].strip():
+            return match["new"] + match["end"]
+        following = re.match(r"[A-Za-z']+", match.string[match.end():])
+        keep = bool(following) and following[0].lower() in _SLOT_KEEPS_COMMA_BEFORE
+        return match["new"] + (", " if keep else " ")
+
+    return _SLOT_WORD_CORRECTION_RE.sub(settle, text)
+
+
 def _resolve_clause_restatements(text: str) -> str:
     def restate(match: re.Match[str]) -> str:
         return match.group(0)[:match.start("old") - match.start()] + match.group("new")
@@ -644,6 +752,7 @@ def resolve_spoken_retractions(text: str) -> str:
     # "at two actually three people came" is a different statement, not this.
     text = re.sub(r"\b(at\s+)\d+(?:\.\d+)?[, .]*\s+actually[, ]+(\d+(?:\.\d+)?)(?=\s*[.!?]*$)", r"\1\2", text, flags=re.I)
     text = _resolve_clause_restatements(resolve_restarts(text))
+    text = _resolve_slot_word_corrections(_resolve_named_slot_corrections(text))
     for pattern in (_RETRACT_RESTART_RE, _I_MEAN_RE, _NO_ACTUALLY_SHARED_HEAD_RE):
         previous = None
         while previous != text:
@@ -725,11 +834,35 @@ def strip_fragment_period(text: str) -> str:
     return trimmed[:-1]
 
 
+def _password_take(raw: str, original: str, config: dict[str, Any]) -> ProcessedText:
+    """Commandment 78: the words as said, and nothing else runs.
+
+    No model, snippets, dictionary, address composing, plugins or journal
+    (complete_prepared_dictation returns at once for this route). A spoken
+    Enter still submits the form: the person asked for it.
+    """
+    from .field_text import password_text
+    from .spoken_commands import split_enter_command
+
+    text, send_enter = original.strip(), False
+    if config.get("dictation", {}).get("press_enter_command", True):
+        text, send_enter = split_enter_command(text)
+    return ProcessedText(original=original, text=password_text(text), send_enter=send_enter, route="password")
+
+
 def process_dictation(raw: str, config: dict[str, Any], *, local_only: bool = False, _preparing: bool = False) -> ProcessedText:
+    from .field_context import CONSOLE, PASSWORD, SINGLE_LINE
     from .literal_text import protect_literals, restore_literals
 
     started = time.perf_counter()
     original = normalize_spaces(raw)
+    # X-604: the field the take is going into (field_context.FieldProbe).
+    field = str(config.get("_field") or "")
+    if field == PASSWORD:
+        return _password_take(raw, original, config)
+    if field == CONSOLE:
+        # Commandment 77: the rules write a command; the model never rewrites one.
+        local_only = True
     literal_input = redact_sensitive(raw, config) if config.get("privacy", {}).get("redact_pii", False) else raw
     text, literals = protect_literals(literal_input)
     # 2026-09-23: command words the speaker is QUOTING ("literally say new
@@ -749,6 +882,11 @@ def process_dictation(raw: str, config: dict[str, Any], *, local_only: bool = Fa
         verbatim = str(config.get("cleanup", {}).get("level", "")).lower() == "none"
         text, send_enter = split_enter_command(text, verbatim=verbatim)
         text = text.strip()
+    held_enter = False
+    if field == CONSOLE and send_enter:
+        # The words "press enter" come off, but the key is the person's to
+        # press once they have read the command.
+        send_enter, held_enter = False, True
 
     text = apply_snippets(text, config)
     from .address_text import compose_addresses
@@ -764,7 +902,8 @@ def process_dictation(raw: str, config: dict[str, Any], *, local_only: bool = Fa
     # set aside here and put back once the text is finished.
     lead_break = ""
     if (config.get("cleanup", {}).get("smart_newlines", True)
-            and str(config.get("cleanup", {}).get("level", "")).lower() != "none"):
+            and str(config.get("cleanup", {}).get("level", "")).lower() != "none"
+            and field not in {CONSOLE, SINGLE_LINE}):
         opening = re.match(r"\s*(new paragraph|new line|next line)\b[\s,.]*(?=\S)", text, re.IGNORECASE)
         if opening:
             lead_break = "\n\n" if opening.group(1).lower() == "new paragraph" else "\n"
@@ -831,13 +970,18 @@ def process_dictation(raw: str, config: dict[str, Any], *, local_only: bool = Fa
 
     text = restore_literals(text, composed_literals)
     text = restore_literals(text, literals)
+    if field in {CONSOLE, SINGLE_LINE}:
+        from .field_text import console_text, single_line_text
+
+        text = console_text(text, raw) if field == CONSOLE else single_line_text(text, raw)
     if lead_break and text.strip():
         text = lead_break + text
     from .caret_context import apply_caret_context
 
     text = apply_caret_context(text, raw, config.get("_caret_context"), config)
     text = redact_sensitive(text, config)
-    processed = ProcessedText(original=original, text=text, send_enter=send_enter, route=route, rejection=rejection)
+    processed = ProcessedText(original=original, text=text, send_enter=send_enter, route=route,
+                              rejection=rejection, held_enter=held_enter)
     if _preparing:
         return processed
     return complete_prepared_dictation(processed, config, local_only=local_only, started=started)
@@ -858,6 +1002,9 @@ def prepare_dictation(raw: str, config: dict[str, Any], *, local_only: bool = Fa
 def complete_prepared_dictation(processed: ProcessedText, config: dict[str, Any], *,
                                local_only: bool = False, started: float | None = None) -> ProcessedText:
     """Run delivery hooks once, equally for prepared and freshly formatted text."""
+    if processed.route == "password":
+        # Commandment 78: no plugin sees a password and the journal keeps none.
+        return processed
     started = time.perf_counter() if started is None else started
     text = processed.text
     if processed.notice:
@@ -921,8 +1068,10 @@ def transform_with_ollama(text: str, instruction: str, config: dict[str, Any]) -
     }
     data = json.dumps(payload).encode("utf-8")
     try:
+        from .net_fence import loopback_ipv4
+
         request = urllib.request.Request(
-            str(ollama.get("url", "http://localhost:11434/api/generate")),
+            loopback_ipv4(str(ollama.get("url", "http://localhost:11434/api/generate"))),
             data=data,
             headers={"Content-Type": "application/json"},
             method="POST",

@@ -16,6 +16,7 @@ import unittest
 
 from knight_flow.config import DEFAULT_CONFIG
 from tests import gui_offscreen  # noqa: F401  (X-164: never on a human's screen)
+from tests.tk_support import probe_error as _ROOT_ERROR
 
 
 def forget_default_root() -> None:
@@ -41,14 +42,22 @@ def pump(root, seconds: float) -> None:
         time.sleep(0.01)
 
 
+@unittest.skipIf(_ROOT_ERROR is not None, f"no usable Tk display: {_ROOT_ERROR}")
 class TheStatsRowTests(unittest.TestCase):
     def overlay(self, web_settings):
         from knight_flow.overlay import Overlay
+        from tests.tk_support import acquire_root, release_root
 
         forget_default_root()
         self.addCleanup(forget_default_root)
-        overlay = Overlay(copy.deepcopy(DEFAULT_CONFIG), callbacks={"web_settings": web_settings})
-        self.addCleanup(overlay.root.destroy)
+        # macOS: one Tk root per process, ever (tests/tk_support). The Pill is a
+        # Toplevel there, so destroying overlay.root left each test's hidden
+        # Tk alive as the default root, and the next Overlay's images landed
+        # in that dead interpreter ("image pyimageNN does not exist").
+        overlay = Overlay(
+            copy.deepcopy(DEFAULT_CONFIG), callbacks={"web_settings": web_settings}, root=acquire_root()
+        )
+        self.addCleanup(release_root, overlay._tk_root)
         pump(overlay.root, 0.3)
         return overlay
 

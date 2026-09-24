@@ -31,6 +31,15 @@ os.environ.setdefault("TALK_DAT_HOME", str(_SCRATCH))
 # engine reads as absent unless a test mocks it; the parity battery and the
 # benchmarks clear this deliberately to measure the real engine.
 os.environ.setdefault("TALK_DAT_LOCAL_ENGINE_OFFLINE", "1")
+# X-604: the same for the clipboard. A unit test fakes pyperclip or copy_text;
+# the native private write (paste._copy_text_windows) would reach the person's
+# REAL clipboard behind those fakes. Tests of the native write clear this.
+os.environ.setdefault("TALK_DAT_PLAIN_CLIPBOARD", "1")
+# X-604: and for the field-kind read every session start makes. A real UIA read
+# of whatever the test desktop has focused is neither deterministic nor free,
+# and its worker thread would be the first to import comtypes (which then
+# initialises COM there, not on the main thread the native tests use).
+os.environ.setdefault("TALK_DAT_FIELD_READ_OFF", "1")
 
 # A separate data folder does not isolate Windows Credential Manager or the
 # Mac keychain. Reset and save tests must never use the person's actual vault.

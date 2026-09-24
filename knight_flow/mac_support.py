@@ -373,8 +373,57 @@ def install_ollama_hint() -> str:
     behind someone's back, so this points at the download rather than running a
     package manager -- the Windows path shells out to winget, which does not
     exist here, and told Mac users their Windows Package Manager was missing.
+    The one place that installs Ollama on a Mac is mac_ollama_install, and
+    only when the person chooses Set up smart formatting.
     """
     return f"Download Ollama for macOS from {OLLAMA_DOWNLOAD_URL}, then reopen Settings."
+
+
+#: What smart formatting setup installs on a Mac, in copy the person reads. It
+#: lands in Applications and puts an icon in the menu bar, so on a Mac it is
+#: "the Ollama app"; Windows copy keeps "the Ollama engine".
+OLLAMA_APP_NAME = "the Ollama app"
+
+#: Apple silicon's GPU has no memory of its own: it draws on the Mac's, the same
+#: pool every open app uses. The 4B writing model is about 2.5 GB and stays
+#: loaded between takes, so a Mac gets it only from this much memory up and
+#: keeps the 1.7B (about 1.4 GB) below it. Owner's rule, 2026-09-23.
+GPU_MODEL_MIN_MEMORY_GB = 16
+
+_MEMORY_GB: float | None = None
+
+
+def unified_memory_gb() -> float:
+    """This Mac's memory in GB (the GPU's too, on Apple silicon). 0.0 if unknown.
+
+    Read once, through the install-time audit's own reader (sysctl hw.memsize),
+    and kept: it cannot change while the app runs, and the model choice asks
+    on every dictation.
+    """
+    global _MEMORY_GB
+    if not IS_MAC:
+        return 0.0
+    if _MEMORY_GB is None:
+        from .pc_audit import _mac_ram_gb
+
+        _MEMORY_GB = float(_mac_ram_gb() or 0.0)
+    return _MEMORY_GB
+
+
+def gpu_model_fits() -> bool:
+    """Whether a capable GPU here should run the 4B writing model at all.
+
+    Only a Mac is decided here. Off a Mac this is True and the warm-up decides,
+    as before: a 4B that spills off an NVIDIA card measures itself on_gpu=False
+    and the 1.7B is kept. On Apple silicon the same /api/ps check reads Metal
+    (Ollama reports size_vram there, which is what `ollama ps` shows as
+    "100% GPU"), but a model that fits the GPU can still crowd the apps being
+    dictated into, because they share one pool. So a Mac gets the 4B only with
+    GPU_MODEL_MIN_MEMORY_GB or more; unknown memory counts as too little.
+    """
+    if not IS_MAC:
+        return True
+    return unified_memory_gb() >= GPU_MODEL_MIN_MEMORY_GB
 
 
 # Names for things the two platforms call differently, in copy the user reads.

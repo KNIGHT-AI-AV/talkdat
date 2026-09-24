@@ -10,14 +10,16 @@ was the default experience for every new user.
 Nothing here downloads anything by itself. It sequences machinery that
 already shipped:
 
-    translation.install_ollama_runtime   the engine (winget on Windows)
+    translation.install_ollama_runtime   the engine on Windows (winget)
+    mac_ollama_install.install_ollama    the engine on a Mac (Homebrew, or
+                                         Ollama's own signed app)
     translation._ensure_ollama_running   start it
     llm.pull_local_formatter_model       the model, with byte progress
     llm.prepare_local_formatter          warm it, measure the GPU, keep it resident
 
-so there is exactly one installer and one download path in the product. The
-Mac has no scripted engine install (install_ollama_runtime tells the person to
-use the Ollama app), so on a Mac this offers setup only once Ollama is there.
+so there is one engine installer per platform and one model download path in
+the product. Both installers run only inside the worker that start() begins,
+which is a click: Set up smart formatting, in setup or in Settings.
 
 State lives in one process-wide object because two surfaces show it: the
 Getting started page and Settings > Formatting. A download started in one must
@@ -34,7 +36,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from . import platform_copy
+from . import mac_support, platform_copy
 
 # Measured from the engine's own /api/tags on the owner's PC, 2026-09-22.
 # Sizes in copy come from here, never from memory.
@@ -43,7 +45,9 @@ MODEL_BYTES: dict[str, int] = {
     "qwen3:4b-instruct-2507-q4_K_M": 2_497_293_803,
 }
 # Ollama 0.33.2's installed folder on Windows, measured the same day. The
-# installer download is smaller; this is what the disk has to hold.
+# installer download is smaller; this is what the disk has to hold. A Mac
+# needs less (Ollama's Mac zip was 0.2 GB on 2026-09-23), so this over-counts
+# there until the unpacked app is measured on a Mac.
 ENGINE_INSTALLED_BYTES = 2_800_000_000
 DISK_MARGIN_BYTES = 1_000_000_000
 
@@ -83,14 +87,17 @@ def free_disk_bytes() -> int | None:
 
 
 def capable_gpu() -> bool:
-    """A GPU Ollama will actually run the 4B on.
+    """A GPU Ollama will actually run the writing model on.
 
     NVIDIA on Windows (the same nvidia-smi check the speech runtime uses) and
-    Apple silicon on a Mac. Anything else is treated as the CPU, which is the
-    honest default: the final word is still the warm-up, which measures where
-    the model landed and keeps the 1.7B if the 4B spills off the card.
+    Apple silicon on a Mac, where Ollama runs on Metal. Anything else is
+    treated as the CPU, which is the honest default: the final word is still
+    the warm-up, which measures where the model landed and keeps the 1.7B if
+    the 4B spills off the card. Which model a capable GPU gets is
+    wanted_models' question: on a Mac it also depends on memory
+    (mac_support.gpu_model_fits).
     """
-    if sys.platform == "darwin":
+    if mac_support.IS_MAC:
         return platform.machine().lower() in {"arm64", "aarch64"}
     if sys.platform == "win32":
         from .cuda_runtime import nvidia_gpu_present
@@ -106,11 +113,21 @@ def engine_installed() -> bool:
 
 
 def engine_installer_available() -> bool:
-    """Whether the existing installer can put the engine here without the person.
+    """Whether setup can put the engine here itself, once the person clicks.
 
-    install_ollama_runtime uses winget on Windows and does nothing on a Mac.
+    Windows: install_ollama_runtime's winget. A Mac: mac_ollama_install, with
+    Homebrew when this user can run it, otherwise Ollama's own signed app.
     """
+    if mac_support.IS_MAC:
+        from . import mac_ollama_install
+
+        return mac_ollama_install.available()
     return sys.platform == "win32" and bool(shutil.which("winget"))
+
+
+def engine_name() -> str:
+    """What setup calls the engine in copy: the app a Mac user will see."""
+    return mac_support.OLLAMA_APP_NAME if mac_support.IS_MAC else "the Ollama engine"
 
 
 def wanted_models(config: dict[str, Any], gpu: bool) -> list[str]:
@@ -121,8 +138,9 @@ def wanted_models(config: dict[str, Any], gpu: bool) -> list[str]:
     configured = str(llm_settings(config).get("model", "")).strip() or LOCAL_FORMATTER_MODEL
     # A capable GPU gets the 4B alone: prepare_local_formatter warms and
     # measures it directly, and pulls the 1.7B only if the 4B turns out not to
-    # fit on the card. A chosen model other than the default is left alone.
-    if gpu and configured.lower() == LOCAL_FORMATTER_MODEL.lower():
+    # fit on the card. A Mac also needs the memory for it (16 GB; below that
+    # it keeps the 1.7B). A chosen model other than the default is left alone.
+    if gpu and configured.lower() == LOCAL_FORMATTER_MODEL.lower() and mac_support.gpu_model_fits():
         return [LOCAL_GPU_MODEL]
     return [configured]
 
@@ -151,7 +169,7 @@ def explain(config: dict[str, Any], *, gpu: bool, engine: bool) -> str:
     models = wanted_models(config, gpu)
     size = download_bytes(models)
     what = f"a writing model (about {gigabytes(size)})" if size else "a writing model"
-    engine_part = "" if engine else "the Ollama engine and "
+    engine_part = "" if engine else f"{engine_name()} and "
     return f"{first} Setup downloads {engine_part}{what} once."
 
 
@@ -262,7 +280,7 @@ class SmartFormattingSetup:
                 state = "needs_engine"
                 result["message"] = (
                     "Install the Ollama app, open it once, then choose Check again."
-                    if sys.platform == "darwin" else
+                    if mac_support.IS_MAC else
                     "Windows Package Manager is unavailable here. Install the Ollama app, then choose Check again."
                 )
             elif gpu is None:
@@ -273,12 +291,14 @@ class SmartFormattingSetup:
         result["label"] = LABELS[state]
         if state == "downloading":
             percent = result["percent"]
+            installing = f"Installing {mac_support.OLLAMA_APP_NAME}" if mac_support.IS_MAC else "Installing the engine"
             result["label"] = f"Downloading {percent}%" if isinstance(percent, int) else (
-                "Installing the engine" if result["stage"] == "engine" else "Getting ready")
+                installing if result["stage"] == "engine" else "Getting ready")
         result["can_start"] = state in {"not_set_up", "failed"}
         result["download_page"] = state == "needs_engine" or (state == "failed" and not engine)
-        # The setup step appears where the existing installer can finish the
-        # job: Windows with winget, or any machine that already has the engine.
+        # The setup step appears where setup can finish the job itself: Windows
+        # with winget, a Mac (Homebrew or Ollama's signed app), or any machine
+        # that already has the engine.
         result["offer_in_setup"] = state in {"not_set_up", "failed", "downloading", "ready", "checking"}
         if state in {"not_set_up", "failed", "checking"}:
             if gpu is False:
@@ -333,6 +353,22 @@ class SmartFormattingSetup:
     def _fail(self, message: str) -> None:
         self._set(state="failed", stage="", percent=None, message=message)
 
+    def _install_engine(self) -> tuple[bool, str]:
+        """This platform's one engine installer. Reached only from _run, after a click."""
+        from . import llm, translation
+
+        if not mac_support.IS_MAC:
+            return translation.install_ollama_runtime()
+        from . import mac_ollama_install
+
+        def progress(message: str, percent: int | None = None) -> None:
+            self._set(stage="engine", percent=percent, message=message)
+
+        # The app starts its own engine; setup waits for it to answer rather
+        # than starting a second one beside it.
+        return mac_ollama_install.install_ollama(
+            progress, engine_ready=lambda: llm._ollama_models(self._api_base(), timeout=0.5) is not None)
+
     def _run(self) -> None:
         from . import llm, translation
 
@@ -347,8 +383,8 @@ class SmartFormattingSetup:
                 with self.lock:
                     self.gpu = gpu
             if not engine_installed():
-                self._set(stage="engine", percent=None, message="Installing the Ollama engine.")
-                ok, message = translation.install_ollama_runtime()
+                self._set(stage="engine", percent=None, message=f"Installing {engine_name()}.")
+                ok, message = self._install_engine()
                 if not ok:
                     return self._fail(message or "The engine could not be installed.")
             self._set(stage="engine", percent=None, message="Starting the engine.")

@@ -3,6 +3,56 @@
 All notable product changes to Talk DAT! are recorded here. The project uses beta
 versions while broader field verification remains in progress.
 
+## 0.4.161-beta
+
+Talk DAT! now knows what kind of box you are typing into.
+
+- Password boxes: your words go in exactly as you said them. Nothing is shown
+  on the Pill, nothing is saved to History, and the text is typed, never put
+  on the clipboard.
+- Terminals: commands come out as commands. "git checkout dash b fix slash
+  login" becomes git checkout -b fix/login, with no capital, no full stop and
+  your corrections applied. Talk DAT! never presses Enter in a terminal; the
+  Pill tells you to press it yourself.
+- One-line boxes such as search bars and email subjects never get a line
+  break. A list you dictate there becomes "milk, eggs, and bread".
+- In chat apps a full stop you say out loud now stays.
+- Your clipboard stays yours. When Talk DAT! borrows it to paste, that text is
+  kept out of Windows clipboard history and never syncs to the cloud
+  clipboard, and a password you copy from a password manager is never learned
+  as a new word.
+- Fixed: after the first right-click menu, the Pill could stop following you
+  between monitors.
+
+## 0.4.160-beta
+
+Three fixes for things you could see.
+
+- Your first word keeps its capital. In chat apps such as the Claude app,
+  Talk DAT! was reading the app's own buttons as the text before your cursor,
+  took every take for the middle of a sentence and lowercased its first word.
+  It now reads only the box you are typing in.
+- Smart formatting is fast again: about half a second instead of two to three.
+  Every request now goes straight to the local engine's address, 127.0.0.1, so
+  Windows no longer tries a dead IPv6 address first on each one.
+- The right-click menu opens on top of the Pill every time, including the first
+  time after Talk DAT! starts or updates.
+
+## 0.4.159-beta
+
+Your words stay yours.
+
+- Executive, the light polish, no longer swaps your words for fancier ones. It
+  fixes grammar, turns "gonna" into "will", drops filler like "so basically",
+  and keeps every other word as you said it.
+- Fewer formatting slips in every style: a correction such as "actually, make
+  it Wednesday" replaces what it corrects, a greeting gets its comma and its
+  own line, and numbers stay the way you said them.
+- Mac: Settings can now set up smart formatting in one click. Talk DAT!
+  installs the Ollama app through Homebrew if you have it, or from Ollama's own
+  download after checking it is signed by Ollama. Macs with 16 GB of memory or
+  more get the larger model; smaller Macs keep the lighter one.
+
 ## 0.4.158-beta
 
 A cleaner, clearer Talk DAT!.

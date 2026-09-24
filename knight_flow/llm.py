@@ -276,10 +276,10 @@ def _api_key(settings: dict[str, Any], provider: str) -> str:
 def _post_json(url: str, body: dict[str, Any], headers: dict[str, str], timeout: float) -> dict[str, Any]:
     # X-338: the local-route fence. A localhost Ollama passes; any cloud
     # formatter refuses while Local is selected.
-    from .net_fence import assert_cloud_allowed
+    from .net_fence import assert_cloud_allowed, loopback_ipv4
     assert_cloud_allowed(url, "The formatter")
     request = urllib.request.Request(
-        url,
+        loopback_ipv4(url),
         data=json.dumps(body).encode("utf-8"),
         headers={"Content-Type": "application/json", **headers},
         method="POST",
@@ -298,7 +298,9 @@ LOCAL_ENGINE_OFFLINE_ENV = "TALK_DAT_LOCAL_ENGINE_OFFLINE"
 def _ollama_models(api_base: str, *, timeout: float = 0.35) -> set[str] | None:
     if os.environ.get(LOCAL_ENGINE_OFFLINE_ENV) == "1":
         return None
-    request = urllib.request.Request(api_base.rstrip("/") + "/api/tags", method="GET")
+    from .net_fence import loopback_ipv4
+
+    request = urllib.request.Request(loopback_ipv4(api_base.rstrip("/") + "/api/tags"), method="GET")
     try:
         with urllib.request.urlopen(request, timeout=max(0.05, timeout)) as response:
             payload = json.loads(response.read().decode("utf-8"))
@@ -473,7 +475,9 @@ def _ollama_loaded_on_gpu(api_base: str, model: str, *, timeout: float = 0.35) -
     None means "not loaded, so unknown", which is a different thing from "on
     the CPU" and must not be reported as one.
     """
-    request = urllib.request.Request(api_base.rstrip("/") + "/api/ps", method="GET")
+    from .net_fence import loopback_ipv4
+
+    request = urllib.request.Request(loopback_ipv4(api_base.rstrip("/") + "/api/ps"), method="GET")
     try:
         with urllib.request.urlopen(request, timeout=max(0.05, timeout)) as response:
             payload = json.loads(response.read().decode("utf-8"))
@@ -598,7 +602,11 @@ def local_finish_target(config: dict[str, Any], *, executive: bool) -> tuple[str
     # answer could not have changed the model.
     # 2026-09-22: the GPU model serves BOTH finishes, not Executive alone, so
     # a capable GPU keeps one model resident and every take gets the better one.
-    upgradeable = on_gpu and configured.lower() == LOCAL_FORMATTER_MODEL.lower()
+    # A Mac under 16 GB keeps the 1.7B even with the 4B pulled: its GPU shares
+    # the memory the apps being dictated into need (mac_support.gpu_model_fits).
+    upgradeable = (
+        on_gpu and configured.lower() == LOCAL_FORMATTER_MODEL.lower() and mac_support.gpu_model_fits()
+    )
     installed = (_ollama_models(api_base) or set()) if upgradeable else set()
     chosen = choose_local_model(
         configured, executive=executive, installed=installed, on_gpu=on_gpu
@@ -1048,8 +1056,10 @@ def pull_local_formatter_model(
         return False, "The formatter is pointed at a remote engine, so there is nothing to download here."
 
     body = json.dumps({"model": model, "stream": True}).encode("utf-8")
+    from .net_fence import loopback_ipv4
+
     request = urllib.request.Request(
-        api_base.rstrip("/") + "/api/pull",
+        loopback_ipv4(api_base.rstrip("/") + "/api/pull"),
         data=body,
         headers={"content-type": "application/json"},
         method="POST",
@@ -1189,7 +1199,8 @@ def prepare_local_formatter(config: dict[str, Any]) -> None:
             # it alone there). Warm and measure it directly; it is the model
             # that will answer. Only if it did not land on the GPU does this
             # fall through to the 1.7B, pulling it when auto_install allows.
-            if model.lower() == LOCAL_FORMATTER_MODEL.lower():
+            # A Mac under 16 GB never warms the 4B, even one already pulled.
+            if model.lower() == LOCAL_FORMATTER_MODEL.lower() and mac_support.gpu_model_fits():
                 gpu_tag = LOCAL_GPU_MODEL.lower()
                 if gpu_tag in models or f"{gpu_tag}:latest" in models:
                     _OLLAMA_READY_CACHE.clear()
@@ -1238,8 +1249,10 @@ def prepare_local_formatter(config: dict[str, Any]) -> None:
             # 1.7B alone costs 37 s there, so loading a bigger one would be
             # pure waste. With auto_install on, the GPU model is pulled the
             # same way the 1.7B was; a 4B that spills off the GPU measures
-            # itself on_gpu=False and local_finish_target keeps the 1.7B.
-            if speed.on_gpu and model.lower() == LOCAL_FORMATTER_MODEL.lower():
+            # itself on_gpu=False and local_finish_target keeps the 1.7B. A Mac
+            # under 16 GB is not offered it: its 1.7B measures on_gpu (Metal)
+            # too, so without this the launch would pull the 2.5 GB model.
+            if speed.on_gpu and model.lower() == LOCAL_FORMATTER_MODEL.lower() and mac_support.gpu_model_fits():
                 installed_now = _ollama_models(api_base, timeout=1.0) or set()
                 upgrade = choose_local_model(
                     model, executive=True, installed=installed_now, on_gpu=True

@@ -41,14 +41,19 @@ def apply(widget: tk.Text, *, prose: bool = False) -> int:
         resolved = tkfont.Font(root=widget, font=widget.cget("font"))
         points = resolved.actual("size")
         linespace = resolved.metrics("linespace")
+        # X-604: the display's own pixels per point. The app is DPI aware
+        # (ui_scale), so at 150% a 12 pt line renders 32 px tall; measured
+        # against the 96-DPI conversion the target was smaller than the line
+        # and every body widget got no leading at all on the owner's screen.
+        pixels_per_point = float(widget.winfo_fpixels("1p")) or type_scale.POINTS_TO_PIXELS
     except (tk.TclError, RuntimeError, TypeError, ValueError):
         return 0
 
     # A negative Tk size is already in pixels; the scale speaks points.
     if points < 0:
-        points = abs(points) * 72.0 / 96.0
+        points = abs(points) / pixels_per_point
 
-    extra = type_scale.extra_leading_px(points, linespace, prose=prose)
+    extra = type_scale.extra_leading_px(points, linespace, prose=prose, pixels_per_point=pixels_per_point)
     if extra <= 0:
         return 0
     with contextlib.suppress(tk.TclError):

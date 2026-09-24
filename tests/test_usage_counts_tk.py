@@ -25,6 +25,7 @@ except Exception:  # pragma: no cover - headless CI without Tk
     tk = None  # type: ignore[assignment]
 
 from knight_flow import official_build
+from tests.tk_support import probe_error as _ROOT_ERROR
 
 
 @contextlib.contextmanager
@@ -59,6 +60,7 @@ def usage_checks(window) -> list:
 
 
 @unittest.skipIf(tk is None, "tkinter unavailable")
+@unittest.skipIf(_ROOT_ERROR is not None, f"no usable Tk display: {_ROOT_ERROR}")
 class TkFallbackTests(unittest.TestCase):
     def setUp(self) -> None:
         with contextlib.suppress(Exception):
@@ -70,8 +72,12 @@ class TkFallbackTests(unittest.TestCase):
         os.environ["TALK_DAT_HOME"] = self._home
 
     def tearDown(self) -> None:
+        # Only a dead root is forgotten: on macOS the live one is the shared
+        # root every later window test is handed (tests/tk_support).
         with contextlib.suppress(Exception):
-            tk._default_root = None  # type: ignore[attr-defined]
+            existing = getattr(tk, "_default_root", None)
+            if existing is not None and not existing.winfo_exists():
+                tk._default_root = None  # type: ignore[attr-defined]
         if self._previous_home is None:
             os.environ.pop("TALK_DAT_HOME", None)
         else:
@@ -80,10 +86,16 @@ class TkFallbackTests(unittest.TestCase):
     def settings_window(self):
         from knight_flow.config import load_config, save_config
         from knight_flow.overlay import Overlay
+        from tests.tk_support import acquire_root, release_root
 
         config = load_config()
-        overlay = Overlay(config, callbacks={"save_settings": lambda: save_config(overlay.config)})
-        self.addCleanup(lambda: overlay.root.destroy())
+        # macOS: one Tk root per process, ever (tests/tk_support). A fresh Tk
+        # here is not the default root while the shared one lives, so the
+        # Pill's images landed in the wrong interpreter.
+        overlay = Overlay(
+            config, callbacks={"save_settings": lambda: save_config(overlay.config)}, root=acquire_root()
+        )
+        self.addCleanup(release_root, overlay._tk_root)
         pump(overlay.root, 0.4)
         overlay.open_settings()
         pump(overlay.root, 1.2)

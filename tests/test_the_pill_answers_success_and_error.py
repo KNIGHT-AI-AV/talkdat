@@ -33,6 +33,7 @@ from PIL import Image
 
 from knight_flow.config import DEFAULT_CONFIG
 from tests import gui_offscreen  # noqa: F401  (X-164: never on a human's screen)
+from tests.tk_support import probe_error as _ROOT_ERROR
 
 
 def forget_default_root() -> None:
@@ -206,33 +207,43 @@ class TheLooksTests(unittest.TestCase):
         self.assertIs(pill_feedback_frame(source, "listening", 1.0), source)
 
 
+@unittest.skipIf(_ROOT_ERROR is not None, f"no usable Tk display: {_ROOT_ERROR}")
 class ThePillShowsItTests(unittest.TestCase):
     """The real Overlay: what it draws, and the message it raises."""
 
     def overlay(self, *, reduce_motion: bool = True, theme: str = "Flow Dark"):
         from knight_flow.overlay import Overlay
+        from tests.tk_support import acquire_root
 
-        previous = getattr(self, "_overlay", None)
-        if previous is not None:
-            previous.root.destroy()
+        self.release(getattr(self, "_overlay", None))
         forget_default_root()
         config = copy.deepcopy(DEFAULT_CONFIG)
         config.setdefault("ui", {})["scale"] = 1.5
         config["ui"]["reduce_motion"] = reduce_motion
         config["ui"]["settings_theme"] = theme
-        overlay = Overlay(config, callbacks={})
+        # macOS: one Tk root per process, ever (tests/tk_support). The Pill is a
+        # Toplevel there, so destroying overlay.root left each test's hidden
+        # Tk alive as the default root, and the next Overlay's images landed
+        # in that dead interpreter ("image pyimageNN does not exist").
+        overlay = Overlay(config, callbacks={}, root=acquire_root())
         self._overlay = overlay
         pump(overlay.root, 0.4)
         return overlay
 
+    @staticmethod
+    def release(overlay) -> None:
+        from tests.tk_support import release_root
+
+        if overlay is not None:
+            try:
+                release_root(overlay._tk_root)
+            except Exception:
+                pass
+
     def tearDown(self) -> None:
         overlay = getattr(self, "_overlay", None)
         self._overlay = None
-        if overlay is not None:
-            try:
-                overlay.root.destroy()
-            except Exception:
-                pass
+        self.release(overlay)
         forget_default_root()
 
     def drawn(self, overlay) -> Image.Image:

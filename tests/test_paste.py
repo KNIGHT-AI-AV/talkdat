@@ -48,7 +48,7 @@ class PasteTests(unittest.TestCase):
             patch("knight_flow.paste.time.sleep"),
         ):
             self.assertTrue(paste_text("hello", paste_mode="auto"))
-            copy_text.assert_called_with("hello")
+            copy_text.assert_called_with("hello", transient=False)  # restore off: the text stays
             hotkey.assert_called_with(EDIT_MODIFIER, "v")
 
     @unittest.skipIf(paste_text is None, "pyautogui is not installed in this test interpreter")
@@ -836,7 +836,7 @@ class RichClipboardSnapshotTests(unittest.TestCase):
 
         self.assertTrue(receipt.success)
         self.assertEqual(receipt.method, "clipboard")
-        copy.assert_called_once_with("dictated text")
+        copy.assert_called_once_with("dictated text", transient=True)  # borrowed, then restored
         # The paste chord is Ctrl+V here and Command+V on the Mac branch.
         from knight_flow import paste as paste_module
 

@@ -42,6 +42,25 @@ _SHAPELY_BUT_COMMON = frozenset({
 _WORD_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.@'+_-]*$")
 
 
+def looks_like_a_secret(token: str) -> bool:
+    """X-604: a generated password, key or code, not a spelling anybody fought for.
+
+    Twelve or more characters mixing lower case, upper case and digits is a
+    password generator's shape; sixteen or more mixing letters and digits is a
+    key's or a recovery code's. Names, brands and initialisms are short. An
+    address is never a secret here ("@" is its own rule).
+    """
+    token = str(token or "").strip()
+    if "@" in token:
+        return False
+    has_lower = any(c.islower() for c in token)
+    has_upper = any(c.isupper() for c in token)
+    has_digit = any(c.isdigit() for c in token)
+    has_letter = has_lower or has_upper
+    return (len(token) >= 12 and has_lower and has_upper and has_digit) or (
+        len(token) >= 16 and has_letter and has_digit)
+
+
 def looks_learnable(text: str) -> bool:
     """Whether a clipboard capture is a spelling somebody fought for.
 
@@ -59,6 +78,8 @@ def looks_learnable(text: str) -> bool:
     if not (MIN_LENGTH <= len(token) <= MAX_LENGTH):
         return False
     if not _WORD_RE.match(token):
+        return False
+    if looks_like_a_secret(token):
         return False
     if token.lower() in _SHAPELY_BUT_COMMON:
         return False

@@ -30,6 +30,29 @@ _LOCAL_ONLY = threading.Event()
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
 
 
+def loopback_ipv4(url: str) -> str:
+    """The same URL with a "localhost" host spelled 127.0.0.1.
+
+    X-605, measured on the owner's PC 2026-09-23: Ollama listens on
+    127.0.0.1 only, and Python resolves "localhost" to ::1 first. On Windows a
+    refused loopback connect is retried for about a second before the IPv4
+    address is tried, so every formatting request paid 1.2 to 1.8 s before
+    Ollama saw it (format_ms 2.3-3.3 s for a 0.2-0.6 s answer), and the 0.35 s
+    readiness check could give up first and send the take to the rules
+    formatter. Saved settings keep saying "localhost"; requests go to 127.0.0.1.
+    """
+    from urllib.parse import urlsplit, urlunsplit
+
+    try:
+        parts = urlsplit(str(url))
+        if (parts.hostname or "").lower() != "localhost" or parts.username or parts.password:
+            return url
+        netloc = "127.0.0.1" + (f":{parts.port}" if parts.port else "")
+    except ValueError:
+        return url
+    return urlunsplit(parts._replace(netloc=netloc))
+
+
 def set_local_only(on: bool) -> None:
     if on:
         _LOCAL_ONLY.set()

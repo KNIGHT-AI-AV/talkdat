@@ -116,6 +116,10 @@ class TheGpuModelFinishesBothFinishesTests(unittest.TestCase):
     def setUp(self) -> None:
         llm._LOCAL_SPEED.clear()
         self.addCleanup(llm._LOCAL_SPEED.clear)
+        # The cross-platform upgrade path, not the Mac's own memory gate.
+        patcher = mock.patch.object(llm.mac_support, "gpu_model_fits", return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def target(self, executive: bool) -> str:
         config = {"transforms": {"llm": {"provider": "ollama", "model": LOCAL_CHILL_MODEL, "api_base": BASE}}}

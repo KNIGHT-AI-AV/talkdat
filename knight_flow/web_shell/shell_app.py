@@ -192,7 +192,12 @@ class AppShell:
             if sys.platform == 'win32':
                 import ctypes
                 from ctypes import wintypes
-                user32 = ctypes.windll.user32
+                # X-605: a PRIVATE handle. Setting argtypes on the shared
+                # ctypes.windll.user32 changed GetMonitorInfoW for the whole
+                # app: after the first menu, overlay and monitors.py passed
+                # their own MONITORINFO and got ArgumentError, so the Pill lost
+                # track of which monitor it was on.
+                user32 = ctypes.WinDLL('user32', use_last_error=True)
                 # The Pill is system-DPI aware; WebView2 is per-monitor aware.
                 # Read both rectangles in physical pixels even on a second monitor.
                 restore_context = user32.SetThreadDpiAwarenessContext
@@ -219,7 +224,7 @@ class AppShell:
                 user32.GetDpiForWindow.argtypes = (wintypes.HWND,)
                 scale = (user32.GetDpiForWindow(hwnd) or 96) / 96
                 factor = ctypes.c_int()
-                get_factor = ctypes.windll.shcore.GetScaleFactorForMonitor
+                get_factor = ctypes.WinDLL('shcore').GetScaleFactorForMonitor
                 get_factor.argtypes = (wintypes.HANDLE, ctypes.POINTER(ctypes.c_int))
                 if get_factor(monitor, ctypes.byref(factor)) == 0 and 100 <= factor.value <= 500:
                     scale = factor.value / 100

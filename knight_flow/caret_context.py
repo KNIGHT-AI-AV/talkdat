@@ -24,6 +24,15 @@ _LOWERABLE = frozenset((
 ).split())
 
 
+_SPOKEN_FINAL_MARK = re.compile(
+    r"\b(?:period|full stop|question mark|exclamation(?: mark| point)?|ellipsis)\s*[.!?]*$", re.I)
+
+
+def ends_with_spoken_mark(spoken: str) -> bool:
+    """A dictated final mark is intentional; an ASR/model one is inferred."""
+    return bool(_SPOKEN_FINAL_MARK.search(str(spoken or "").strip()))
+
+
 def usable_context(context: object) -> bool:
     return bool(isinstance(context, Mapping)
                 and not context.get("password") and not context.get("selected")
@@ -39,7 +48,12 @@ def apply_caret_context(text: str, spoken: str, context: object,
     left = context["left"][-CONTEXT_CHARS:]
     right = context["right"][:CONTEXT_CHARS]
     previous = left.rstrip(" \t\"'\u201d\u2019)]}")
-    continuation = bool(previous and previous[-1] not in ".!?\n\r:")
+    # X-605: a continuation needs a word or a clause mark right before the
+    # caret. Anything else -- a line break, an embedded object, a symbol, the
+    # start of the field -- starts a new sentence, which keeps its capital.
+    # Lowercasing on weaker evidence cost the owner the capital on nearly
+    # every take for a week (see _read_uia).
+    continuation = bool(previous) and (previous[-1].isalnum() or previous[-1] in ",;")
     if continuation:
         # The standalone formatter may have treated an initial conjunction as
         # verbal padding. Here it joins real prose, so preserve that exact word.
@@ -55,12 +69,7 @@ def apply_caret_context(text: str, spoken: str, context: object,
         lead = re.match(r"^(and|but|or)\s+(\w+)", spoken.strip(), re.I)
         if lead and re.match(re.escape(lead[2]) + r"\b", text, re.I):
             text = lead[1].lower() + " " + text
-    # A dictated full stop is intentional; an ASR/model full stop is inferred.
-    explicit_terminal = re.search(
-        r"\b(?:period|full stop|question mark|exclamation(?: mark| point)?|ellipsis)\s*[.!?]*$",
-        spoken, re.I,
-    )
-    if right and not right.startswith(("\n", "\r")) and not explicit_terminal:
+    if right and not right.startswith(("\n", "\r")) and not ends_with_spoken_mark(spoken):
         if text.endswith(".") and not text.endswith(".."):
             text = text[:-1]
     return text
@@ -109,6 +118,17 @@ def _read_uia(automation: Any, uia: Any) -> dict[str, str] | None:
     before, after = caret.Clone(), caret.Clone()
     before.MoveEndpointByUnit(uia.TextPatternRangeEndpoint_Start, uia.TextUnit_Character, -CONTEXT_CHARS)
     after.MoveEndpointByUnit(uia.TextPatternRangeEndpoint_End, uia.TextUnit_Character, CONTEXT_CHARS)
+    # X-605: Chromium and Electron let a character move walk out of the
+    # focused editor into the rest of the page. In an empty message box the
+    # "text before the caret" was the app's own buttons ("Submit", "Chat
+    # mode"), which read as an unfinished sentence and lowercased the first
+    # word of nearly every dictation. Only the editor's own text counts.
+    document = pattern.DocumentRange
+    start, end = uia.TextPatternRangeEndpoint_Start, uia.TextPatternRangeEndpoint_End
+    if before.CompareEndpoints(start, document, start) < 0:
+        before.MoveEndpointByRange(start, document, start)
+    if after.CompareEndpoints(end, document, end) > 0:
+        after.MoveEndpointByRange(end, document, end)
     left, right = before.GetText(CONTEXT_CHARS), after.GetText(CONTEXT_CHARS)
     if not automation.CompareElements(element, automation.GetFocusedElement()):
         return None
@@ -116,7 +136,9 @@ def _read_uia(automation: Any, uia: Any) -> dict[str, str] | None:
     latest = pattern.GetSelection()
     if latest.Length != 1 or not caret.Compare(latest.GetElement(0)):
         return None
-    return {"left": left[-CONTEXT_CHARS:], "right": right[:CONTEXT_CHARS]}
+    # An embedded object (U+FFFC: an image, a mention chip) is a boundary.
+    return {"left": left[-CONTEXT_CHARS:].replace("\ufffc", "\n"),
+            "right": right[:CONTEXT_CHARS].replace("\ufffc", "\n")}
 
 
 def _read_windows() -> dict[str, str] | None:

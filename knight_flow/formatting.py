@@ -286,6 +286,11 @@ def is_question(sentence: str) -> bool:
     # A greeting and a name ahead of the question ("Hey Marta, can you...")
     # address the reader; the question starts after the comma.
     lowered = re.sub(r"^(?:hi|hey|hello|ok|okay)\s+[a-z'-]+\s*,\s*", "", lowered)
+    # X-603: so does a name or word set off before the inversion ("John, can
+    # you check the logs"); the inversion below still has to be there.
+    lowered = re.sub(
+        r"^[a-z'-]+\s*,\s*(?=(?:can|could|would|will|do|did|does|is|are|am|was|were|have|has|should|shall|may|might)\b)",
+        "", lowered)
     # "Hey, quick question: can you send it" asks after its lead-in colon.
     if ":" in lowered and not re.search(r"\d:\d", lowered):
         lowered = lowered.rsplit(":", 1)[-1].strip()
@@ -1200,7 +1205,10 @@ _COUNT_WORDS = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
                 "2": 2, "3": 3, "4": 4, "5": 5, "6": 6}
 _COUNT_LIST_RE = re.compile(
     r"^(?P<intro>(?:.*?\s)?(?P<count>two|three|four|five|six|[2-6])\s+"
-    r"(?:things|items|steps|points|reasons|options|questions|ideas|tasks|priorities|goals)\b)"
+    r"(?:things|items|steps|points|reasons|options|questions|ideas|tasks|priorities|goals)\b"
+    # X-603 (MIX11): "three things booked the venue the caterer and the bus".
+    # One participle may close the intro; the count still has to agree.
+    r"(?:\s+(?P<participle>[a-z]{3,}ed|done|left|set|sent|paid|bought|made|built))?)"
     r"\s*[:,.]?\s+(?P<items>.+?)\s*[.!]?$",
     re.IGNORECASE | re.DOTALL,
 )
@@ -1215,16 +1223,54 @@ def _count_announced_list(block: str) -> str | None:
     every item must be one word (an article may lead it) and a single "and"
     must join the last one. "three things done today the tests the docs and
     the deploy" has words between the count and the items, so it stays prose.
+
+    X-603: the announced list may be one sentence of several ("we need three
+    things milk eggs and bread. also the car needs gas"). The list takes its
+    own lines and what follows starts a new paragraph (commandment 51).
     """
     # Dictated colons and semicolons are the speaker choosing the prose layout
     # ("two things colon the api is down semicolon the site is fine").
     if re.search(r"[\n?:;]", block):
         return None
-    match = _COUNT_LIST_RE.match(block.strip())
+    whole = _count_list_sentence(block.strip())
+    if whole is not None:
+        return whole
+    sentences = [part for part in re.split(r"(?<=[.!])\s+", block.strip()) if part.strip()]
+    if len(sentences) < 2:
+        return None
+    for index, sentence in enumerate(sentences):
+        rendered = _count_list_sentence(sentence)
+        if rendered is None:
+            continue
+        before, after = " ".join(sentences[:index]), " ".join(sentences[index + 1:])
+        if before:
+            rendered = f"{heuristic_format(before)} {rendered}"
+        if after:
+            rendered = f"{rendered}\n\n{heuristic_format(after)}"
+        return rendered
+    return None
+
+
+def _count_list_sentence(text: str) -> str | None:
+    match = _COUNT_LIST_RE.match(text)
     if not match:
         return None
     count = _COUNT_WORDS[match["count"].lower()]
-    items_text = match["items"].strip()
+    intro = match["intro"]
+    items = _counted_items(match["items"].strip(), count)
+    if items is None and match["participle"]:
+        # The word after the count was the first item after all ("three
+        # things seed water and soil").
+        items = _counted_items(f"{match['participle']} {match['items'].strip()}", count)
+        intro = intro[:match.start("participle") - match.start("intro")].rstrip()
+    if items is None:
+        return None
+    lead = _finish_sentence(intro, terminal=":")
+    body = "\n".join(f"{index}. {_finish_sentence(item, terminal='')}" for index, item in enumerate(items, 1))
+    return f"{lead}\n{body}"
+
+
+def _counted_items(items_text: str, count: int) -> list[str] | None:
     if re.search(r"[,;]", items_text):
         items = [part.strip() for part in re.split(r"\s*[,;]\s*(?:and\s+)?|\s+and\s+(?=[^,;]*$)", items_text)]
         items = [item for item in items if item]
@@ -1257,9 +1303,7 @@ def _count_announced_list(block: str) -> str | None:
         return None
     if any(not re.search(r"[A-Za-z0-9]", item) for item in items):
         return None
-    lead = _finish_sentence(match["intro"], terminal=":")
-    body = "\n".join(f"{index}. {_finish_sentence(item, terminal='')}" for index, item in enumerate(items, 1))
-    return f"{lead}\n{body}"
+    return items
 
 
 _GREETING_RE = re.compile(
@@ -1281,6 +1325,59 @@ _NOT_A_NAME = _GROUP_ADDRESSES | {
     "to", "again", "so", "much", "a", "lot", "in", "advance", "then", "now", "sir",
     "madam", "question", "update", "one", "again", "though", "anyway", "wishes",
 }
+
+
+# X-603 (commandments 41 and 44): the person addressed takes a capital and a
+# comma. After a greeting the next word is the addressee when a clause
+# follows it: "hey sarah can you check this" -> "hey Sarah, can you check
+# this", and the question mark then follows from is_question. A group ("hey
+# team", "hi all") or a common noun ("hey assistant") keeps its lowercase.
+# Without a greeting, one word before "can you" / "could you" is someone
+# spoken to ("john can you check the logs" -> "john, can you ..."). The
+# rest stays with the model: "hey sarah connor" and "hello world program"
+# are not addresses a rule can prove.
+_COMMON_VOCATIVES = _GROUP_ADDRESSES | {
+    "assistant", "people", "man", "dude", "buddy", "friend", "friends", "boss", "mate", "gang", "crew",
+}
+_NOT_AN_ADDRESSEE = (_NOT_A_NAME - _GROUP_ADDRESSES) | {"world", "from", "back", "hey", "hi", "hello"}
+_CLAUSE_OPENERS = frozenset("""
+i we you it this that there here they he she can could would will do did does is are was were have has
+should just quick thanks thank please hope how what when where why who so sorry any my our your the a an
+let let's write send check make take give tell remember look see grab ping call email review update add fix
+""".split())
+_ADDRESS_GREETING_RE = re.compile(
+    r"(?:^|(?<=[.!?]\s))(?P<greet>hi|hey|hello|dear|good morning|good afternoon|good evening)\s+"
+    r"(?P<name>[A-Za-z][A-Za-z-]*)(?![\w'’])(?P<comma>\s*,)?(?=\s+(?P<next>[A-Za-z]+(?:['’][a-z]+)?)\b)",
+    re.IGNORECASE,
+)
+_VOCATIVE_QUESTION_RE = re.compile(
+    r"(?:^|(?<=[.!?]\s))(?P<name>[A-Za-z][A-Za-z-]*)(?![\w'’,])(?=\s+(?:can|could|would|will|do|did|are|have|should)\s+you\b)",
+    re.IGNORECASE,
+)
+_NOT_A_VOCATIVE = _NOT_A_NAME | _WH_WORDS | {
+    "please", "and", "but", "or", "then", "also", "okay", "ok", "well", "yeah", "yes", "no", "hey", "hi",
+    "hello", "if", "because", "that", "this", "these", "those", "there", "here", "maybe", "why", "how",
+    "right", "alright", "actually", "anyway", "basically", "honestly", "like", "um", "uh", "oh", "sorry",
+}
+
+
+def _address_the_reader(text: str) -> str:
+    def greeting(match: re.Match[str]) -> str:
+        name = match["name"]
+        low, following = name.lower(), match["next"].lower().replace("’", "'")
+        if low in _NOT_AN_ADDRESSEE and low not in _COMMON_VOCATIVES:
+            return match[0]
+        if not match["comma"] and following not in _CLAUSE_OPENERS:
+            return match[0]
+        written = low if low in _COMMON_VOCATIVES else name[:1].upper() + name[1:]
+        return f"{match['greet']} {written},"
+
+    def vocative(match: re.Match[str]) -> str:
+        if match["name"].lower() in _NOT_A_VOCATIVE or re.search(r"\d", match["name"]):
+            return match[0]
+        return match["name"] + ","
+
+    return _VOCATIVE_QUESTION_RE.sub(vocative, _ADDRESS_GREETING_RE.sub(greeting, text))
 
 
 def _letter_layout(text: str) -> str | None:
@@ -1451,7 +1548,7 @@ def resolve_value_corrections(text: str) -> str:
 
 def heuristic_format(text: str) -> str:
     """Punctuation, capitalization, and structure without an LLM."""
-    text = _soften_ellipses(text)
+    text = _address_the_reader(_soften_ellipses(text))
     from .text_pipeline import normalize_spaces, split_sentences
 
     letter = _letter_layout(text)
@@ -1551,8 +1648,8 @@ def _soft_break_run_on(line: str) -> str:
     enough to help real dictation without turning every "and" into a new line.
     """
     closing = re.match(r"(.+?)\s+(thanks|thank you)[.!?]*$", line, re.I)
-    if closing and is_question(closing[1]):
-        line = closing[1] + "? " + closing[2].capitalize() + "."
+    if closing and is_question(closing[1].rstrip(" ,")):
+        line = closing[1].rstrip(" ,") + "? " + closing[2].capitalize() + "."
     # A repeated subject and an explicit anaphoric object signal a fresh
     # statement. Relative clauses ("the message I sent yesterday") do not.
     follow_up = re.search(r"\s+(i|we|he|she|they)\s+(sent|pushed|shipped|finished|checked|read|wrote)\s+(it|them|that)\b", line, re.I)
@@ -1743,6 +1840,11 @@ def _list_structure_is_safe(source: str, candidate: str) -> bool:
     if not items:
         return True
     if not _source_has_list_intent(source):
+        return False
+    # X-603: a dictated semicolon is the speaker choosing prose ("two things
+    # colon the api is down semicolon the site is fine"); the rules keep it
+    # and prompt rule 3 says so, but the 4B Chill made it a numbered list.
+    if ";" in source and not _structural_list_items(source):
         return False
     return all(_list_item_is_complete(item, allow_terse=True) for item in items)
 
@@ -2767,6 +2869,40 @@ def _correction_reversed(source: str, candidate: str) -> bool:
     return False
 
 
+_CUE_PHRASE_RE = re.compile(
+    r"i mean|i meant|no wait|wait no|or rather|actually|sorry|scratch that|strike that|forget that", re.IGNORECASE
+)
+
+
+def _correction_unresolved(source: str, candidate: str) -> bool:
+    """The cue was dropped but both versions kept: "add a slide on pricing
+    forget that add a slide on hiring" came back "Add a slide on pricing.
+    Add a slide on hiring." (X-603, the Executive finish). That is neither
+    what was said nor what was meant; the Chill retry or the draft is."""
+    kept = set(_faithful_tokens(candidate))
+    kept |= {_stem(word) for word in kept}
+    for match in _CORRECTION_CUE_WORD_RE.finditer(source):
+        cue = _CUE_PHRASE_RE.match(source, match.start())
+        if not cue:
+            continue
+        pattern = rf"(?<![\w']){cue.group(0).lower().replace(' ', r'\s+')}(?![\w'])"
+        if len(re.findall(pattern, candidate, re.IGNORECASE)) >= len(re.findall(pattern, source, re.IGNORECASE)):
+            continue
+        following = _faithful_tokens(match["rest"])
+        earlier = _faithful_tokens(source[:match.start()])
+        if not following or not earlier:
+            continue
+        new, old = following[0], earlier[-1]
+        # A head the correction repeats ("the blue folder sorry the green
+        # folder") is not what it retracted; the rules cannot see which
+        # word was, so they do not judge.
+        if new == old or old in _FAITHFUL_DROPPABLE or old in following:
+            continue
+        if old in kept and (new in kept or _stem(new) in kept):
+            return True
+    return False
+
+
 def _words_added(source: str, candidate: str, transcript: str) -> list[str]:
     said = _said_forms(source, transcript)
     added = []
@@ -2784,18 +2920,34 @@ _PREPOSITION_RE = re.compile(r"\b(?:at|on|in|to|for|from|with|by|of|about|after|
                              re.IGNORECASE)
 
 
-def _words_dropped(source: str, candidate: str) -> list[str]:
+def _conjunctions(text: str) -> Counter[str]:
+    return Counter(match.group(0).lower() for match in _CONJUNCTION_RE.finditer(text))
+
+
+# "So basically" opens a take the way "um" does; it is the filler phrase an
+# Executive polish is allowed to drop (X-603, spec cases C087 and MIX24).
+_SO_BASICALLY_RE = re.compile(r"\bso\s*,?\s+basically\b", re.IGNORECASE)
+
+
+def _words_dropped(source: str, candidate: str, *, polish: bool = False) -> list[str]:
     kept = Counter(_faithful_tokens(candidate))
     kept_stems = Counter(_stem(word) for word in kept.elements())
     allowed = set(_FAITHFUL_DROPPABLE)
+    if polish:
+        allowed |= _POLISH_DROPPABLE
     listed = bool(_structural_list_items(candidate))
     if listed:
         allowed |= _LIST_COUNTERS
     dropped = []
     # The spec's BOUNDARY rule: a split never deletes an "and", "but" or
     # "so" (MIX21 lost its "and" to a new sentence). A list may drop the
-    # "and" before its last item.
-    if not listed and len(_CONJUNCTION_RE.findall(candidate)) < len(_CONJUNCTION_RE.findall(source)):
+    # "and" before its last item. X-603: counted per word, so a swap is a
+    # drop too ("5 miles, so roughly 8" became "five miles, or roughly
+    # eight"; "two or three days" became "two to three days").
+    said_joins = _conjunctions(source)
+    if polish:
+        said_joins["so"] -= len(_SO_BASICALLY_RE.findall(source))
+    if not listed and +(said_joins - _conjunctions(candidate)):
         dropped.append("and")
     if len(_PREPOSITION_RE.findall(candidate)) < len(_PREPOSITION_RE.findall(source)):
         dropped.append("at")
@@ -2806,6 +2958,256 @@ def _words_dropped(source: str, candidate: str) -> list[str]:
         if have < count:
             dropped.append(word)
     return dropped
+
+
+def _conjunction_added(source: str, candidate: str) -> bool:
+    """A joining word nobody said: "I tried to, I really did" became "I
+    tried, and I really did"; "Slack slash Teams" became "Slack or Teams";
+    "I was going to, we should" became "I was going to, but we should"
+    (X-603). A list may gain the "and" before its last item."""
+    added = _conjunctions(candidate) - _conjunctions(source)
+    if _structural_list_items(candidate):
+        added.pop("and", None)
+    return bool(added)
+
+
+# "you know" is padding only where nothing governs it and it takes no object;
+# "you know what I mean" and "do you know" are the verb, judged exactly as
+# text_pipeline.remove_fillers judges it. A finish that drops the verb has
+# answered the speaker instead (Executive wrote "I mean that." for "you know
+# what I mean", X-601/X-603).
+_YOU_KNOW_RE = re.compile(r"\byou know\b", re.IGNORECASE)
+
+
+def _verb_you_know_dropped(source: str, candidate: str) -> bool:
+    from .text_pipeline import _YOU_KNOW_GOVERNORS, _YOU_KNOW_OBJECTS
+
+    verbs = 0
+    for match in _YOU_KNOW_RE.finditer(source):
+        before = re.findall(r"[A-Za-z']+", source[:match.start()])
+        after = re.match(r"[\s,]*([A-Za-z']+)", source[match.end():])
+        if (before and before[-1].lower() in _YOU_KNOW_GOVERNORS) or (
+                after and after[1].lower() in _YOU_KNOW_OBJECTS):
+            verbs += 1
+    return bool(verbs) and len(_YOU_KNOW_RE.findall(candidate)) < verbs
+
+
+_DIGIT_RUN_RE = re.compile(r"\d+")
+
+
+def _digits_rewritten(source: str, candidate: str, *, correcting: bool) -> bool:
+    """A number the rules wrote in digits must stay those digits (X-603).
+
+    The value checks read "5" and "five" as the same fact, so the 4B turned
+    "about 5 miles, so roughly 8 kilometers" into words, and "Wednesday at 3"
+    into "3:00", past every guard. Commandments 54 and 60: one number style,
+    and a number keeps its precision. A correction may drop the abandoned
+    value; it never adds precision."""
+    plain_source = _without_structural_list_numbers(source)
+    plain_candidate = _without_structural_list_numbers(candidate)
+    if not correcting and Counter(_DIGIT_RUN_RE.findall(plain_source)) - Counter(_DIGIT_RUN_RE.findall(plain_candidate)):
+        return True
+    for match in re.finditer(r"(?<![\d.:])(\d{1,2}):00\b|(?<![\d.])(\d+)\.0+\b", plain_candidate):
+        whole = match.group(1) or match.group(2)
+        written = match.group(0)
+        if written not in plain_source and re.search(rf"(?<![\d.:]){whole}(?![\d]|[.:]\d)", plain_source):
+            return True
+    return False
+
+
+# An apology is not a correction cue: "I'm sorry, I cannot approve that" lost
+# "I'm sorry" to an Executive polish because "sorry" made the take look like a
+# self-correction, which switches the dropped-word check off (X-603, C021).
+_APOLOGY_RE = re.compile(
+    r"\b(?:i'm|i am|we're|we are|so|really|very|truly|terribly|awfully)\s+sorry\b|"
+    r"\bsorry\s+(?:about|for|to|that|if)\b",
+    re.IGNORECASE,
+)
+
+
+# "make it six" and "change that to Tuesday" retract a value; "I can't make it
+# and she doesn't know" and "make it to the meeting" do not, and read as a
+# cue they switched the dropped-word check off: the 4B turned the "and" into
+# a semicolon, accepted (X-603, parity row "fused contraction").
+_MAKE_IT_VALUE = (
+    r"(?:\$?\d|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|"
+    r"sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|noon|"
+    r"midnight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|tonight|tomorrow|next)"
+)
+_NOT_A_MAKE_IT_CUE_RE = re.compile(
+    rf"\b(?:make|change)\s+(?:it|that)\b(?!\s+to\s+{_MAKE_IT_VALUE}\b)(?!\s+(?:{_MAKE_IT_VALUE}|the|a|an)\b)",
+    re.IGNORECASE,
+)
+
+
+def _source_is_correcting(source: str) -> bool:
+    """Whether the draft still carries a correction cue a finish may resolve."""
+    plain = _APOLOGY_RE.sub(" ", source.replace("’", "'"))
+    plain = _NOT_A_MAKE_IT_CUE_RE.sub(" ", plain)
+    return bool(_SELF_CORRECTION_RE.search(plain) or _mangled_mean(plain))
+
+
+# --- X-603: an Executive polish keeps the speaker's words --------------------
+#
+# docs/DICTATION-COMMANDMENTS.md section 3: faithful words outrank style.
+# Measured 2026-09-23 on the 4B, three identical runs: the Executive polish
+# turned "just" into "simply", "doc" into "document", "dash off" into
+# "send", "started" into "began", "move" into "reschedule", "more" into
+# "additional", "say" into "read:", dropped "I'm sorry" and "to", and wrote
+# "The launch will move to Wednesday." for "actually wednesday" -- 19
+# critical failures on faithful cases, every one accepted, because a rewrite
+# was only held to its facts. The polish may now fix grammar and drop filler
+# phrases; every other word stays the speaker's, and a polish that changes
+# one is refused into the Chill retry (formatting only, their own words).
+#
+# Filler phrases a polish may drop beyond what a Chill finish may.
+_POLISH_DROPPABLE = frozenset(("basically",))
+# Informal forms a polish may standardise, and the words they may become
+# ("we're gonna need" -> "we'll need", the spec's rewrite case C034).
+_POLISH_STANDARD_FORMS: dict[str, frozenset[str]] = {
+    "gonna": frozenset({"will", "going"}),
+    "wanna": frozenset({"want"}),
+    "gotta": frozenset({"have", "got", "must", "need"}),
+}
+
+
+def _polish_reworded(source: str, candidate: str, transcript: str, *, correcting: bool) -> str:
+    """Why an Executive polish changed the speaker's words, or ""."""
+    said = set(_faithful_tokens(f"{source}\n{transcript}"))
+    informal = [word for word in _POLISH_STANDARD_FORMS if word in said]
+    standard = set().union(*(_POLISH_STANDARD_FORMS[word] for word in informal)) if informal else set()
+    if any(word not in standard for word in _words_added(source, candidate, transcript)):
+        return "words_added"
+    if _conjunction_added(source, candidate):
+        return "words_added"
+    if not correcting:
+        kept = set(_faithful_tokens(candidate))
+        dropped = [word for word in _words_dropped(source, candidate, polish=True)
+                   if not (word in _POLISH_STANDARD_FORMS and _POLISH_STANDARD_FORMS[word] & kept)]
+        if dropped:
+            return "words_dropped"
+    if _correction_reversed(source, candidate):
+        return "correction_reversed"
+    if _correction_unresolved(source, candidate):
+        return "correction_unresolved"
+    return ""
+
+
+# The speaker's contractions are theirs (commandments 43 and 87): "Don't send
+# it" came back "Do not send it" and "What's the difference" as "What is the
+# difference" from the Executive polish. Put back deterministically rather
+# than refused, so the rest of a good answer survives.
+_CONTRACTIONS: dict[str, tuple[str, ...]] = {
+    "don't": ("do not",), "doesn't": ("does not",), "didn't": ("did not",),
+    "can't": ("cannot", "can not"), "won't": ("will not",), "wouldn't": ("would not",),
+    "shouldn't": ("should not",), "couldn't": ("could not",), "mustn't": ("must not",),
+    "isn't": ("is not",), "aren't": ("are not",), "wasn't": ("was not",), "weren't": ("were not",),
+    "haven't": ("have not",), "hasn't": ("has not",), "hadn't": ("had not",),
+    "i'm": ("i am",), "you're": ("you are",), "we're": ("we are",), "they're": ("they are",),
+    "i'll": ("i will",), "you'll": ("you will",), "we'll": ("we will",), "they'll": ("they will",),
+    "he'll": ("he will",), "she'll": ("she will",), "it'll": ("it will",),
+    "i've": ("i have",), "you've": ("you have",), "we've": ("we have",), "they've": ("they have",),
+    "i'd": ("i would", "i had"), "you'd": ("you would", "you had"), "we'd": ("we would", "we had"),
+    "they'd": ("they would", "they had"),
+    "it's": ("it is", "it has"), "that's": ("that is",), "what's": ("what is",), "there's": ("there is",),
+    "here's": ("here is",), "he's": ("he is", "he has"), "she's": ("she is", "she has"),
+    "who's": ("who is",), "where's": ("where is",), "how's": ("how is",), "let's": ("let us",),
+}
+
+
+def _phrase_re(phrase: str) -> re.Pattern[str]:
+    return re.compile(rf"(?<![\w'’]){re.escape(phrase).replace(chr(39), '[' + chr(39) + '’]')}(?![\w'’])",
+                      re.IGNORECASE)
+
+
+def _swap_phrases(text: str, old: str, new: str, count: int) -> str:
+    def cased(match: re.Match[str]) -> str:
+        written = new
+        if match.group(0)[:1].isupper():
+            written = written[:1].upper() + written[1:]
+        # "I" is a capital wherever it stands: "i am" -> "I'm", "we'd" stays.
+        return re.sub(r"\bi(?=\b|')", "I", written)
+
+    return _phrase_re(old).sub(cased, text, count=count)
+
+
+# A greeting takes its own line only in a letter: a greeting AND a signed
+# sign-off (commandment 49, and every parity corpus: "Hey Marta, can you
+# resend the invoice when you get a chance?"). Measured on the 4B Chill
+# finish, 2026-09-23: "hi diane can you resend the file" came back "Hi
+# Diane,\n\nCan you resend the file?" -- a letter layout for a chat line.
+_GREETING_LINE_RE = re.compile(
+    r"\A(?P<greeting>(?:Hi|Hey|Hello|Dear|Good morning|Good afternoon|Good evening)\s+[^\s,\n]+(?:\s+[^\s,\n]+)?),"
+    r"\n\n(?P<first>\S+)(?P<rest>[^\n]*)\Z",
+)
+
+
+def _repair_local_answer(draft: str, answer: str) -> str:
+    """X-603: what the local finish may not change, put back before the
+    validator reads it -- the speaker's contractions, an unsigned greeting's
+    line, and a number's sign. Each is a measured 4B habit that otherwise
+    refused (or passed) an answer that was right in every other word."""
+    answer = restore_contractions(draft, answer)
+    answer = unsign_like_the_draft(draft, answer)
+    return inline_unsigned_greeting(draft, answer)
+
+
+def unsign_like_the_draft(source: str, candidate: str) -> str:
+    """A minus the 4B wrote in front of a number the draft has unsigned.
+
+    Measured again on 2026-09-23 after the X-603 prompt change: "October
+    10th" came back "October -10th" and the whole answer was refused
+    (number_changed), so a correct list and "Priya" fell back to the rules.
+    The draft's own negatives ("-5 degrees") are left alone."""
+    said = Counter(_SIGNED_NUMBER_RE.findall(source))
+
+    def fix(match: re.Match[str]) -> str:
+        token = match.group(0)
+        if said[token] > 0:
+            said[token] -= 1
+            return token
+        if re.search(rf"(?<![\w-]){re.escape(token[1:])}(?!\w)", source):
+            return token[1:]
+        return token
+
+    return _SIGNED_NUMBER_RE.sub(fix, candidate)
+
+
+def inline_unsigned_greeting(source: str, candidate: str) -> str:
+    """The finish's answer with an unsigned greeting put back on its line."""
+    match = _GREETING_LINE_RE.match(candidate.strip())
+    if not match or "\n" in source.strip():
+        return candidate
+    first = match["first"]
+    # The draft says how the word after the greeting is written ("can",
+    # "I", "Sam"); a sentence-start capital is not its own.
+    drafted = re.search(rf"(?<![\w'’]){re.escape(first.strip('.,!?'))}(?![\w'’])", source, re.IGNORECASE)
+    if drafted and drafted.group(0) != first.strip(".,!?") and drafted.group(0)[:1].islower():
+        first = first[:1].lower() + first[1:]
+    return f"{match['greeting']}, {first}{match['rest']}"
+
+
+def restore_contractions(source: str, candidate: str) -> str:
+    """The finish's answer with the speaker's own contractions put back.
+
+    Both directions: "don't" said and "do not" written becomes "don't";
+    "do not" said and "don't" written becomes "do not". Only the surplus
+    the finish introduced is touched, counted against the draft."""
+    def count(text: str, phrase: str) -> int:
+        return len(_phrase_re(phrase).findall(text))
+
+    for short, longs in _CONTRACTIONS.items():
+        for long in longs:
+            missing_short = count(source, short) - count(candidate, short)
+            extra_long = count(candidate, long) - count(source, long)
+            if missing_short > 0 and extra_long > 0:
+                candidate = _swap_phrases(candidate, long, short, min(missing_short, extra_long))
+                continue
+            missing_long = count(source, long) - count(candidate, long)
+            extra_short = count(candidate, short) - count(source, short)
+            if missing_long > 0 and extra_short > 0:
+                candidate = _swap_phrases(candidate, short, long, min(missing_long, extra_short))
+    return candidate
 
 
 _QUANTIFIER_RE = re.compile(
@@ -2977,7 +3379,7 @@ def formatter_rejection_reason(
         # ones. Normal Executive speech is held to exact factual parity.
         source_anchor_set = _meaning_anchors(source)
         candidate_anchor_set = _meaning_anchors(candidate)
-        repairing = bool(_SELF_CORRECTION_RE.search(source) or _mangled_mean(source))
+        repairing = _source_is_correcting(source)
         # A new register is not permission to erase uncertainty or reverse an
         # obligation. Both pinned local models dropped these in the audit.
         source_stance = _rewrite_stance(source)
@@ -3007,11 +3409,17 @@ def formatter_rejection_reason(
                 return "language_changed"
             if _currency_added(source, candidate, transcript):
                 return "currency_added"
-            if _written_number_changed(source, candidate):
+            if _written_number_changed(source, candidate) or _digits_rewritten(source, candidate, correcting=repairing):
                 return "number_changed"
             change = _class_change(source, candidate, repairing=repairing)
             if change:
                 return change
+            # X-603: grammar and filler phrases only; the words stay theirs.
+            if _verb_you_know_dropped(source, candidate):
+                return "words_dropped"
+            reworded = _polish_reworded(source, candidate, transcript, correcting=repairing)
+            if reworded:
+                return reworded
         return ""
     # Speech that takes something back is SUPPOSED to come back shorter:
     # "invite the sales team actually no invite the whole company" keeps four
@@ -3092,19 +3500,24 @@ def formatter_rejection_reason(
         # X-602: the Chill finish against what was said (see the block above
         # _FAITHFUL_STOPWORDS). A correction cue in the draft is what allows
         # a word to go; filler padding ("like", "you know") never needed one.
-        correcting = bool(_SELF_CORRECTION_RE.search(source) or _mangled_mean(source))
+        # X-603: an apology ("I'm sorry") is not a cue.
+        correcting = _source_is_correcting(source)
         if _foreign_words_added(f"{source}\n{transcript}", candidate):
             return "language_changed"
         if _currency_added(source, candidate, transcript):
             return "currency_added"
-        if _written_number_changed(source, candidate):
+        if _written_number_changed(source, candidate) or _digits_rewritten(source, candidate, correcting=correcting):
             return "number_changed"
-        if _words_added(source, candidate, transcript):
+        if _words_added(source, candidate, transcript) or _conjunction_added(source, candidate):
             return "words_added"
         if not correcting and _words_dropped(source, candidate):
             return "words_dropped"
+        if _verb_you_know_dropped(source, candidate):
+            return "words_dropped"
         if _correction_reversed(source, candidate):
             return "correction_reversed"
+        if _correction_unresolved(source, candidate):
+            return "correction_unresolved"
         change = _class_change(source, candidate, repairing=correcting)
         if change:
             return change
@@ -3421,6 +3834,8 @@ def smart_format(text: str, config: dict[str, Any], *, local_only: bool = False)
         # guarantee, on every model route, before validation ever sees it.
         if output:
             output = strip_em_dashes(output)
+            if local_route:
+                output = _repair_local_answer(formatter_input, output)
         censor = bool(cleanup.get("censor_profanity", False))
         # X-602: the local finish is also checked against what was said, not
         # only against the draft it was handed (commandment 95).
@@ -3447,7 +3862,8 @@ def smart_format(text: str, config: dict[str, Any], *, local_only: bool = False)
             remaining = budget_seconds - (time.perf_counter() - model_started)
             if executive and local_route and first_reason in _POLISH_REFUSALS and remaining >= 0.3:
                 retry = local_finish(formatter_input, config, executive=False, tone=tone, budget_seconds=remaining)
-                retry = strip_em_dashes(retry) if retry else retry
+                if retry:
+                    retry = _repair_local_answer(formatter_input, strip_em_dashes(retry))
                 if retry and _valid_formatter_output(
                     formatter_input, retry, preserve_meaning=bool(cleanup.get("preserve_meaning", True)),
                     rewrite_mode=False, censor_profanity=censor, transcript=said,
@@ -3479,6 +3895,8 @@ _POLISH_REFUSALS = frozenset({
     # hedge is still worth formatting in the speaker's own words.
     "quantifier_changed", "hedge_dropped", "perspective_changed",
     "words_added", "words_dropped", "correction_reversed", "currency_added", "number_changed",
+    # X-603: a cue dropped with both versions kept.
+    "correction_unresolved",
 })
 
 

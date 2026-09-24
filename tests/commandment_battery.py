@@ -82,7 +82,9 @@ _UNREAD_CONTEXT = frozenset({"document_text", "thread_text", "thread_language", 
 
 SKIP_AUDIO = "end_to_end: needs recorded audio (docs/DICTATION-COMMANDMENTS.md section 6.1)"
 SKIP_NATIVE = "native delivery (focus, clipboard timing): paste layer, not the formatter"
-SKIP_FIELD = "destination field type (single-line, console, password) is not passed to the formatter yet"
+SKIP_FIELD = "destination field type not modelled: {}"
+# X-604: the kinds field_context.FieldProbe reports and the pipeline acts on.
+_FIELD_KINDS = frozenset({"password", "single-line", "console"})
 SKIP_SETTING = "setting not implemented: {}"
 SKIP_CONTEXT = "context not passed to the formatter yet: {}"
 SKIP_ACTION = "app action, not a formatting pass: {}"
@@ -141,8 +143,10 @@ def plan(case: dict[str, Any]) -> tuple[str, str]:
         return "skip", SKIP_CONTEXT.format("document spelling variety")
     if "field" in keys:
         field = str(context["field"])
+        if field in _FIELD_KINDS:
+            return "format", f"the {field} field reaches the formatter"
         if field not in {"text", "multi-line"}:
-            return "skip", SKIP_FIELD
+            return "skip", SKIP_FIELD.format(field)
         return "format", "an ordinary text field is the default"
     if keys == {"caret_context"}:
         return "format", "caret unreadable: standalone formatting"
@@ -183,6 +187,8 @@ def case_config(case: dict[str, Any], base: dict[str, Any]) -> dict[str, Any]:
     if names:
         dictionary["screen_context"] = True
         config["_screen_names"] = names
+    if str(context.get("field", "")) in _FIELD_KINDS:
+        config["_field"] = str(context["field"])
     return config
 
 
@@ -284,8 +290,11 @@ def run_case(case: dict[str, Any], base: dict[str, Any], *, lane: str) -> dict[s
             if messenger and case["layer"] == "insertion":
                 from knight_flow import paste
 
+                from knight_flow.caret_context import ends_with_spoken_mark
+
                 with patch.object(paste, "foreground_process_name", return_value=messenger):
-                    produced = paste.strip_messenger_trailing_period(produced)
+                    produced = paste.strip_messenger_trailing_period(
+                        produced, keep=ends_with_spoken_mark(case["input"]))
     except Exception as exc:  # a crash is a result, not a harness failure
         error = f"{type(exc).__name__}: {exc}"
     elapsed = (time.perf_counter() - started) * 1000
