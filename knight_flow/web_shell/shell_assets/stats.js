@@ -3,7 +3,7 @@ window.TalkDatStats=({container,el,request,notice})=>{
   const root=el("section",{"data-workspace":"stats",class:"activity-workspace"});
   const refresh=el("button",{text:"Refresh"});
   const history=el("button",{text:"Read History",class:"quiet",onclick:()=>window.TalkDat.navigate("history")});
-  const status=el("p",{class:"secondary activity-status",role:"status",text:"Reading saved activity…"});
+  const status=el("p",{class:"secondary activity-status",role:"status",text:"Reading saved activity..."});
   const body=el("div",{class:"activity-body"});
   let timer=0,disposed=false,painted=0;
   const number=value=>Number(value||0).toLocaleString();
@@ -29,10 +29,10 @@ window.TalkDatStats=({container,el,request,notice})=>{
         el("span",{class:"secondary",text:stamp.toLocaleDateString(undefined,{weekday:"short"})})]));
     }
     const week=el("section",{class:"activity-week-panel"},[el("h2",{text:"The past seven days"}),bars,
-      el("p",{class:"secondary",text:`${number(a.active_days)} active days in saved history. Dates use this computer’s time zone.`})]);
+      el("p",{class:"secondary",text:`${number(a.active_days)} active days in saved history. Dates use this computer's time zone.`})]);
     const types=el("dl",{class:"activity-types"});
     for(const row of a.by_type)types.append(line(row.label,number(row.entries)));
-    const entries=el("section",{class:"activity-breakdown"},[el("h2",{text:"What you’ve saved"}),a.entries?types:el("p",{class:"secondary",text:"Saved dictations, rewrites and translations will appear here."})]);
+    const entries=el("section",{class:"activity-breakdown"},[el("h2",{text:"What you've saved"}),a.entries?types:el("p",{class:"secondary",text:"Saved dictations, rewrites and translations will appear here."})]);
     const route=el("section",{class:"activity-route"},[el("h2",{text:"Current speech setup"}),el("dl",{},[
       line("Provider",s.provider_label),line("Model",s.model_label||s.model||"Automatic"),
       line("Speech time",`${number(s.total_minutes)} min, estimated`),
@@ -41,7 +41,7 @@ window.TalkDatStats=({container,el,request,notice})=>{
     const cost=!s.is_cloud?"This local speech route has no per-minute provider charge.":
       !a.dictation_active_days?"Not enough dated history to project processing costs.":
       s.estimated_monthly_cost===null?"No processing-rate estimate is available for this model.":
-      `At the listed rate, using today’s model and your average dictation-day volume on all 30 days would project $${s.estimated_monthly_cost.toFixed(2)} in speech processing. The rate table is dated August 4, 2026 and may be outdated.`;
+      `At the listed rate, using today's model and your average dictation-day volume on all 30 days would project $${s.estimated_monthly_cost.toFixed(2)} in speech processing. The rate table is dated August 4, 2026 and may be outdated.`;
     estimate.append(el("p",{class:"secondary",text:"Typing time compares 40 typed words per minute with 150 spoken words per minute. Speech time uses saved dictation words, not measured audio duration. Word counts are approximate; rewrites and translations are included in saved words but excluded from speech estimates."}),
       el("p",{class:"secondary",text:"Current settings may differ from the routes used for older entries. These estimates are not a bill and exclude writing models and other charges. Talk DAT itself is free."}),
       el("p",{class:"secondary",text:cost}));
@@ -59,7 +59,7 @@ window.TalkDatStats=({container,el,request,notice})=>{
       const result=await call(operation);if(disposed)return;
       refresh.disabled=result.phase==="loading";
       status.setAttribute("role",result.phase==="error"?"alert":"status");
-      status.textContent=result.phase==="loading"?"Refreshing saved activity…":result.message||"Based on history saved on this computer.";
+      status.textContent=result.phase==="loading"?"Refreshing saved activity...":result.message||"Based on history saved on this computer.";
       if(result.data && result.phase!=="loading" && result.revision!==painted){render(result.data);painted=result.revision;}
       if(result.phase==="loading")timer=setTimeout(()=>update("status"),180);
     }catch(error){if(!disposed){refresh.disabled=false;status.setAttribute("role","alert");status.textContent="Activity could not refresh. Your saved history is unchanged. Try Refresh again.";}}

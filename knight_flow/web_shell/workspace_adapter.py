@@ -52,13 +52,17 @@ class Workspaces:
             raise ValueError("The reset is confirmed. Wait for its result, then close Talk DAT.")
 
     def handle(self, payload):
-        if type(payload) is not dict or payload.get('area') not in {'home','history','scratchpad','recovery','words','translation','ramble','stats','mic-check','app-profiles','feedback','setup','scribe','plugins','reset'}:
+        if type(payload) is not dict or payload.get('area') not in {'home','history','scratchpad','recovery','words','translation','ramble','stats','mic-check','app-profiles','feedback','setup','scribe','plugins','reset','account'}:
             raise ValueError('That workspace is unavailable.')
         area=payload['area']
         if area not in self.services:self.services[area]=self.create(area)
         return self.services[area].handle({key:value for key,value in payload.items() if key!='area'})
 
     def create(self, area):
+        if area == "account":
+            # X-612: signing in on the web Account page.
+            from .account_workspace import AccountActions, AccountWorkspace
+            return AccountWorkspace(AccountActions(self.app))
         if area == "reset":
             from knight_flow.config import app_dir
             from .reset_workspace import ResetWorkspace

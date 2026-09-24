@@ -54,7 +54,7 @@ window.TalkDatAppProfiles = ({container,el,request,notice,changed}) => {
       state.entries=result.entries;state.listRevision=result.revision;state.canAdd=result.can_add;state.uneditable=result.uneditable;state.tones=result.tones;state.languages=result.languages;
       renderList();sync();return true;
     }catch(error){if(!state.disposed&&generation===state.generation){count.textContent=error.message;notice(error.message,true);}return false;}}
-  async function saveEntry(){if(!state.dirty)return true;if(state.busy)return false;state.busy=true;sync();status.textContent="Saving app preference…";
+  async function saveEntry(){if(!state.dirty)return true;if(state.busy)return false;state.busy=true;sync();status.textContent="Saving app preference...";
     try{const result=await call("put",{id:state.id,revision:state.revision,record:record()});if(state.disposed)return false;
       await load();fill(result.record,result.id,result.revision);notice(result.message);return true;
     }catch(error){status.textContent=error.message;status.setAttribute("role","alert");notice(error.message,true);return false;}

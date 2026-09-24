@@ -103,7 +103,7 @@ window.TalkDatReset = ({container,el,request,notice,changed=()=>{}}) => {
           el("span",{},[el("strong",{text:category.label}),description])]));
       }
       const count=el("p",{class:"secondary","data-reset-count":"",role:"status"});
-      const preview=el("button",{class:"primary",text:state.phase==="scanning"?"Checking selected data…":"Preview selected items","data-reset-preview":""});
+      const preview=el("button",{class:"primary",text:state.phase==="scanning"?"Checking selected data...":"Preview selected items","data-reset-preview":""});
       preview.addEventListener("click",()=>act("preview",{selected:Array.from(selected)}));
       root.append(choices,el("div",{class:"reset-footer"},[count,preview]));
       function updateCount(){count.textContent=selected.size+" categories selected.";preview.disabled=!selected.size||inFlight||state.phase==="scanning";}

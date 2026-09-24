@@ -9,7 +9,7 @@ window.TalkDatHome=({container,el,request,notice})=>{
   const hero=el("header",{class:"home-hero"});
   const metrics=el("div",{class:"home-metrics"});
   const news=el("section",{class:"home-news"});
-  const status=el("p",{class:"secondary home-status",role:"status",text:"Getting things ready…"});
+  const status=el("p",{class:"secondary home-status",role:"status",text:"Getting things ready..."});
   let timer=0,disposed=false,painted=0,heroPainted=false;
   const number=value=>Number(value||0).toLocaleString();
   const minutes=value=>value>=60?`${Math.floor(value/60)}h ${value%60}m`:`${value}m`;
@@ -61,7 +61,7 @@ window.TalkDatHome=({container,el,request,notice})=>{
   function renderNews(g){
     const summary=(g.summary||[]).filter(Boolean);
     const notes=(g.notes||[]).filter(Boolean);
-    news.replaceChildren(el("h2",{text:`What’s new in ${g.version||"this version"}`}));
+    news.replaceChildren(el("h2",{text:`What's new in ${g.version||"this version"}`}));
     for(const paragraph of summary)news.append(el("p",{class:"home-news-summary",text:paragraph}));
     if(notes.length){
       const list=el("ul",{class:"home-notes"});
@@ -71,7 +71,7 @@ window.TalkDatHome=({container,el,request,notice})=>{
     if(g.more_notes>0)news.append(el("p",{class:"secondary home-notes-more",
       text:`Plus ${g.more_notes} more ${g.more_notes===1?"change":"changes"} in this version.`}));
     if(!summary.length&&!notes.length){
-      news.append(el("p",{class:"secondary",text:"This build’s notes are not bundled. Help has the full history."}));
+      news.append(el("p",{class:"secondary",text:"This build's notes are not bundled. Help has the full history."}));
     }
     news.append(updateRow);
   }
@@ -150,7 +150,7 @@ window.TalkDatHome=({container,el,request,notice})=>{
       const result=await call(operation);if(disposed)return;
       if(result.greeting&&!heroPainted){renderHero(result.greeting);renderNews(result.greeting);heroPainted=true;}
       status.setAttribute("role",result.phase==="error"?"alert":"status");
-      status.textContent=result.phase==="loading"?"Adding up your saved words…"
+      status.textContent=result.phase==="loading"?"Adding up your saved words..."
         :result.phase==="error"?(result.message||"Your activity could not load."):"";
       status.hidden=!status.textContent;
       if(result.activity&&result.phase!=="loading"&&result.revision!==painted){renderMetrics(result.activity);painted=result.revision;}

@@ -114,6 +114,8 @@ class AppShell:
             'account': overlay.open_account, 'feedback': lambda: {'page':'feedback'},
             'language_request': lambda: {'page':'language-request'},
             'check_updates': app.check_updates, 'diagnostics': self._diagnostics,
+            'status_report': self._status_report, 'panic': app.panic_stop,
+            'open_permissions': self._open_permissions,
             'reset': lambda: {'page':'reset'}, 'backup': self._backup, 'restore_backup': self._restore_backup,
             'restore_backup_confirm': self._restore_backup_confirm,
             'restore_backup_cancel': self._restore_backup_cancel,
@@ -406,6 +408,53 @@ class AppShell:
         self._legacy = True
         if self._menu_requested:
             self.overlay._open_context_menu(*self._last_menu_position)
+
+    def _status_report(self):
+        """X-613: the tray's Status window, as data for the Help page."""
+        from knight_flow.mic_registry import microphone_registry
+        data = self.app.status_snapshot()
+        data = data if isinstance(data, dict) else {}
+
+        def value(item):
+            if isinstance(item, bool):
+                return 'Yes' if item else 'No'
+            return str(item) if item not in (None, '') else 'None'
+
+        rows = [[str(key).replace('_', ' ').capitalize(), value(item)] for key, item in sorted(data.items())]
+        microphone = list(microphone_registry().describe())
+        microphone.append('Panic stop (the button below, or the tray menu) releases every one of them.')
+        return {'status_report': {'rows': rows, 'microphone': microphone, 'permissions': self._permissions()}}
+
+    @staticmethod
+    def _permissions():
+        """X-613 on a Mac: the macOS permissions checklist the Tk Status window kept
+        (X-23). These grants are bound to the app's signature, so replacing the
+        app clears them, and the symptom is never an error: dictation records
+        silence or delivers nothing. None anywhere but macOS, and None on a build
+        without the Mac helpers (main; mac-port carries them)."""
+        try:
+            from knight_flow import mac_support
+            from knight_flow.onboarding import permission_is_satisfied, permission_pages, permissions_outstanding
+        except ImportError:
+            return None
+        if not getattr(mac_support, 'IS_MAC', False):
+            return None
+        report = mac_support.permission_report()
+        missing = permissions_outstanding(report)
+        rows = []
+        for page in permission_pages():
+            state = report.get(page.key, 'unknown')
+            rows.append({'label': page.label, 'state': state, 'granted': permission_is_satisfied(state),
+                         'breaks': page.breaks if page.key in missing else '', 'where': page.settings_path})
+        return {'rows': rows, 'missing': len(missing)}
+
+    def _open_permissions(self):
+        """Open System Settings on the first missing permission (the Tk window's button)."""
+        opener = getattr(self.overlay, '_open_permission_settings_for_first_gap', None)
+        if not callable(opener):
+            raise ValueError('There are no system permissions to set on this computer.')
+        opener(lambda: None)
+        return {'message': 'System Settings is open on the first permission Talk DAT! still needs.'}
 
     def _diagnostics(self):
         from knight_flow.packs import export_diagnostics

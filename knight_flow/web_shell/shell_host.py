@@ -33,7 +33,7 @@ def bundled_html(directory):
     javascript = (directory / 'shell.js').read_text(encoding='utf-8')
     css += '\n' + (directory / 'workspaces.css').read_text(encoding='utf-8')
     javascript = '\n'.join((directory / name).read_text(encoding='utf-8')
-                            for name in ('workspaces.js','home.js','notes.js','recovery.js','words.js','translation.js','ramble.js','scribe.js','stats.js','mic-check.js','app-profiles.js','feedback.js','setup.js','reset.js')) + '\n' + javascript
+                            for name in ('workspaces.js','home.js','notes.js','recovery.js','words.js','translation.js','ramble.js','scribe.js','stats.js','mic-check.js','app-profiles.js','feedback.js','setup.js','reset.js','account.js')) + '\n' + javascript
     font = base64.b64encode((directory / 'fonts/KnightDisplay.ttf').read_bytes()).decode('ascii')
     css = css.replace('fonts/KnightDisplay.ttf', 'data:font/ttf;base64,' + font)
     atlas = base64.b64encode((directory / 'icons/line-art-atlas.png').read_bytes()).decode('ascii')
@@ -52,7 +52,7 @@ def bundled_html(directory):
     html = html.replace('<link rel="stylesheet" href="shell.css">', '<style>' + css + '</style>')
     html = html.replace('<script src="shell.js" defer></script>', '')
     html = html.replace('<link rel="stylesheet" href="workspaces.css">', '')
-    for name in ('workspaces.js','home.js','notes.js','recovery.js','words.js','translation.js','ramble.js','scribe.js','stats.js','mic-check.js','app-profiles.js','feedback.js','setup.js','reset.js'):
+    for name in ('workspaces.js','home.js','notes.js','recovery.js','words.js','translation.js','ramble.js','scribe.js','stats.js','mic-check.js','app-profiles.js','feedback.js','setup.js','reset.js','account.js'):
         html = html.replace('<script src="'+name+'" defer></script>', '')
     html = html.replace('</body>', '<script nonce="' + nonce + '">' + javascript + '</script></body>')
     if len(html.encode('utf-8')) >= 2 * 1024 * 1024:

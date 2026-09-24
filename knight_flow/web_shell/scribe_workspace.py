@@ -166,7 +166,7 @@ class ScribeWorkspace:
             if operation=='save':
                 self.require(payload,('revision',));self.current(payload['revision']);self.idle()
                 if not self.text.strip():raise ValueError('Add or record notes before saving.')
-                job={'kind':'save','text':self.text,'revision':self.revision,'engine':self.engine};self.job=job;self.message='Saving a new copyÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦'
+                job={'kind':'save','text':self.text,'revision':self.revision,'engine':self.engine};self.job=job;self.message='Saving a new copy...'
                 def work():
                     path=error=None
                     try:
@@ -235,7 +235,7 @@ class ScribeWorkspace:
 
     def checkpoint(self):
         job={'kind':'draft','engine':self.engine,'text':self.text,'revision':self.revision,'edited':self.edited}
-        self.job=job;self.message='Saving your draft for recoveryÃ¢â‚¬Â¦'
+        self.job=job;self.message='Saving your draft for recovery...'
         def work():
             error=None
             try:self.utility('checkpoint',job)
@@ -256,7 +256,7 @@ class ScribeWorkspace:
 
     def refresh_library(self):
         if self.library_job:return
-        job=object();self.library_job=job;self.library_message='Looking for saved recordingsÃ¢â‚¬Â¦'
+        job=object();self.library_job=job;self.library_message='Looking for saved recordings...'
         def work():
             result=error=None
             try:result=self.utility('catalog',None)

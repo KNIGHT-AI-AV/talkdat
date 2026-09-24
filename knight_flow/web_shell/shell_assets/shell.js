@@ -103,7 +103,7 @@
     dialog.addEventListener("cancel",event=>{if(restoring)event.preventDefault();});
     dialog.addEventListener("close",()=>{rpc("action",{name:"restore_backup_cancel"}).catch(()=>{});dialog.remove();});
     confirm.addEventListener("click",async()=>{
-      restoring=true;confirm.disabled=true;cancel.disabled=true;status.textContent="Restoring your saved data…";
+      restoring=true;confirm.disabled=true;cancel.disabled=true;status.textContent="Restoring your saved data...";
       try { const result=await rpc("action",{name:"restore_backup_confirm"});status.textContent=result.message;dialog.close(); }
       catch(error){restoring=false;status.textContent=error.message;confirm.disabled=false;cancel.disabled=false;}
     });
@@ -120,7 +120,7 @@
   function updateSaveStrip() {
     if (!state.draft.size && !state.invalid.size) state.draftRevision = null;
     $("save-strip").hidden = state.draft.size === 0 && state.invalid.size === 0;
-    $("dirty-status").textContent = state.saving ? "Saving changes…" : state.invalid.size ? "Check the highlighted setting" : "Unsaved changes";
+    $("dirty-status").textContent = state.saving ? "Saving changes..." : state.invalid.size ? "Check the highlighted setting" : "Unsaved changes";
     $("save").disabled = state.saving || state.invalid.size > 0;
     $("save-close").disabled = $("save").disabled; $("discard").disabled = state.saving;
     Promise.resolve(window.pywebview?.api?.draft_changed?.(state.draft.size > 0 || state.invalid.size > 0 || Boolean(activeWorkspace?.isDirty?.()))).catch(() => {});
@@ -171,7 +171,7 @@
     const alternative = el("button", {type:"button",text:"Add alternative",class:"quiet"}); alternative.disabled=value.length>=8;
     const clear = el("button", {type:"button",text:"Clear",class:"quiet"});
     const mouse = el("select", {"aria-label":field.label + " mouse or controller button"});
-    mouse.append(el("option",{value:"",text:"Mouse or controller…"}));
+    mouse.append(el("option",{value:"",text:"Mouse or controller..."}));
     for (const [key,label] of [["mouse4","Mouse 4"],["mouse5","Mouse 5"],["middle","Middle click"],["pad_a","Controller A"],["pad_b","Controller B"],["pad_lb","Controller LB"],["pad_rb","Controller RB"]]) mouse.append(el("option",{value:key,text:label}));
     const capture = {active:false,starting:false,down:new Map(),widest:[],append:false,arm:"",timer:0,owner:record};
     function finish(chord = null) {
@@ -188,7 +188,7 @@
       try {
         await rpc("action",{name:"shortcut_begin"});
         if(!capture.starting){rpc("action",{name:"shortcut_end"}).catch(()=>{});return;}
-        capture.starting=false;capture.active=true;status.textContent="Press keys together, then release. Esc cancels.";owner.textContent="Recording…";
+        capture.starting=false;capture.active=true;status.textContent="Press keys together, then release. Esc cancels.";owner.textContent="Recording...";
         capture.timer=setInterval(()=>rpc("action",{name:"shortcut_begin"}).catch(error=>{finish();notice(error.message,true);}),4000);
       } catch(error){finish();notice(error.message,true);}
     }
@@ -207,7 +207,7 @@
         const key=canonical(event);if(!key)return;
         capture.down.set(event.code,key);
         const held=[...new Set(capture.down.values())];if(held.length>capture.widest.length)capture.widest=held;
-        status.textContent=readable([held])+" …";
+        status.textContent=readable([held])+" ...";
       });
       owner.addEventListener("keyup",event=>{
         if(event.code===capture.arm){capture.arm="";return;}
@@ -231,7 +231,7 @@
     const devices=[...result.devices||[]];if(value&&!devices.includes(value))devices.unshift(value);
     for(const device of devices)select.append(el("option",{value:device,text:device}));select.value=value;
     select.addEventListener("change",()=>dirty(field,select.value));
-    const refresh=el("button",{text:result.status==="loading"?"Finding microphones…":"Refresh microphones",class:"quiet"});refresh.disabled=result.status==="loading";
+    const refresh=el("button",{text:result.status==="loading"?"Finding microphones...":"Refresh microphones",class:"quiet"});refresh.disabled=result.status==="loading";
     refresh.addEventListener("click",()=>action("refresh_microphones",{},refresh));
     return el("div", {id:"microphone-picker",class:"input-field"},[select,refresh,el("span",{class:"description",role:"status",text:result.message||""})]);
   }
@@ -440,7 +440,8 @@
     }
     if (page.id === "recovery") activeWorkspace=window.TalkDatRecovery({container:main,el,request:rpc,notice});
     if(activeWorkspace)activeWorkspace.page=page.id;
-    if (page.id === "account") renderAccount(main);
+    if (page.id === "account") activeWorkspace=window.TalkDatAccount({container:main,el,request:rpc,notice});
+    if (page.id === "help" && state.data.actions?.includes("status_report")) main.append(renderStatusPanel());
     if (page.id === "help") {
       for (const [label, name] of [["Getting started", "getting_started"], ["Model guide", "model_guide"], ["Share an idea", "feedback"], ["Check for updates", "check_updates"], ["Diagnostics", "diagnostics"]]) {
         if (!state.data.actions?.includes(name)) continue;
@@ -575,7 +576,7 @@
       const choose = el("button", {text:selected === model.id ? "Selected" : "Use this model", "aria-pressed":selected === model.id});
       choose.addEventListener("click", () => { if (field) { dirty(field,model.id); renderModelPanel(); } }); buttons.append(choose);
       if (!model.downloaded || model.state === "error") {
-        const download = el("button", {text:model.state === "working" ? "Preparing…" : "Download"}); download.disabled = model.state === "working";
+        const download = el("button", {text:model.state === "working" ? "Preparing..." : "Download"}); download.disabled = model.state === "working";
         download.addEventListener("click", () => action("model_download:"+model.id,{},download)); buttons.append(download);
       } else if (!model.custom) {
         const remove = el("button", {class:"quiet", text:"Remove download"}); remove.disabled=model.state === "working";
@@ -586,6 +587,40 @@
   }
   // Settings > Formatting: the local writing model's state, with the one
   // action that state allows. Same machinery as the Getting started step.
+  // X-613: what is running right now and what holds the microphone, with
+  // the panic stop. It was the tray's square Tk Status window.
+  function renderStatusPanel() {
+    const rows = el("dl", {class:"status-facts"});
+    const mics = el("ul", {class:"status-mics"});
+    const when = el("p", {class:"secondary status-when", role:"status"});
+    const permissions = el("div", {class:"status-permissions-block", hidden:true});
+    const refresh = el("button", {type:"button", text:"Refresh"});
+    const panic = el("button", {type:"button", class:"danger", text:"Panic stop"});
+    async function load() {
+      refresh.disabled = true;
+      try {
+        const report = (await rpc("action", {name:"status_report"}))?.status_report || {};
+        rows.replaceChildren(...(report.rows || []).map(([key, value]) => el("div", {}, [el("dt", {text:key}), el("dd", {text:value})])));
+        mics.replaceChildren(...(report.microphone || []).map(line => el("li", {text:line.trim()})));
+        // On a Mac, the permissions checklist the Tk Status window kept (X-23).
+        const p = report.permissions;
+        permissions.hidden = !p;
+        if (p) permissions.replaceChildren(el("h3", {text:"macOS permissions"}),
+          el("ul", {class:"status-permissions"}, p.rows.map(row => el("li", {class: row.granted ? "is-granted" : "is-missing",
+            text:`${row.granted ? "Granted" : "Not granted"}: ${row.label}${row.breaks ? ". Without it, " + row.breaks + " (" + row.where + ")" : ""}`}))),
+          ...(p.missing ? [el("div", {class:"action-list"}, [el("button", {type:"button", class:"primary", text:"Open System Settings",
+            onclick:event => action("open_permissions", {}, event.currentTarget)})])] : []));
+        when.textContent = "Read just now.";
+      } catch (error) { when.textContent = error.message; }
+      finally { refresh.disabled = false; }
+    }
+    refresh.addEventListener("click", load);
+    panic.addEventListener("click", async () => { await action("panic", {}, panic); await load(); });
+    load();
+    return el("section", {id:"status-panel", class:"section status-panel", "aria-label":"Status"}, [
+      el("h2", {text:"Status"}), el("p", {class:"secondary", text:"What Talk DAT! is doing right now, and what is using the microphone."}),
+      rows, permissions, el("h3", {text:"Microphone"}), mics, when, el("div", {class:"action-list"}, [refresh, panic])]);
+  }
   // X-610: the finish picked after the third real dictation, with the
   // person's own words both ways. It used to be a square Tk window.
   function renderFinishChoice(choice) {
@@ -817,7 +852,7 @@
       const button = el("button", { class: "search-result", text: field.label }, [el("small", { text: page.label + ": " + (field.description || section.label) })]);
       button.addEventListener("click", () => navigate(page.id, field.id)); main.append(button); count++;
     }
-    if (!count) main.append(el("p", { class: "secondary", text: "No matches. Try “microphone”, “History” or “formatting”." }));
+    if (!count) main.append(el("p", { class: "secondary", text: "No matches. Try 'microphone', 'History' or 'formatting'." }));
   }
   $("help-button").prepend(icon("help"));
   document.querySelector(".search>span").replaceWith(icon("search"));

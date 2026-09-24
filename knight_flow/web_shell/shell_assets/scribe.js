@@ -10,7 +10,7 @@ window.TalkDatScribe=({container,el,request,notice,changed})=>{
   const lamp=el("span",{class:"scribe-lamp","aria-hidden":"true"});
   const phase=el("strong",{text:"Ready when you are"});
   const input=el("p",{class:"secondary"});
-  const status=el("p",{class:"scribe-status",role:"status",text:"Opening ScribeÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦"});
+  const status=el("p",{class:"scribe-status",role:"status",text:"Opening Scribe..."});
   const strip=el("div",{class:"scribe-deck"},[
     el("div",{class:"scribe-instrument","aria-hidden":"true"},[lamp,el("span",{text:"Talk DAT!"})]),
     el("div",{class:"scribe-capture"},[el("div",{class:"scribe-phase"},[phase,clock]),el("label",{text:"Record"},[source]),
@@ -29,7 +29,7 @@ window.TalkDatScribe=({container,el,request,notice,changed})=>{
   const receipt=el("div",{class:"scribe-receipts"});
   const issues=el("ul",{class:"scribe-issues",hidden:true});
   const details=el("details",{class:"scribe-originals"},[el("summary",{text:"Recording and recovery"}),
-    el("p",{class:"secondary",text:"Original audio stays in Talk DATÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢s data folder. It can contain everything heard by the selected source. Sources identify tracks, not individual speakers; transcript sections are approximately 30 seconds."}),
+    el("p",{class:"secondary",text:"Original audio stays in Talk DAT's data folder. It can contain everything heard by the selected source. Sources identify tracks, not individual speakers; transcript sections are approximately 30 seconds."}),
     issues,el("div",{class:"action-list"},[originals,retry,permissions])]);
   const aside=el("aside",{class:"scribe-keep","aria-label":"Saved notes"},[el("h2",{text:"Keep your notes"}),save,
     el("p",{class:"secondary",text:"Save a new Markdown file. Earlier notes stay intact."}),receipt,details]);
@@ -76,7 +76,7 @@ window.TalkDatScribe=({container,el,request,notice,changed})=>{
   function paintLibrary(){
     const data=state.data||{},rows=data.library||[];
     const signature=JSON.stringify([rows,state.libraryPage,data.active,data.edited,data.draft_saved,Boolean(state.action)]);
-    libraryStatus.textContent=data.library_message||"Looking for saved recordingsÃ¢â‚¬Â¦";
+    libraryStatus.textContent=data.library_message||"Looking for saved recordings...";
     refreshLibrary.disabled=Boolean(data.refreshing||state.action);
     if(signature===state.librarySignature)return;state.librarySignature=signature;libraryRows.replaceChildren();
     state.libraryPage=Math.min(state.libraryPage,Math.max(0,Math.floor((rows.length-1)/10)));
@@ -92,14 +92,14 @@ window.TalkDatScribe=({container,el,request,notice,changed})=>{
   function paint(){
     const data=state.data||{},ready=state.loaded&&!state.disposed,busy=Boolean(data.active||state.action),recording=data.phase==="recording";
     source.disabled=!ready||busy;record.disabled=!ready||Boolean(state.action)||Boolean(data.active&&!recording)||data.edited||data.other_recording;
-    record.textContent=recording?"Finish recording":data.active?"WorkingÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦":data.length?"New recording":"Start recording";
+    record.textContent=recording?"Finish recording":data.active?"Working...":data.length?"New recording":"Start recording";
     stop.hidden=!data.active||data.saving;stop.disabled=Boolean(state.action);stop.textContent=data.phase==="transcribing"?"Pause transcription":"Stop and keep audio";
     lamp.classList.toggle("recording",recording);strip.classList.toggle("recording",recording);
     phase.textContent=data.edited?(data.draft_saved?"Draft saved for review":"Keeping your draft"):({idle:"Ready when you are",preparing:"Preparing local speech",recording:"Recording",stopping:"Closing audio",transcribing:"Making your notes",ready:"Saved and ready",review:"Review needed",empty:"No words returned",paused:"Stopped, originals kept",error:"Needs attention","close-failed":"Audio still closing","save-failed":"Draft kept"})[data.phase]||"Scribe";
     const seconds=Math.max(0,Number(data.seconds)||0);clock.textContent=`${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,"0")}`;
     clock.hidden=!seconds&&!recording;
     input.textContent=data.source==="system"?"System output only. Your microphone is not selected.":`Input: ${data.input||"Your selected microphone"}`;
-    status.textContent=state.failure||(state.sequence!==state.saved?"Keeping your editsÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦":data.message||"Choose what to record.");
+    status.textContent=state.failure||(state.sequence!==state.saved?"Keeping your edits...":data.message||"Choose what to record.");
     const error=Boolean(state.failure||["error","close-failed","save-failed","review"].includes(data.phase));status.setAttribute("role",error?"alert":"status");status.classList.toggle("error",error);
     const hasText=Boolean(editor.value);words.textContent=hasText?`${editor.value.trim().split(/\s+/u).filter(Boolean).length.toLocaleString()} words`:"No notes yet";
     editor.disabled=!ready;editor.readOnly=busy;editor.spellcheck=editor.value.length<32000;

@@ -200,10 +200,18 @@ class TheStatusWindowKeepsTheChecklistTests(unittest.TestCase):
         return (Path(__file__).resolve().parents[1] / "knight_flow" / "overlay.py").read_text(encoding="utf-8")
 
     def test_status_reports_every_permission(self) -> None:
+        # The Tk window (the fallback) and, since X-613, the web Status on Help
+        # both carry the checklist. The Tk block grew by the web-first guard.
         block = self.source()
-        block = block[block.index("def open_status"):][:4000]
+        block = block[block.index("def open_status"):][:4800]
         self.assertIn("permission_report", block)
         self.assertIn("permissions_outstanding", block)
+        from pathlib import Path
+
+        shell = (Path(__file__).resolve().parents[1] / "knight_flow" / "web_shell" / "shell_app.py").read_text(encoding="utf-8")
+        web = shell[shell.index("def _permissions"):][:1600]
+        self.assertIn("permission_report", web)
+        self.assertIn("permissions_outstanding", web)
 
     def test_status_offers_a_way_into_system_settings(self) -> None:
         source = self.source()

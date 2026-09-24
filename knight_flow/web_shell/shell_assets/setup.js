@@ -4,7 +4,7 @@ window.TalkDatSetup=({container,el,request,notice,changed})=>{
   const root=el("section",{class:"setup-workspace","data-workspace":"setup"});
   const nav=el("nav",{class:"setup-chapters","aria-label":"Setup chapters"});
   const body=el("div",{class:"setup-body"});
-  const status=el("p",{class:"setup-status",role:"status",text:"Loading your setup…"});
+  const status=el("p",{class:"setup-status",role:"status",text:"Loading your setup..."});
   const back=el("button",{text:"Back",disabled:true}),next=el("button",{text:"Continue",class:"primary",disabled:true});
   const later=el("button",{text:"Save for later",class:"quiet",disabled:true});
   const refresh=el("button",{text:"Refresh setup",class:"quiet"});

@@ -12,7 +12,7 @@ window.TalkDatTranslation = ({container,el,request,notice,changed}) => {
   const counter=el("small",{class:"secondary",text:"0 / 64,000 characters"});
   const resultLabel=el("small",{class:"secondary",text:"Result"});
   const copy=el("button",{text:"Copy result",disabled:true});
-  const status=el("p",{class:"translation-status",role:"status",text:"Opening your translation workspace…"});
+  const status=el("p",{class:"translation-status",role:"status",text:"Opening your translation workspace..."});
   const translate=el("button",{text:"Translate",class:"primary",disabled:true});
   const cancel=el("button",{text:"Cancel translation",hidden:true});
   const speak=el("button",{text:"Speak and translate",disabled:true});
@@ -73,7 +73,7 @@ window.TalkDatTranslation = ({container,el,request,notice,changed}) => {
     const stale=Boolean(data.result&&(pending||data.result.revision!==state.revision));
     resultLabel.textContent=stale?"Previous result. Translate your changes.":data.result?`${data.result.source} → ${data.result.target}`:"Result";
     copy.textContent=stale?"Copy previous result":"Copy result";
-    status.textContent=pending&&!recording?"Keeping your draft…":data.message||"Add a passage, or speak it here.";
+    status.textContent=pending&&!recording?"Keeping your draft...":data.message||"Add a passage, or speak it here.";
     status.setAttribute("role",data.error?"alert":"status");
     status.classList.toggle("error",Boolean(data.error));
     const currentReady=data.ready?.model===model.value?data.ready:null;

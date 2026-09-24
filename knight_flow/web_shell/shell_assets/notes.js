@@ -42,7 +42,7 @@ window.TalkDatNotes = ({container,el,request,notice,changed}) => {
     const captured={id:state.note.id,revision:state.note.revision,title:title.value,text:body.value};
     let token;
     state.saving=(async()=>{
-      saveButton.disabled=true;saveCopy.disabled=true;status.textContent="Saving on this computer…";
+      saveButton.disabled=true;saveCopy.disabled=true;status.textContent="Saving on this computer...";
       try {
         ({token}=await call("begin_save",{id:captured.id,revision:captured.revision,title:captured.title,as_copy:asCopy}));
         // Offsets count Unicode scalars on both sides of the native boundary.
@@ -88,7 +88,7 @@ window.TalkDatNotes = ({container,el,request,notice,changed}) => {
   async function select(note,focus=false){
     const generation=++state.loading;
     title.disabled=true;body.disabled=true;
-    status.textContent="Opening your note…";
+    status.textContent="Opening your note...";
     let text="",offset=0;
     try {
       do {

@@ -7,7 +7,7 @@ window.TalkDatFeedback = ({container,el,request,notice,changed,kind="feature"}) 
   const details=el("textarea",{id:"feedback-details",maxlength:16000,rows:6,placeholder:kind==="language"?"Tell us about the language, region and how you would use it.":"What happens now, and what would you like to happen?"});
   const contact=el("input",{id:"feedback-contact",type:"email",maxlength:120,autocomplete:"email",placeholder:"you@example.com"});
   const counter=el("p",{class:"feedback-counter",role:"status"});
-  const status=el("p",{class:"feedback-status",role:"status",text:"Loading your kept draft…"});
+  const status=el("p",{class:"feedback-status",role:"status",text:"Loading your kept draft..."});
   const send=el("button",{type:"submit",class:"primary",text:"Send to the team",disabled:true});
   const copy=el("button",{type:"button",text:"Copy message",disabled:true});
   const email=el("button",{type:"button",text:"Open email draft",disabled:true});
@@ -23,7 +23,7 @@ window.TalkDatFeedback = ({container,el,request,notice,changed,kind="feature"}) 
     counter.textContent=`${count.toLocaleString()} / 2,000 characters, including ${kind==="language"?"the language name":"the title"}`;
     counter.classList.toggle("error",count>2000);fields.forEach(field=>field.disabled=!state.loaded||state.saving||state.sending);
     send.disabled=!state.loaded||state.saving||state.busy||!count||count>2000||(state.status==="received"&&!state.dirty);
-    send.textContent=state.sending?"Sending…":state.status==="received"&&!state.dirty?"Received":"Send to the team";
+    send.textContent=state.sending?"Sending...":state.status==="received"&&!state.dirty?"Received":"Send to the team";
     copy.disabled=!state.loaded||state.saving||!count;email.disabled=copy.disabled||state.busy||count>2000;
     reload.disabled=!state.loaded||state.saving||state.sending;preview.disabled=!state.loaded||state.saving||state.sending;include.disabled=preview.disabled;
     include.checked=state.include;changed();}
@@ -56,7 +56,7 @@ window.TalkDatFeedback = ({container,el,request,notice,changed,kind="feature"}) 
   const logStatus=el("p",{class:"secondary",role:"status"});const cancelLog=el("button",{text:"Leave log out",autofocus:true}),useLog=el("button",{text:"Attach this excerpt",class:"primary",disabled:true});
   let previewToken="";
   logDialog.append(el("h2",{id:"feedback-log-title",text:"Review before attaching"}),el("p",{text:"This excerpt can contain your dictated text before and after formatting. Only the text shown here will be attached when you choose Send to the team."}),logText,logStatus,el("div",{class:"dialog-actions"},[cancelLog,useLog]));
-  async function openPreview(){state.include=false;state.token="";previewToken="";sync();logText.value="";logStatus.textContent="Loading the recent excerpt…";useLog.disabled=true;logDialog.showModal();
+  async function openPreview(){state.include=false;state.token="";previewToken="";sync();logText.value="";logStatus.textContent="Loading the recent excerpt...";useLog.disabled=true;logDialog.showModal();
     try{const result=await call("logs");if(state.disposed||!logDialog.open)return;previewToken=result.token;logText.value=result.text;
       logStatus.textContent=result.text?`${result.bytes.toLocaleString()} bytes · this exact excerpt will be used`:'There is no formatting log excerpt to attach.';useLog.disabled=!result.text;
     }catch(error){logStatus.textContent=error.message;}}

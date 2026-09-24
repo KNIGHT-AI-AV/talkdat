@@ -12809,6 +12809,12 @@ class Overlay:
 
     @_transactional_utility_builder
     def open_account(self) -> None:
+        # X-612: the web Account page signs in now; this window is the
+        # fallback when the renderer is unavailable.
+        callbacks = getattr(self, "callbacks", {})
+        web_settings = callbacks.get("web_settings") if isinstance(callbacks, dict) else None
+        if callable(web_settings) and web_settings("account"):
+            return
         self.force_visible()
         ui = self.config.setdefault("ui", {})
         theme = self._settings_theme_key(str(ui.get("settings_theme") or ui.get("theme") or "Flow Dark"))
@@ -19252,6 +19258,12 @@ class Overlay:
 
     @_transactional_utility_builder
     def open_status(self) -> None:
+        # X-613: the Help page shows the status now; this window is the
+        # fallback when the renderer is unavailable.
+        callbacks = getattr(self, "callbacks", {})
+        web_settings = callbacks.get("web_settings") if isinstance(callbacks, dict) else None
+        if callable(web_settings) and web_settings("help"):
+            return
         self.force_visible()
         palette = self._settings_palette(self._settings_theme_key())
         window = self._utility_window("status", "Talk DAT! Status", "620x460", bg=palette["bg"])

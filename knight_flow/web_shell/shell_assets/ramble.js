@@ -7,7 +7,7 @@ window.TalkDatRamble = ({container,el,request,notice,changed}) => {
   const finish=el("button",{text:"Finish writing",disabled:true});
   const cancel=el("button",{text:"Stop finishing",hidden:true});
   const saveDocument=el("button",{text:"Save document",class:"primary",disabled:true});
-  const status=el("p",{class:"ramble-status",role:"status",text:"Opening your Ramble…"});
+  const status=el("p",{class:"ramble-status",role:"status",text:"Opening your Ramble..."});
   const counter=el("small",{class:"secondary",text:"Your draft"});
   const copy=el("button",{text:"Copy",class:"quiet",disabled:true});
   const clear=el("button",{text:"Clear",class:"quiet",disabled:true});
@@ -57,7 +57,7 @@ window.TalkDatRamble = ({container,el,request,notice,changed}) => {
     editor.spellcheck=characters<=32000;
     editor.disabled=!ready;editor.readOnly=recording||data.kind==='export';
     format.disabled=style.disabled=!ready||busy||recording;
-    record.disabled=!ready||busy||data.stopping;record.textContent=data.stopping?"Finishing recording…":recording?"Finish recording":hasText?"Record more":"Record";
+    record.disabled=!ready||busy||data.stopping;record.textContent=data.stopping?"Finishing recording...":recording?"Finish recording":hasText?"Record more":"Record";
     stop.hidden=!recording;stop.disabled=Boolean(state.action);
     finish.disabled=!ready||busy||recording||!hasText||characters>1000000;
     saveDocument.disabled=!ready||busy||recording||!hasText||characters>1000000;
@@ -65,7 +65,7 @@ window.TalkDatRamble = ({container,el,request,notice,changed}) => {
     copy.disabled=!ready||!hasText;clear.disabled=!ready||busy||recording||(!hasText&&!data.original_length);
     restore.disabled=!ready||busy||recording;
     counter.textContent=`${editor.value.trim()?editor.value.trim().split(/\s+/u).length.toLocaleString():0} words · ${characters.toLocaleString()} characters`;
-    status.textContent=state.failure||(state.sequence!==state.saved?"Keeping your draft…":data.message||"Choose a format, then record or add your draft.");
+    status.textContent=state.failure||(state.sequence!==state.saved?"Keeping your draft...":data.message||"Choose a format, then record or add your draft.");
     status.setAttribute("role",state.failure||data.error?"alert":"status");status.classList.toggle("error",Boolean(state.failure||data.error));
     originals.hidden=!data.original_length;
     styleLabel.hidden=preview.hidden=previewLabel.hidden=format.value!=='pdf';

@@ -45,11 +45,11 @@ window.TalkDatWords = ({container,el,request,notice,changed}) => {
     status.setAttribute("role","status");practiceButton.hidden=state.collection!=="vocabulary";practiceButton.disabled=!id;
     panels.classList.add("reading");changed();}
   async function load(){const generation=++state.generation;
-    count.textContent="Loading your saved entries…";
+    count.textContent="Loading your saved entries...";
     try {const result=await call("list",{query:state.query,offset:state.offset});
       if(state.disposed||generation!==state.generation)return;
       state.listRevision=result.revision;state.next=result.next;newer.disabled=state.offset===0;older.disabled=result.next===null;add.disabled=false;
-      list.replaceChildren();count.textContent=result.total?`${result.offset+1}–${result.offset+result.entries.length} of ${result.total}`:"No matching entries. Add one to get started.";
+      list.replaceChildren();count.textContent=result.total?`${result.offset+1} to ${result.offset+result.entries.length} of ${result.total}`:"No matching entries. Add one to get started.";
       if(result.uneditable)count.textContent+=` ${result.uneditable} older entries are kept unchanged; export your pack to review them.`;
       for(const row of result.entries){const button=el("button",{class:"document-entry","aria-pressed":row.id===state.id},[
         el("strong",{text:row.label}),el("span",{text:row.detail|| (row.learned?"Learned spelling":"Saved spelling")}),
@@ -61,7 +61,7 @@ window.TalkDatWords = ({container,el,request,notice,changed}) => {
     try {const result=await call("read",{id,revision});if(state.disposed||reading!==state.reading)return;fill(result.record,result.id,result.revision);first.focus();}
     catch(error){status.textContent=error.message;notice(error.message,true);if(loaded){first.disabled=false;second.disabled=false;updateDirty();}}}
   function save(){if(saveTask)return saveTask;if(!state.dirty)return Promise.resolve(true);
-    state.saving=true;first.disabled=true;second.disabled=true;enabled.disabled=true;saveButton.disabled=true;remove.disabled=true;status.textContent="Saving entry…";changed();
+    state.saving=true;first.disabled=true;second.disabled=true;enabled.disabled=true;saveButton.disabled=true;remove.disabled=true;status.textContent="Saving entry...";changed();
     saveTask=(async()=>{try{const result=await call("put",{id:state.id,revision:state.revision,record:record()});
       fill(result.record,result.id,result.revision);await load();await optionsState();notice(result.message);return true;
     }catch(error){status.textContent=error.message;status.setAttribute("role","alert");notice(error.message,true);return false;}
@@ -103,7 +103,7 @@ window.TalkDatWords = ({container,el,request,notice,changed}) => {
   const learning=el("select",{id:"word-learning","aria-label":"Learn from copied words",disabled:true});
   for(const [value,label] of [["off","Off"],["offer","Ask before adding"],["auto-on-second","Learn distinctive spellings; ask about other words"]])learning.append(el("option",{value,text:label}));
   const learningHint=el("p",{class:"secondary",text:"When enabled, Talk DAT checks words you copy after dictation. Ask before adding always asks first. The automatic option can learn distinctive spellings immediately; repeated ordinary words are offered for your approval. This runs on this computer."});
-  const suggestionButton=el("button",{text:"Suggest from history"}),importButton=el("button",{text:"Import pack…"}),exportButton=el("button",{text:"Export pack…"});
+  const suggestionButton=el("button",{text:"Suggest from history"}),importButton=el("button",{text:"Import pack..."}),exportButton=el("button",{text:"Export pack..."});
   const suggestions=el("div",{class:"word-suggestions",role:"group","aria-label":"Suggested words"});
   const packRow=el("div",{class:"action-list","aria-label":"Industry vocabulary"});
   async function optionsState(){try{const result=await utility("options");if(state.disposed)return;learning.value=result.mode;learning.disabled=false;learning.dataset.revision=result.revision;
@@ -139,10 +139,10 @@ window.TalkDatWords = ({container,el,request,notice,changed}) => {
   async function checkPractice(){clearTimeout(practiceTimer);try{const result=await utility("practice_status");if(state.disposed)return;practiceStatus.textContent=result.message;practising=result.active;changed();
     if(result.active)practiceTimer=setTimeout(checkPractice,350);else{stopPractice.textContent="Done";stopPractice.disabled=false;await load();await optionsState();const selected=[...list.children].find(button=>button.querySelector("strong")?.textContent===first.value);if(selected)await selected.click();}}
     catch(error){practiceStatus.textContent=error.message;stopPractice.disabled=false;}}
-  practiceButton.onclick=async()=>{if(state.dirty||!state.id)return;practising=true;changed();practiceStatus.textContent="Preparing…";stopPractice.textContent="Cancel practice";stopPractice.disabled=false;practiceDialog.showModal();
+  practiceButton.onclick=async()=>{if(state.dirty||!state.id)return;practising=true;changed();practiceStatus.textContent="Preparing...";stopPractice.textContent="Cancel practice";stopPractice.disabled=false;practiceDialog.showModal();
     try{await utility("practice_start",{id:state.id,revision:state.revision});await checkPractice();}
     catch(error){practising=false;practiceStatus.textContent=error.message;stopPractice.textContent="Done";changed();}};
-  stopPractice.onclick=async()=>{if(!practising){practiceDialog.close();return;}stopPractice.disabled=true;try{await utility("practice_cancel");practiceStatus.textContent="Stopping practice…";await checkPractice();}catch(error){practiceStatus.textContent=error.message;stopPractice.disabled=false;}};
+  stopPractice.onclick=async()=>{if(!practising){practiceDialog.close();return;}stopPractice.disabled=true;try{await utility("practice_cancel");practiceStatus.textContent="Stopping practice...";await checkPractice();}catch(error){practiceStatus.textContent=error.message;stopPractice.disabled=false;}};
   practiceDialog.addEventListener("cancel",event=>{if(practising){event.preventDefault();stopPractice.click();}});
   reader.append(el("header",{class:"document-actions"},[back,title]),firstLabel,first,secondLabel,second,hint,enabledRow,status,el("div",{class:"action-list words-editor-actions"},[saveButton,remove,practiceButton]));
   collection.append(search,el("div",{class:"action-list"},[add,refresh]),count,list,el("div",{class:"document-pager"},[newer,older]));

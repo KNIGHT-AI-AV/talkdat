@@ -29,7 +29,7 @@ window.TalkDatWorkspaces = (() => {
       const back=el("button",{text:"Back to history",class:"quiet reader-back",onclick:()=>{root.classList.remove("reading");list.querySelector('[aria-pressed="true"]')?.focus();}});
       const copy=el("button",{text:"Copy full text"});
       const pin=el("button",{text:row.pinned?"Unpin":"Pin","aria-pressed":row.pinned});
-      const text=el("div",{class:"document-text",tabindex:"0","aria-label":"Dictation text",text:"Loading your words…"});
+      const text=el("div",{class:"document-text",tabindex:"0","aria-label":"Dictation text",text:"Loading your words..."});
       const more=el("button",{text:"Read more",class:"quiet",hidden:true});
       reader.replaceChildren(el("header",{class:"document-actions"},[back,el("time",{text:stamp(row.created_at)}),copy,pin]),text,more);
       async function command(operation,button) {
@@ -58,14 +58,14 @@ window.TalkDatWorkspaces = (() => {
     }
     async function load() {
       const generation=++state.generation;
-      count.textContent="Loading local history…";
+      count.textContent="Loading local history...";
       try {
         const result=await call("list",{query:state.query,offset:state.offset});
         if(generation!==state.generation||!root.isConnected)return;
         state.preferences=result.preferences||state.preferences;
         design.value=state.preferences.report_design||"boardroom";
         list.replaceChildren();
-        count.textContent=result.total ? `${result.offset+1}–${result.offset+result.entries.length} of ${result.total}${state.pinned?" pinned":" recent"}` : state.query?"No matching dictations.":state.pinned?"Pin a dictation to keep it close.":"Your saved dictations will appear here.";
+        count.textContent=result.total ? `${result.offset+1} to ${result.offset+result.entries.length} of ${result.total}${state.pinned?" pinned":" recent"}` : state.query?"No matching dictations.":state.pinned?"Pin a dictation to keep it close.":"Your saved dictations will appear here.";
         older.disabled=result.next===null;newer.disabled=state.offset===0;state.next=result.next;
         for(const row of result.entries) {
           const button=el("button",{class:"document-entry","data-entry":row.id,"aria-pressed":state.selected?.id===row.id},[
@@ -134,7 +134,7 @@ window.TalkDatWorkspaces = (() => {
     }
     function paintExports(result){
       state.exportActive=result.active;save.disabled=result.active;exportFormat.disabled=result.active;design.disabled=result.active;
-      save.textContent=result.active?"Saving…":"Save a copy";
+      save.textContent=result.active?"Saving...":"Save a copy";
       exportStatus.hidden=!result.message;exportStatus.textContent=result.message;exportStatus.classList.toggle("error",!!result.error);
       receipts.hidden=!result.receipts.length;
       olderExports.hidden=result.receipts.length<2;

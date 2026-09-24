@@ -3,6 +3,26 @@
 All notable product changes to Talk DAT! are recorded here. The project uses beta
 versions while broader field verification remains in progress.
 
+## 0.4.167-beta
+
+Status on the Mac keeps its permissions checklist.
+
+- On a Mac, Status in Help lists each macOS permission Talk DAT! needs,
+  whether it is granted, and what stops working without it. If one is
+  missing, Open System Settings takes you straight to it.
+
+## 0.4.166-beta
+
+Signing in and Status now look like the rest of Talk DAT!.
+
+- Sign in on the Account page itself. Type your email, get a six-digit code
+  and type it in, or sign in on the website. Signing out is on the same page.
+- Status from the tray opens Help, which shows what Talk DAT! is doing right
+  now and what is using the microphone, with a Panic stop button.
+- Fixed: the Scribe page showed garbled characters where "..." and an
+  apostrophe belonged.
+- Punctuation across the app is plain and consistent.
+
 ## 0.4.165-beta
 
 Updates now happen on Home.

@@ -29,7 +29,7 @@ window.TalkDatMicCheck=({container,el,request,notice,mode,changed})=>{
     input.disabled=busy||check.active;start.disabled=busy||check.active;
     stop.disabled=busy||!check.active;
     refresh.disabled=busy||names.status==="loading";
-    selection.textContent=names.status==="loading"?"Looking for inputs…":names.message||"Selecting a microphone saves it for dictation and these checks.";
+    selection.textContent=names.status==="loading"?"Looking for inputs...":names.message||"Selecting a microphone saves it for dictation and these checks.";
     status.textContent=check.message;status.setAttribute("role",check.phase==="error"?"alert":"status");
     root.dataset.phase=check.phase;
     meter.value=Math.min(1,Math.max(0,check.level*6));
@@ -48,7 +48,7 @@ window.TalkDatMicCheck=({container,el,request,notice,mode,changed})=>{
       }else if(speech&&check.phase==="ready"){
         result.append(el("h2",{text:"What the local model heard"}),el("p",{class:"mic-check-transcript",text:check.text||"No words returned."}),el("p",{class:"secondary",text:`Recognition took ${(check.recognition_ms/1000).toFixed(2)} seconds after capture. This can include loading the model; it is not dictation release-to-paste latency.`}));
       }else if(!check.active){
-        result.append(el("h2",{text:speech?"Try a sentence you would actually dictate":"A quick check before you dictate"}),el("p",{class:"secondary",text:speech?"Record eight seconds and review the local model’s words. No cloud comparison runs here.":"Speak for three seconds with a short pause. Check the level, quiet background and clipping, then adjust the microphone if needed."}));
+        result.append(el("h2",{text:speech?"Try a sentence you would actually dictate":"A quick check before you dictate"}),el("p",{class:"secondary",text:speech?"Record eight seconds and review the local model's words. No cloud comparison runs here.":"Speak for three seconds with a short pause. Check the level, quiet background and clipping, then adjust the microphone if needed."}));
       }
     }
     copy.hidden=!(check.phase==="ready"&&check.text);copy.disabled=busy;
