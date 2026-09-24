@@ -57,8 +57,12 @@ class ScribeEngine:
             if self.recorder is not None and not self.recorder.closed.is_set():
                 self.recorder.request_stop()
             return
-        self.stop_event.set()
+        # X-609: 'stopping' first, THEN wake the worker. In the other order a
+        # worker that stopped at once wrote 'paused' and the late 'stopping'
+        # overwrote it (a loaded full suite caught it), leaving the window on
+        # "Closing the audio devices" after the recording had stopped.
         self._state('stopping','Closing the audio devices before making your notes.')
+        self.stop_event.set()
         if self.recorder is not None:
             self.recorder.request_stop()
 

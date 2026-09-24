@@ -19,6 +19,7 @@ A segment closes when BOTH are true:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 # X-456: the release pays only for the tail after the last closed segment,
@@ -83,6 +84,45 @@ class SegmentPlanner:
         """Whatever remains after the last closed segment."""
         return (self._segment_start, self._bytes_seen)
 
+
+
+# X-609: a segment closes on a 0.45 s pause, which is as often a comma as a
+# full stop, and the recognizer treats the end of every piece of audio as the
+# end of a sentence and the start of every piece as the start of one. His own
+# 58-second take (2026-09-23) came back "PC and Mac only. for this project"
+# and "building necessarily And then make sure". Each piece's own punctuation
+# says what the recognizer thought, so the seam is repaired from that alone:
+# a full stop before a lowercase continuation was the end of the audio, not
+# of the sentence; a common word capitalised after a piece that did not end a
+# sentence was the start of the audio, not of a sentence. A full stop followed
+# by a capital ("People Ops. I'd like") is left alone: that is usually real.
+_SEAM_LOWER = frozenset("""
+a an and as at because but by for from if in is it its of on or so than that the their then there
+these they this those to was we were which while who with you your our my his her also just like
+maybe not when where will would can could should
+""".split())
+_ABBREVIATION_END = re.compile(r"\b(?:Mr|Mrs|Ms|Dr|St|Jr|Sr|vs|etc|No)\.$")
+
+
+def join_segment_texts(pieces: list[str]) -> str:
+    """The pieces of one take, joined as one text with its seams repaired."""
+    text = ""
+    for piece in pieces:
+        piece = str(piece or "").strip()
+        if not piece:
+            continue
+        if text:
+            first = re.match(r"([A-Za-z]+)", piece)
+            if (text.endswith(".") and not text.endswith("..") and piece[:1].islower()
+                    and not _ABBREVIATION_END.search(text)):
+                text = text[:-1]
+            elif (text[-1:].isalnum() and first and first.group(1)[0].isupper()
+                  and first.group(1).lower() in _SEAM_LOWER):
+                piece = piece[0].lower() + piece[1:]
+            text += " " + piece
+        else:
+            text = piece
+    return text
 
 class VoiceGate:
     """Voiced-or-silent, for a level the adaptive front end may have boosted.

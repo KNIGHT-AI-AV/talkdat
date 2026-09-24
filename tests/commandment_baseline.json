@@ -215,16 +215,16 @@
   "MIX28": "rewrite: semicolon between clauses in rewrite mode"
  },
  "skipped": {
-  "C001-pos": "end_to_end: needs recorded audio (docs/DICTATION-COMMANDMENTS.md section 6.1)",
-  "C001-neg": "end_to_end: needs recorded audio (docs/DICTATION-COMMANDMENTS.md section 6.1)",
-  "C003-pos": "end_to_end: needs recorded audio (docs/DICTATION-COMMANDMENTS.md section 6.1)",
-  "C003-neg": "end_to_end: needs recorded audio (docs/DICTATION-COMMANDMENTS.md section 6.1)",
-  "C004-pos": "end_to_end: needs recorded audio (docs/DICTATION-COMMANDMENTS.md section 6.1)",
-  "C004-neg": "end_to_end: needs recorded audio (docs/DICTATION-COMMANDMENTS.md section 6.1)",
-  "C005-pos": "end_to_end: needs recorded audio (docs/DICTATION-COMMANDMENTS.md section 6.1)",
-  "C005-neg": "end_to_end: needs recorded audio (docs/DICTATION-COMMANDMENTS.md section 6.1)",
-  "C007-pos": "end_to_end: needs recorded audio (docs/DICTATION-COMMANDMENTS.md section 6.1)",
-  "C007-neg": "end_to_end: needs recorded audio (docs/DICTATION-COMMANDMENTS.md section 6.1)",
+  "C001-pos": "end_to_end: voiced by tests/audio_battery.py (local model + Windows voice)",
+  "C001-neg": "end_to_end: voiced by tests/audio_battery.py (local model + Windows voice)",
+  "C003-pos": "end_to_end: voiced by tests/audio_battery.py (local model + Windows voice)",
+  "C003-neg": "end_to_end: voiced by tests/audio_battery.py (local model + Windows voice)",
+  "C004-pos": "end_to_end: voiced by tests/audio_battery.py (local model + Windows voice)",
+  "C004-neg": "end_to_end: voiced by tests/audio_battery.py (local model + Windows voice)",
+  "C005-pos": "end_to_end: voiced by tests/audio_battery.py (local model + Windows voice)",
+  "C005-neg": "end_to_end: voiced by tests/audio_battery.py (local model + Windows voice)",
+  "C007-pos": "end_to_end: voiced by tests/audio_battery.py (local model + Windows voice)",
+  "C007-neg": "end_to_end: voiced by tests/audio_battery.py (local model + Windows voice)",
   "C080-neg": "context not passed to the formatter yet: document spelling variety",
   "C084-pos": "native delivery (focus, clipboard timing): paste layer, not the formatter",
   "C084-neg": "native delivery (focus, clipboard timing): paste layer, not the formatter",
@@ -233,7 +233,7 @@
   "C092-pos": "setting not implemented: spelling",
   "C092-neg": "setting not implemented: spelling",
   "C098-pos": "app action, not a formatting pass: paste raw transcript of the last take",
-  "C099-pos": "end_to_end: needs recorded audio (docs/DICTATION-COMMANDMENTS.md section 6.1)",
-  "C099-neg": "end_to_end: needs recorded audio (docs/DICTATION-COMMANDMENTS.md section 6.1)"
+  "C099-pos": "end_to_end: voiced by tests/audio_battery.py (local model + Windows voice)",
+  "C099-neg": "end_to_end: voiced by tests/audio_battery.py (local model + Windows voice)"
  }
 }

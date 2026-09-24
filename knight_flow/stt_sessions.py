@@ -345,7 +345,10 @@ class BatchSTTSession:
                 tail_text = self._transcribe(self._wav_bytes(tail)).strip() if len(tail) > 512 else ""
                 pieces = [future.result(timeout=self.max_seconds) for future in progressive["futures"]]
                 log.info("progressive: %d segments closed during the hold, tail %.1fs of %.1fs", len(pieces), (end - start) / (2 * max(1, self.channels) * self.sample_rate), len(self._audio) / (2 * max(1, self.channels) * self.sample_rate))
-                text = " ".join(piece for piece in [*pieces, tail_text] if piece).strip()
+                # X-609: the seams are pauses, not sentence ends; repair them.
+                from .progressive import join_segment_texts
+
+                text = join_segment_texts([*pieces, tail_text])
             except Exception:
                 text = ""
             finally:

@@ -80,7 +80,7 @@ _CARET_KEYS = frozenset({"left", "right", "previous_take"})
 _UNREAD_CONTEXT = frozenset({"document_text", "thread_text", "thread_language", "reply_to", "today",
                              "clipboard", "app"})
 
-SKIP_AUDIO = "end_to_end: needs recorded audio (docs/DICTATION-COMMANDMENTS.md section 6.1)"
+SKIP_AUDIO = "end_to_end: voiced by tests/audio_battery.py (local model + Windows voice)"
 SKIP_NATIVE = "native delivery (focus, clipboard timing): paste layer, not the formatter"
 SKIP_FIELD = "destination field type not modelled: {}"
 # X-604: the kinds field_context.FieldProbe reports and the pipeline acts on.

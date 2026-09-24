@@ -3,6 +3,17 @@
 All notable product changes to Talk DAT! are recorded here. The project uses beta
 versions while broader field verification remains in progress.
 
+## 0.4.163-beta
+
+Long dictations keep their sentences together.
+
+- When you pause for breath in a long dictation, Talk DAT! no longer drops a
+  full stop into the middle of your sentence. "We are PC and Mac only. for
+  this project" now comes out as "We are PC and Mac only for this project".
+- A word after that pause no longer gets a stray capital. "building
+  necessarily And then make sure" now reads "building necessarily and then
+  make sure".
+
 ## 0.4.162-beta
 
 Names come out right, and Talk DAT! stays out of the way when Windows restarts.
