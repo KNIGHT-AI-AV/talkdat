@@ -306,6 +306,55 @@ def clear_all_history() -> None:
             log.error("failed to clear the sqlite history; transcripts may remain", exc_info=True)
 
 
+def clear_saved_text() -> list[str]:
+    """Find-more P0-6: everything "Clear text history" deletes, in one place.
+
+    Both Clear buttons (web shell and Tk) cleared History, the full transcript
+    file and the drafts, but left the raw and finished text of every take in
+    the formatting journal and in each protected recording's metadata, and the
+    Tk one said "History cleared." even when a store could not be cleared.
+    This clears every store of dictated text except pins, which the dialog
+    says it keeps; recordings keep their audio and lose their words.
+
+    Returns what could not be cleared, in plain words. Empty means all of it.
+    """
+    from .audio_spool import blank_safety_transcripts
+    from .config import full_history_path, live_draft_path, recovered_draft_path
+    from .format_journal import journal_path
+
+    failed: list[str] = []
+    try:
+        JsonlHistoryStore().clear()
+    except OSError:
+        log.error("failed to clear the history file", exc_info=True)
+        failed.append("the history file")
+    if history_db_path().exists():
+        try:
+            SqliteHistoryStore().clear()
+        except (sqlite3.Error, OSError):
+            log.error("failed to clear the sqlite history; transcripts may remain", exc_info=True)
+            failed.append("the searchable history")
+    for label, path in (("the full transcript file", full_history_path()), ("the live draft", live_draft_path()),
+                        ("the recovered draft", recovered_draft_path())):
+        try:
+            if path.exists():
+                path.write_text("", encoding="utf-8")
+        except OSError:
+            log.error("failed to clear %s", path.name, exc_info=True)
+            failed.append(label)
+    journal = journal_path()
+    for path in (journal, journal.with_suffix(".jsonl.1")):
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            log.error("failed to delete %s", path.name, exc_info=True)
+            if "the formatting journal" not in failed:
+                failed.append("the formatting journal")
+    if blank_safety_transcripts():
+        failed.append("the words saved with some recordings")
+    return failed
+
+
 def pinned_path():
     return app_dir() / "pinned.json"
 

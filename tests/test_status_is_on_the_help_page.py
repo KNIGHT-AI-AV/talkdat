@@ -40,7 +40,8 @@ class TheReportTests(unittest.TestCase):
 
         from knight_flow.web_shell.shell_app import AppShell
 
-        self.assertIsNone(AppShell._permissions(), "no checklist on Windows or on a build without the Mac helpers")
+        with patch.object(knight_flow, "mac_support", SimpleNamespace(IS_MAC=False), create=True):
+            self.assertIsNone(AppShell._permissions(), "no checklist on Windows or on a build without the Mac helpers")
         page = lambda key, label: SimpleNamespace(key=key, label=label, settings_path=f"Privacy > {label}",
                                                   breaks=f"{label.lower()} stops")
         mac = SimpleNamespace(IS_MAC=True, permission_report=lambda: {"mic": "granted", "ax": "denied"})

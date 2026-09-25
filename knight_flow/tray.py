@@ -109,6 +109,9 @@ class TrayController:
                 pystray.MenuItem("More", more),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Panic stop", lambda _icon, _item: self._call("panic")),
+                # X-630: a fence between the two, so a slip off Panic stop
+                # does not land on Quit.
+                pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Quit Talk DAT!", lambda _icon, _item: self._call("quit")),
             )
             self.icon = pystray.Icon("Talk DAT!", make_tray_image(), "Talk DAT!", menu)

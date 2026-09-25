@@ -46,6 +46,9 @@ window.TalkDatSetup=({container,el,request,notice,changed})=>{
   function formattingCard(){
     const card=body.querySelector(".setup-formatting");if(!card)return;
     const f=data.formatting;const visible=Boolean(f&&f.offer_in_setup);card.hidden=!visible;
+    // X-687: the card rebuilds about once a second while the model downloads; never
+    // under a pressed button (it repaints on the next poll after the release).
+    if(window.TalkDatPointerHeld?.())return;
     const signature=JSON.stringify([f,data.formatting_choice]);if(!visible||signature===formattingPainted)return;formattingPainted=signature;
     const later=data.formatting_choice==="later";
     const change=value=>run("formatting",{revision:data.revision,value});
@@ -68,7 +71,8 @@ window.TalkDatSetup=({container,el,request,notice,changed})=>{
   function render(){
     child?.dispose?.();child=null;body.replaceChildren();rendered=data.chapter;
     if(data.chapter==="welcome"){
-      const instrument=el("div",{class:"setup-instrument","aria-hidden":"true"},[el("div",{class:"setup-pill"},[el("span",{text:"Talk DAT!"}),el("span",{class:"setup-wave",text:"▂ ▄ ▆ ▃ ▇ ▄ ▂"})])]);
+      // X-685: the Pill's own art (workspaces.css, --pill-strip), never a drawing of it.
+      const instrument=el("div",{class:"setup-instrument","aria-hidden":"true"},[el("div",{class:"setup-pill"},[el("span",{class:"setup-pill-frames"}),el("span",{class:"setup-pill-frames setup-pill-next"})])]);
       const text=el("div",{class:"setup-welcome-copy"},[el("h2",{text:"Set up Talk DAT!"}),el("p",{text:"Choose where speech is processed, test your microphone and try a sentence. Your test stays here for you to review."}),
         el("p",{class:"secondary",text:data.completed?"You have completed setup before. Revisit any section to check a new microphone or refresh your controls.":"Start with what you need. You can skip a check and come back from Help."}),manage("Set up my voice",()=>chapter("voice"),true)]);
       body.append(el("div",{class:"setup-welcome"},[instrument,text]),el("details",{class:"setup-orientation"},[el("summary",{text:"Where to find everything"}),el("p",{text:"The Pill is the small Talk DAT! bar on your screen. Hold your shortcut to talk and let go to finish. Click the Pill for hands-free recording, or right-click it (Control-click on a Mac) to open the menu."}),el("p",{text:"History keeps saved dictations. Scratchpad holds your notes. Writing brings formatting, Words and Ramble together."}),link("Explore the menu","menu-order")]));

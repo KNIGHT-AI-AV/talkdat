@@ -74,7 +74,24 @@ class ShellLifecycleTests(unittest.TestCase):
         api._window = Mock()
         api._window.get_current_url.return_value = 'about:blank'
         api._guard_ready = True
-        self.assertTrue(api.request('dismiss', {})['ok'])
+        # X-682: the menu plays its exit first, then the host hides the window
+        # (hiding at once cut every close to a single frame).
+        timers = []
+
+        class _Timer:
+            def __init__(self, delay, fn):
+                self.delay, self.fn, self.daemon = delay, fn, False
+                timers.append(self)
+
+            def start(self):
+                pass
+
+        with patch('knight_flow.web_shell.shell_host.threading.Timer', _Timer):
+            self.assertTrue(api.request('dismiss', {})['ok'])
+        api._window.hide.assert_not_called()
+        self.assertEqual(len(timers), 1)
+        self.assertGreater(timers[0].delay, 0)
+        timers[0].fn()
         api._window.hide.assert_called_once_with()
         api._window.destroy.assert_not_called()
 

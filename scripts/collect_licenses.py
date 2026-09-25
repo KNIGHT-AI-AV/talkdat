@@ -54,6 +54,47 @@ REQUIREMENTS = ROOT / "requirements.txt"
 # keyring); without an Analysis TOC the closure has to start from both.
 REQUIREMENTS_MAC = ROOT / "requirements-mac.txt"
 LICENSE_ASSETS = ROOT / "knight_flow" / "assets" / "licenses" / "pdf"
+APACHE_TEXT = ROOT / "LICENSES" / "Apache-2.0.txt"
+
+# X-760 (2026-09-24, IP audit): the 0.4.167 bundle listed about a dozen parts
+# by NAME only -- ctranslate2, the WebView2 SDK, Intel OpenMP, PortAudio inside
+# sounddevice and PyAudioWPatch, the Silero VAD model inside faster-whisper, the
+# PyInstaller bootloader -- because their wheels carry no license file. MIT,
+# BSD, Apache and Intel's terms all say the TEXT goes with the binary. These are
+# the upstream texts, verbatim, and where each was read (2026-09-24).
+THIRD_PARTY_TEXTS = ROOT / "knight_flow" / "assets" / "licenses" / "third_party"
+VENDORED_SOURCES = {
+    "CTranslate2-LICENSE.txt": "https://github.com/OpenNMT/CTranslate2/blob/master/LICENSE",
+    "proxy_tools-LICENSE.txt": "https://github.com/jtushman/proxy_tools/blob/master/LICENSE.txt",
+    "silero-vad-LICENSE.txt": "https://github.com/snakers4/silero-vad/blob/master/LICENSE",
+    "PortAudio-LICENSE.txt": "https://github.com/PortAudio/portaudio/blob/master/LICENSE.txt",
+    "PyAudio-LICENSE.txt": "the header of pyaudiowpatch/__init__.py (PyAudio by Hubert Pham)",
+    "WebView2-SDK-LICENSE.txt": "LICENSE.txt in the Microsoft.Web.WebView2 NuGet package",
+    "WebView2-SDK-NOTICE.txt": "NOTICE.txt in the Microsoft.Web.WebView2 NuGet package",
+    "Intel-Simplified-Software-License.txt": "Intel Simplified Software License (Version October 2022), "
+                                             "with the copyright line of libiomp5md.dll's version resource",
+    "dotnet-MIT-LICENSE.txt": "https://github.com/dotnet/corefx/blob/master/LICENSE.TXT, the license "
+                              "NETStandard.Library.NETFramework declares for these facades",
+    "Tcl-Tk-license.terms": "license.terms of Tcl/Tk 8.6 (the same terms cover Tcl/Tk 9.0)",
+}
+# Wheels that ship no license file, and the upstream text that stands in.
+PACKAGE_TEXTS = {
+    "ctranslate2": ("CTranslate2-LICENSE.txt",),
+    "proxy-tools": ("proxy_tools-LICENSE.txt",),
+}
+# Build tools whose code is EMBEDDED in every executable they produce: the
+# PyInstaller bootloader (GPL-2.0-or-later with the Bootloader Exception) and
+# the run-time hooks of PyInstaller and its community hooks (Apache-2.0).
+EMBEDDED_BUILD_TOOLS = ("pyinstaller", "pyinstaller-hooks-contrib")
+
+
+def vendored_text(name: str) -> tuple[str, str] | None:
+    """(label, text) of a vendored upstream license text, or None if missing."""
+    path = THIRD_PARTY_TEXTS / name
+    if not path.is_file():
+        return None
+    label = f"knight_flow/assets/licenses/third_party/{name}, from {VENDORED_SOURCES.get(name, 'upstream')}"
+    return label, path.read_text(encoding="utf-8").strip()
 
 # Build tooling that runs during the build and never ships.
 BUILD_ONLY = {
@@ -152,10 +193,18 @@ class Component:
     homepage: str
     texts: list[tuple[str, str]] = field(default_factory=list)  # (relative file, text)
     note: str = ""
+    # Why this component needs no text of its own in this file (its texts are
+    # the GPL/LGPL appendix, or its vendor's terms require none). Empty means
+    # it needs one, and --strict fails without it (X-760).
+    exempt: str = ""
 
     @property
     def resolved(self) -> bool:
         return bool(self.texts) or bool(self.license and self.license.upper() != "UNKNOWN")
+
+    @property
+    def has_text(self) -> bool:
+        return bool(self.texts) or bool(self.exempt)
 
 
 # ---------------------------------------------------------------- metadata
@@ -491,7 +540,10 @@ def native_components(files: list[str], bundle: Path | None = None,
                    "(https://github.com/PyAV-Org/pyav-ffmpeg):\n  " + "\n  ".join(companions)
                    if companions else "")
             ),
+            exempt="Its license texts are the GPL-2.0, GPL-3.0 and LGPL-3.0 (and, for LAME and libiconv, "
+                   "LGPL-2.1) texts in the appendix below.",
         ))
+    # (pattern, name, license, url, note, vendored texts, exempt reason)
     extra = [
         (r"(^|/)cudnn[^/]*\.dll$", "NVIDIA cuDNN (bundled inside CTranslate2)",
          CUDNN_LICENSE_NAME + " (proprietary, redistributable as part of an application)",
@@ -501,36 +553,70 @@ def native_components(files: list[str], bundle: Path | None = None,
          "License.txt in its nvidia-cudnn wheels). It is not licensed under Apache-2.0. It may "
          "be used only as part of Talk DAT!, and may not be separately redistributed, reverse "
          "engineered or modified, to the extent NVIDIA's terms require (EULA.md, \"NVIDIA "
-         "components\")."),
+         "components\").", (),
+         "NVIDIA's license is the document at the URL above; its terms reach the person through EULA.md."),
         (r"(^|/)libiomp5md\.dll$", "Intel OpenMP runtime (bundled inside CTranslate2)",
          "Intel Simplified Software License (redistributable)",
          "https://www.intel.com/content/www/us/en/developer/articles/license/onemkl-license-faq.html",
          "Copyright Intel Corporation. Redistributed unmodified, as shipped in the CTranslate2 "
-         "wheel, under Intel's redistribution terms at the URL above."),
+         "wheel, under Intel's redistribution terms, reproduced below as they require.",
+         ("Intel-Simplified-Software-License.txt",), ""),
         (r"(^|/)directml\.dll$", "Microsoft DirectML (bundled inside ONNX Runtime DirectML)",
          "Microsoft DirectML redistributable license",
          "https://www.nuget.org/packages/Microsoft.AI.DirectML/",
          "Copyright Microsoft Corporation. Redistributed unmodified, as shipped in the "
-         "onnxruntime-directml wheel; see also ONNX Runtime's ThirdPartyNotices below."),
-        (r"(^|/)microsoft\.web\.webview2\.[^/]*\.dll$", "Microsoft WebView2 SDK (bundled inside pywebview)",
+         "onnxruntime-directml wheel; see also ONNX Runtime's ThirdPartyNotices below.", (),
+         "Microsoft's DirectML license terms are at the URL above."),
+        (r"(^|/)(microsoft\.web\.webview2\.[^/]*|webview2loader)\.dll$",
+         "Microsoft WebView2 SDK (bundled inside pywebview)",
          "Microsoft WebView2 SDK license (BSD-style)",
          "https://www.nuget.org/packages/Microsoft.Web.WebView2/",
          "Copyright Microsoft Corporation. Redistributed unmodified, as shipped in the "
-         "pywebview package."),
+         "pywebview package. The WebView2 Runtime itself is not redistributed: Windows provides it.",
+         ("WebView2-SDK-LICENSE.txt", "WebView2-SDK-NOTICE.txt"), ""),
         (r"(^|/)(vcruntime140[^/]*|msvcp140[^/]*|vcomp140)\.dll$", "Microsoft Visual C++ runtime",
          "Microsoft Visual C++ Redistributable license",
          "https://learn.microsoft.com/cpp/windows/redistributing-visual-cpp-files",
-         "Copyright Microsoft Corporation. Redistributable files, unmodified."),
+         "Copyright Microsoft Corporation. Redistributable files, unmodified.", (),
+         "Microsoft's redistribution terms for these files are at the URL above."),
         # libcrypto-3.dll on Windows, libcrypto.3.dylib on macOS.
         (r"(^|/)lib(crypto|ssl)[-.]3[^/]*\.(dll|dylib)$", "OpenSSL 3", "Apache-2.0",
          "https://www.openssl.org/source/license.html",
-         "Bundled with CPython and cryptography; see the Python license text below for CPython's copy."),
+         "Bundled with CPython and cryptography.", (), ""),
+        # X-760: the parts the 0.4.167 bundle carried with no license text.
+        (r"(^|/)silero_vad[^/]*\.onnx$", "Silero VAD model (bundled inside faster-whisper)", "MIT",
+         "https://github.com/snakers4/silero-vad",
+         "A small voice-activity model faster-whisper ships in its assets folder. Redistributed "
+         "unmodified. It is the only model file in the app; the speech models are downloaded.",
+         ("silero-vad-LICENSE.txt",), ""),
+        (r"(^|/)(_sounddevice_data/portaudio-binaries/[^/]*\.(dll|dylib)|_portaudiowpatch[^/]*\.(pyd|so))$",
+         "PortAudio (bundled inside sounddevice and PyAudioWPatch)", "MIT",
+         "http://www.portaudio.com/",
+         "The audio input library. sounddevice ships it as prebuilt libraries "
+         "(https://github.com/spatialaudio/portaudio-binaries); PyAudioWPatch links its own "
+         "PortAudio fork (https://github.com/s0d3s/PyAudioWPatch). The ASIO builds of PortAudio, "
+         "which contain Steinberg's ASIO SDK, are left out of the app.",
+         ("PortAudio-LICENSE.txt",), ""),
+        (r"(^|/)_portaudiowpatch[^/]*\.(pyd|so)$", "PyAudio (the base of PyAudioWPatch)", "MIT",
+         "https://people.csail.mit.edu/hubert/pyaudio/",
+         "PyAudioWPatch is a fork of PyAudio; PyAudio's own notice travels with it.",
+         ("PyAudio-LICENSE.txt",), ""),
+        (r"(^|/)pythonnet/runtime/(netstandard|system\.[^/]*|microsoft\.win32\.primitives)\.dll$",
+         ".NET Standard facade assemblies (bundled inside pythonnet)", "MIT",
+         "https://www.nuget.org/packages/NETStandard.Library.NETFramework/",
+         "Copyright .NET Foundation and Contributors. Redistributed unmodified, as shipped in the "
+         "pythonnet package.",
+         ("dotnet-MIT-LICENSE.txt",), ""),
     ]
-    for pattern, name, license_name, url, note in extra:
+    for pattern, name, license_name, url, note, vendored, exempt in extra:
         hits = has(pattern)
         if hits:
+            texts = [text for text in (vendored_text(n) for n in vendored) if text]
+            if "Apache" in license_name and not texts and APACHE_TEXT.is_file():
+                texts = [("LICENSES/Apache-2.0.txt", APACHE_TEXT.read_text(encoding="utf-8").strip())]
+            listed = hits if len(hits) <= 12 else hits[:12] + [f"and {len(hits) - 12} more"]
             out.append(Component(name=name, version="bundled", license=license_name, homepage=url,
-                                 note="Files: " + ", ".join(hits) + ".\n" + note))
+                                 note="Files: " + ", ".join(listed) + ".\n" + note, texts=texts, exempt=exempt))
     python_license = python_license_file()
     python_texts = []
     if python_license is not None:
@@ -544,12 +630,97 @@ def native_components(files: list[str], bundle: Path | None = None,
     # and libtcl9tk9.0.dylib, or libtcl8.6 / libtk8.6 on an older Tk.
     if (has(r"(^|/)(tcl|tk)8[^/]*\.dll$") or has(r"(^|/)_tk_data/")
             or has(r"(^|/)lib(tcl|tk)[89][^/]*\.dylib$")):
-        tk_terms = sorted(Path(sys.base_prefix).glob("tcl/*/license.terms"))
+        terms = tcl_license_text(bundle)
         out.append(Component(
             name="Tcl/Tk", version=tk_version(), license="TCL (BSD-style)", homepage="https://www.tcl-lang.org/",
-            texts=[("license.terms", tk_terms[0].read_text(encoding="utf-8", errors="replace").strip())] if tk_terms else [],
+            texts=[terms] if terms else [],
         ))
     return out
+
+
+def tcl_license_text(bundle: Path | None) -> tuple[str, str] | None:
+    """Tcl/Tk's license.terms: the bundle's own copy, else the interpreter's,
+    else the vendored copy.
+
+    X-760: the Mac 0.4.158 bundle listed Tcl/Tk 9.0 with no text, because
+    Homebrew's Python has no tcl/*/license.terms under sys.base_prefix (Tcl 9
+    keeps its library inside the dylib). Windows found the file only by luck of
+    the glob.
+    """
+    candidates: list[Path] = []
+    if bundle is not None and bundle.exists():
+        candidates += sorted(bundle.rglob("_tcl_data/license.terms")) + sorted(bundle.rglob("_tk_data/license.terms"))
+    candidates += sorted(Path(sys.base_prefix).glob("tcl/*/license.terms"))
+    try:
+        import tkinter
+
+        library = Path(str(tkinter.Tcl().eval("info library")))
+        candidates += [library / "license.terms", library.parent / f"tk{tk_version()}" / "license.terms"]
+    except Exception:
+        pass
+    for path in candidates:
+        if path.is_file():
+            return "license.terms", path.read_text(encoding="utf-8", errors="replace").strip()
+    return vendored_text("Tcl-Tk-license.terms")
+
+
+def embedded_build_tools(table: dict[str, metadata.Distribution]) -> list[Component]:
+    """PyInstaller and its community hooks, which are build tools but leave
+    their bootloader and run-time hooks inside every executable (X-760)."""
+    out: list[Component] = []
+    for name in EMBEDDED_BUILD_TOOLS:
+        dist = table.get(name)
+        if dist is None:
+            out.append(Component(name=name, version="unknown", license="", homepage=""))
+            continue
+        component = component_for(dist)
+        component.note = (
+            "Embedded in every Talk DAT! executable: the PyInstaller bootloader (GPL-2.0-or-later with the "
+            "Bootloader Exception, which permits distributing it inside other programs without GPL "
+            "restrictions) and the run-time hooks (Apache-2.0). The license below states both."
+        )
+        out.append(component)
+    return out
+
+
+def apply_text_fallbacks(components: list[Component]) -> None:
+    """Give a license TEXT to the wheels that ship none (X-760).
+
+    * a vendored upstream text named in PACKAGE_TEXTS;
+    * the Apache-2.0 text for an Apache-licensed wheel (Apache 2.0 section 4(a)
+      asks for a copy of the License, not a per-package one);
+    * pyobjc-core's text for the pyobjc framework wrappers, which are the same
+      project under the same license and ship no file of their own.
+    """
+    core = next((c for c in components if canonical(c.name) == "pyobjc-core"), None)
+    for c in components:
+        if c.texts or c.exempt:
+            continue
+        name = canonical(c.name)
+        if name in PACKAGE_TEXTS:
+            c.texts = [text for text in (vendored_text(n) for n in PACKAGE_TEXTS[name]) if text]
+            if c.texts:
+                c.note = (c.note + "\n" if c.note else "") + (
+                    "The wheel ships no license file; the text below is the project's own, from its repository.")
+        elif re.search(r"(?i)\bapache\b", c.license) and APACHE_TEXT.is_file():
+            c.texts = [("LICENSES/Apache-2.0.txt", APACHE_TEXT.read_text(encoding="utf-8").strip())]
+        elif name.startswith("pyobjc-framework-") and core is not None and core.texts:
+            c.texts = list(core.texts)
+            c.note = (c.note + "\n" if c.note else "") + "Part of PyObjC; the license is pyobjc-core's."
+
+
+def asio_builds(bundle: Path | None) -> list[str]:
+    """PortAudio builds compiled with Steinberg's ASIO SDK inside a BUILT
+    bundle (X-761). Only a real bundle is checked: the wheel itself still
+    carries them, and the spec is what keeps them out."""
+    if bundle is None or not bundle.exists():
+        return []
+    return sorted(p.name for p in bundle.rglob("*") if re.search(r"(?i)-asio\.(dll|dylib)$", p.name))
+
+
+def textless(components: list[Component]) -> list[str]:
+    """Components that carry neither a license text nor a reason to need none."""
+    return [f"{c.name} {c.version}".strip() for c in components if not c.has_text]
 
 
 # ---------------------------------------------------------------- writing
@@ -625,7 +796,9 @@ def render(components: list[Component], shared: dict[str, str], *, version: str,
             lines.append(f"Source: {c.homepage}")
         if c.note:
             lines += ["", c.note]
-        if not c.texts:
+        if not c.texts and c.exempt:
+            lines += ["", c.exempt]
+        elif not c.texts:
             lines += ["", "(This package ships no license file; the license above is taken from its metadata.)"]
         for relative, text in c.texts:
             digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -651,6 +824,8 @@ def collect(*, analysis: Path | None, bundle: Path | None, spec: Path | None,
     names = {n for n in names if n not in BUILD_ONLY and n not in FORBIDDEN_IN_BUNDLE}
     components = [component_for(table[name]) for name in sorted(names)]
     components += native_components(_files(bundle, table), bundle, table)
+    components += embedded_build_tools(table)
+    apply_text_fallbacks(components)
     unresolved = [c.name for c in components if not c.resolved]
     return components, forbidden, unresolved
 
@@ -692,6 +867,11 @@ def main(argv: list[str] | None = None) -> int:
         problems.append("GPL-only helpers are in the bundle and must be excluded in the spec: " + ", ".join(forbidden))
     if unresolved:
         problems.append("no license text or identifier for: " + ", ".join(unresolved))
+    missing_text = textless(components)
+    if missing_text:
+        problems.append("a license NAME is not the license: no text for " + ", ".join(missing_text)
+                        + " -- vendor the upstream text in knight_flow/assets/licenses/third_party and name it "
+                        "in PACKAGE_TEXTS or the native table (X-760)")
     missing_texts = [name for name, text in owed.items() if not text]
     if missing_texts:
         problems.append("required license texts not found: " + ", ".join(missing_texts))
@@ -699,6 +879,11 @@ def main(argv: list[str] | None = None) -> int:
     if pyav_version and pyav_version not in PYAV_SOURCES:
         problems.append(f"PyAV {pyav_version} has no row in PYAV_SOURCES: add the exact FFmpeg, x264, x265, "
                         "LAME and libiconv sources its wheel was built from, for the written offer")
+    asio = asio_builds(args.bundle)
+    if asio:
+        problems.append("PortAudio's ASIO builds are in the bundle: " + ", ".join(asio)
+                        + " -- they carry Steinberg's ASIO SDK under Steinberg's own license and the app never "
+                        "loads them; Talk Dat!.spec filters them out (X-761)")
     unaccounted = unaccounted_pyav_libraries(_files(args.bundle, installed()))
     if unaccounted:
         problems.append("PyAV's wheel carries native libraries with no license row: " + ", ".join(unaccounted)

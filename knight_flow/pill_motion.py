@@ -327,6 +327,26 @@ def loading_halo_phase_bucket(phase: int) -> int:
     return (max(0, int(phase)) // 2) % 72
 
 
+# X-640 (polish audit P0-2): the press receipt is the compact Pill draining to
+# gray (X-137). It used to swap to gray in one frame; it now drains over 90 ms,
+# starting half way so the receipt still lands on the very first frame. X-137
+# forbids MOTION in standby, and a change of colour is not motion: nothing
+# moves or grows, only the saturation settles.
+STANDBY_FADE_MS = 90
+STANDBY_FIRST_LEVEL = 0.5
+
+
+def standby_gray_level(elapsed_ms: float, *, reduced_motion: bool = False) -> float:
+    """How far (0.5..1) the standby Pill has drained to gray after `elapsed_ms`."""
+    if reduced_motion:
+        return 1.0
+    t = max(0.0, float(elapsed_ms)) / STANDBY_FADE_MS
+    if t >= 1.0:
+        return 1.0
+    # Ease out: most of the change lands at once, the rest settles.
+    return STANDBY_FIRST_LEVEL + (1.0 - STANDBY_FIRST_LEVEL) * (1.0 - (1.0 - t) ** 3)
+
+
 # 2026-09-23, the owner's audit: "captured/pasted" and "error" looked exactly
 # like idle, so a finished dictation and a failed one gave the same answer --
 # none. Each now has a brief look of its own, painted over the Pill's own
@@ -444,6 +464,128 @@ def toast_fade_alpha(elapsed_ms: float, *, hold_ms: int, fade_ms: int) -> float:
 def toast_is_finished(elapsed_ms: float, *, hold_ms: int, fade_ms: int) -> bool:
     """Whether the toast has fully faded and its window should be destroyed."""
     return elapsed_ms >= hold_ms + max(0, fade_ms)
+
+
+# X-620, the interaction grid's ACK primitive: the answer a gesture gets when
+# it has no function where it landed. The control's own press response at a
+# small scale, then stillness. Never a message, never a sound, never a layout,
+# geometry or focus change. It plays only when a gesture ENDS (release, keyup),
+# never on the press, never after a cancel, never when a function already ran.
+#
+#   motion   1 to 2 px over 180 ms: 0, +1.5 px at 30%, -0.6 px at 65%, 0.
+#   reduced  an opacity dip instead (to 0.88 and back over 140 ms).
+#   limit    one per surface per 700 ms, at most 4 per 3 s app-wide; a repeat
+#            inside the window does nothing (no restart, no queue).
+ACK_DURATION_MS = 180
+_ACK_KEYS = ((0.0, 0.0), (0.30, 1.5), (0.65, -0.6), (1.0, 0.0))
+ACK_REDUCED_MS = 140
+ACK_REDUCED_FLOOR = 0.88
+ACK_SURFACE_GAP_MS = 700
+ACK_WINDOW_MS = 3000
+ACK_WINDOW_LIMIT = 4
+
+
+def ack_magnitude(elapsed_ms: float) -> float:
+    """Signed travel in pixels along the gesture's direction, `elapsed_ms` in."""
+    elapsed = float(elapsed_ms)
+    if elapsed <= 0.0 or elapsed >= ACK_DURATION_MS:
+        return 0.0
+    progress = elapsed / ACK_DURATION_MS
+    for (left_t, left_v), (right_t, right_v) in zip(_ACK_KEYS, _ACK_KEYS[1:]):
+        if progress <= right_t:
+            amount = _ease((progress - left_t) / max(1e-9, right_t - left_t))
+            return left_v + (right_v - left_v) * amount
+    return 0.0
+
+
+def ack_offset(elapsed_ms: float, direction: tuple[float, float] = (0.0, 1.0)) -> tuple[int, int]:
+    """Whole-pixel (dx, dy) for the ACK at `elapsed_ms`.
+
+    `direction` is the gesture's: straight down (0, 1) for a press, the drag's
+    own vector for a drag. It is normalised, so only its angle matters.
+    Talk DAT! has no rotary control, so the rotation case never arises.
+    """
+    dx, dy = float(direction[0]), float(direction[1])
+    length = math.hypot(dx, dy)
+    if length <= 0.0:
+        dx, dy, length = 0.0, 1.0, 1.0
+    travel = ack_magnitude(elapsed_ms)
+
+    def whole(value: float) -> int:
+        # Half away from zero: Python's round() sends the 1.5 px peak to 2
+        # only by the accident of banker's rounding.
+        return int(math.copysign(math.floor(abs(value) + 0.5), value))
+
+    return whole(dx / length * travel), whole(dy / length * travel)
+
+
+def ack_opacity(elapsed_ms: float) -> float:
+    """The reduced-motion ACK: opacity down to 0.88 and back over 140 ms."""
+    elapsed = float(elapsed_ms)
+    if elapsed <= 0.0 or elapsed >= ACK_REDUCED_MS:
+        return 1.0
+    half = ACK_REDUCED_MS / 2.0
+    depth = _ease(elapsed / half) if elapsed <= half else _ease((ACK_REDUCED_MS - elapsed) / half)
+    return 1.0 - (1.0 - ACK_REDUCED_FLOOR) * depth
+
+
+def ack_is_running(elapsed_ms: float, *, reduced_motion: bool) -> bool:
+    return 0.0 <= float(elapsed_ms) < (ACK_REDUCED_MS if reduced_motion else ACK_DURATION_MS)
+
+
+def ack_key_moment_ms(*, reduced_motion: bool) -> float:
+    """The one moment an ACK must reach the screen: the press itself (the
+    +1.5 px peak) or, under reduced motion, the deepest point of the dip."""
+    return ACK_REDUCED_MS / 2.0 if reduced_motion else ACK_DURATION_MS * _ACK_KEYS[1][0]
+
+
+def ack_catch_up(elapsed_ms: float, *, key_shown: bool, reduced_motion: bool) -> tuple[float, bool]:
+    """X-620b: (the moment to draw, whether the key moment has now been drawn).
+
+    A frame that arrives after the key moment, before any frame has shown
+    it, draws the key moment instead. The Pill's frames slow down under load
+    (X-170 measured 60 ms against a 16.7 ms budget), and a 180 ms ACK
+    sampled that coarsely could skip the press and read as nothing at all.
+    """
+    key = ack_key_moment_ms(reduced_motion=reduced_motion)
+    if key_shown:
+        return float(elapsed_ms), True
+    if float(elapsed_ms) >= key:
+        return key, True
+    return float(elapsed_ms), False
+
+
+class AckLimiter:
+    """Who may ACK right now. Pure: the caller passes the clock.
+
+    Only allowed ACKs count against the limits; a refused one leaves no trace,
+    so hammering a surface cannot extend its own silence.
+    """
+
+    def __init__(
+        self,
+        *,
+        surface_gap_ms: float = ACK_SURFACE_GAP_MS,
+        window_ms: float = ACK_WINDOW_MS,
+        window_limit: int = ACK_WINDOW_LIMIT,
+    ) -> None:
+        self.surface_gap_ms = float(surface_gap_ms)
+        self.window_ms = float(window_ms)
+        self.window_limit = int(window_limit)
+        self._last_by_surface: dict[str, float] = {}
+        self._recent: list[float] = []
+
+    def allow(self, surface: str, now_ms: float) -> bool:
+        now = float(now_ms)
+        last = self._last_by_surface.get(surface)
+        if last is not None and now - last < self.surface_gap_ms:
+            return False
+        self._recent = [stamp for stamp in self._recent if now - stamp < self.window_ms]
+        if len(self._recent) >= self.window_limit:
+            return False
+        self._last_by_surface[surface] = now
+        self._recent.append(now)
+        return True
 
 
 def next_context_menu_action(actions: list[str], current: str, key: str) -> str:

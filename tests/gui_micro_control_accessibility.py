@@ -19,6 +19,7 @@ import time
 import unittest
 from unittest import mock
 
+from knight_flow import island
 from tests import gui_offscreen  # noqa: F401  (never show windows on the user's desktop)
 from knight_flow.flat_button import FlatButton  # tk.Button off macOS, a styled Label on it
 
@@ -404,158 +405,153 @@ class RealMicroControlAccessibilityTests(unittest.TestCase):
         self.assertEqual(str(use_font.cget("state")), "normal")
         font_lists[0].winfo_toplevel().destroy()
 
+        # X-742: the learned word and the update offer are segments of the
+        # Pill now; their actions are the segment's own, and run once it folds.
         before_reject = self.calls["reject"]
+        self._clear_messages()
         with mock.patch("knight_flow.meeting_quiet.meeting_in_progress", return_value=False):
             self.overlay.show_learned_word(
                 "Accessibility",
                 lambda: self.calls.__setitem__("reject", self.calls["reject"] + 1),
             )
-        pump(self.overlay.root, 0.2)
-        reject = self._button(self.overlay.root, "Don't save")
-        reject.invoke()
+        self.assertTrue(self._message_settles())
+        self.assertEqual([action.label for action in self.overlay._flag_view.message.actions], ["Undo"])
+        self.overlay._flag_choose(0)
+        self.assertTrue(self._message_gone())
+        pump(self.overlay.root, 0.1)
         self.assertEqual(self.calls["reject"], before_reject + 1)
-        reject.winfo_toplevel().destroy()
 
         before_update = self.calls["update"]
+        self._clear_messages()
         self.overlay.show_update_popover(
             "test",
             lambda: self.calls.__setitem__("update", self.calls["update"] + 1),
         )
-        pump(self.overlay.root, 0.2)
-        update = self._button(self.overlay.root, "Update")
-        update.invoke()
-        pump(self.overlay.root, 0.2)
+        self.assertTrue(self._message_settles())
+        self.assertEqual([action.label for action in self.overlay._flag_view.message.actions], ["Install"])
+        self.overlay._flag_choose(0)
+        self.assertTrue(self._message_gone())
+        pump(self.overlay.root, 0.1)
         self.assertEqual(self.calls["update"], before_update + 1)
 
+    def _message_settles(self, seconds: float = 3.0) -> bool:
+        deadline = time.perf_counter() + seconds
+        while time.perf_counter() < deadline:
+            view = self.overlay._flag_view
+            if view is not None and view.phase == "hold":
+                return True
+            pump(self.overlay.root, 0.02)
+        return False
+
+    def _message_gone(self, seconds: float = 3.0) -> bool:
+        """The message showing now has folded away (another may follow it)."""
+        showing = self.overlay._flag_view
+        deadline = time.perf_counter() + seconds
+        while time.perf_counter() < deadline and showing is not None and self.overlay._flag_view is showing:
+            pump(self.overlay.root, 0.02)
+        return showing is None or self.overlay._flag_view is not showing
+
+    def _clear_messages(self) -> None:
+        """This class shares one Pill: nothing another test said may still show."""
+        overlay = self.overlay
+        overlay._flag_queue = island.MessageQueue()
+        if overlay._flag_view is not None:
+            overlay._flag_end_now()
+        overlay._flag_queue = island.MessageQueue()
+        pump(overlay.root, 0.05)
+
     def test_outcome_toast_reduced_motion_snaps_after_the_same_hold(self) -> None:
+        # X-742: under reduced motion the lengthened Pill cross-fades at its
+        # full size (nothing travels) and holds exactly as long as it would
+        # have with motion: reading time is not a motion setting.
         ui = self.overlay.config.setdefault("ui", {})
         marker = object()
         previous_reduce_motion = ui.get("reduce_motion", marker)
         try:
-            with (
-                mock.patch.object(self.overlay, "TOAST_HOLD_MS", 30),
-                mock.patch.object(self.overlay, "TOAST_FADE_MS", 500),
-            ):
-                ui["reduce_motion"] = True
-                self.overlay._show_toast_now("Reduced motion outcome")
-                reduced_toast = self.overlay._toast_window
-                self.assertIsNotNone(reduced_toast)
-                pump(self.overlay.root, 0.12)
-                self.assertFalse(reduced_toast.winfo_exists())
-                self.assertIsNone(self.overlay._toast_window)
-
-                ui["reduce_motion"] = False
-                self.overlay._show_toast_now("Animated outcome")
-                animated_toast = self.overlay._toast_window
-                self.assertIsNotNone(animated_toast)
-                pump(self.overlay.root, 0.12)
-                self.assertTrue(animated_toast.winfo_exists())
-                self.assertGreater(float(animated_toast.attributes("-alpha")), 0.0)
-                pump(self.overlay.root, 0.5)
-                self.assertFalse(animated_toast.winfo_exists())
-                self.assertIsNone(self.overlay._toast_window)
+            for reduced in (True, False):
+                self._clear_messages()
+                ui["reduce_motion"] = reduced
+                self.overlay._show_toast_now("Reduced motion outcome" if reduced else "Animated outcome")
+                view = self.overlay._flag_view
+                self.assertIsNotNone(view)
+                early = view.motion.sample(view.started_ms + 60.0)
+                if view.keyed:
+                    # Every Mac message paints through the keyed/plain-capsule
+                    # path (X-742 merge follow-up: no layered presenter
+                    # there): motion is always the reduced, settled-at-once
+                    # form, whatever the person's reduce_motion setting says,
+                    # because there is no per-pixel-alpha window to animate.
+                    self.assertTrue(view.reduced)
+                    self.assertEqual(early.w, view.target.w, "the keyed Pill travelled")
+                    self.assertEqual(early.mix, 1.0)
+                elif reduced:
+                    self.assertEqual(view.reduced, reduced)
+                    self.assertEqual(early.w, view.target.w, "reduced motion travelled")
+                    self.assertAlmostEqual(early.mix, 0.5, delta=0.01)
+                else:
+                    self.assertEqual(view.reduced, reduced)
+                    self.assertLess(early.w, view.target.w)
+                    self.assertEqual(early.mix, 1.0)
+                self.assertTrue(self._message_settles())
+                self.assertEqual(view.hold_total, island.hold_ms("info", view.message.title))
+                self.overlay._flag_contract()
+                self.assertTrue(self._message_gone())
+                pump(self.overlay.root, 0.8)  # the next entrance is paced
         finally:
-            toast = getattr(self.overlay, "_toast_window", None)
-            if toast is not None:
-                with contextlib.suppress(Exception):
-                    toast.destroy()
-            self.overlay._toast_window = None
             if previous_reduce_motion is marker:
                 ui.pop("reduce_motion", None)
             else:
                 ui["reduce_motion"] = previous_reduce_motion
 
-    def test_learned_receipt_is_singleton_and_alt_d_targets_latest_word(self) -> None:
+    def test_learned_receipt_is_singleton_and_alt_d_targets_the_showing_word(self) -> None:
+        # X-631: a second notice WAITS for the first instead of replacing it
+        # (the first's undo is the only undo window Talk DAT! has). X-742:
+        # the notice is a segment of the Pill; still one at a time, Alt+D
+        # undoes the word on screen, once, and the waiting word follows.
         ui = self.overlay.config.setdefault("ui", {})
         marker = object()
         previous_reduce_motion = ui.get("reduce_motion", marker)
         rejected: list[str] = []
-        latest = None
+        self._clear_messages()
+        windows_before = [child for child in self.overlay.root.winfo_children() if isinstance(child, tk.Toplevel)]
         try:
             ui["reduce_motion"] = True
-            with mock.patch(
-                "knight_flow.meeting_quiet.meeting_in_progress",
-                return_value=False,
-            ):
-                self.overlay.show_learned_word(
-                    "Alpha",
-                    lambda: rejected.append("Alpha"),
-                )
-                pump(self.overlay.root, 0.03)
-                first = self.overlay._learned_word_receipt
-                self.assertIsNotNone(first)
-
-                self.overlay.show_learned_word(
-                    "Beta",
-                    lambda: rejected.append("Beta"),
-                )
-                pump(self.overlay.root, 0.03)
-
-            latest = self.overlay._learned_word_receipt
-            self.assertIsNotNone(latest)
-            self.assertIsNot(first, latest)
-            self.assertFalse(first.winfo_exists())
-            active_receipts = [
-                child
-                for child in self.overlay.root.winfo_children()
-                if isinstance(child, tk.Toplevel)
-                and any(
-                    isinstance(widget, (tk.Button, FlatButton))
-                    and str(widget.cget("text")) == "Don't save"
-                    for widget in descendants(child)
-                )
-            ]
-            self.assertEqual(active_receipts, [latest])
-            self.assertAlmostEqual(float(latest.attributes("-alpha")), 0.96, places=2)
+            with mock.patch("knight_flow.meeting_quiet.meeting_in_progress", return_value=False):
+                self.overlay.show_learned_word("Alpha", lambda: rejected.append("Alpha"))
+                self.assertTrue(self._message_settles())
+                first = self.overlay._flag_view
+                self.overlay.show_learned_word("Beta", lambda: rejected.append("Beta"))
+                pump(self.overlay.root, 0.05)
+            self.assertIs(self.overlay._flag_view, first, "the second notice replaced the first and took its undo")
+            self.assertEqual(first.message.title, 'Added "Alpha"')
+            self.assertEqual(
+                [child for child in self.overlay.root.winfo_children() if isinstance(child, tk.Toplevel)],
+                windows_before,
+                "a word notice opened a window of its own",
+            )
 
             # Tk routes synthetic key events only to the focused toplevel.
-            # Give the root the same focus ownership its accelerator expects
-            # so this remains deterministic when earlier GUI tests left a
-            # utility window focused.
             self.overlay.root.focus_force()
             pump(self.overlay.root, 0.02)
             self.overlay.root.event_generate("<Alt-d>", when="tail")
-            pump(self.overlay.root, 0.04)
-            self.assertEqual(rejected, ["Beta"])
-
-            receipt_canvas = next(
-                widget
-                for widget in descendants(latest)
-                if isinstance(widget, tk.Canvas)
-            )
-            text_item = next(
-                item
-                for item in receipt_canvas.find_all()
-                if receipt_canvas.type(item) == "text"
-            )
-            strike_item = next(
-                item
-                for item in receipt_canvas.find_all()
-                if receipt_canvas.type(item) == "line"
-            )
-            text_bounds = receipt_canvas.bbox(text_item)
-            strike_coords = receipt_canvas.coords(strike_item)
-            self.assertIsNotNone(text_bounds)
-            self.assertAlmostEqual(strike_coords[2], text_bounds[2], places=2)
-
-            # Repeated accelerators during the visible strike cannot reject
-            # the same learned word twice.
+            pump(self.overlay.root, 0.02)
+            # Repeated accelerators while it folds cannot undo the word twice.
             self.overlay.root.event_generate("<Alt-d>", when="tail")
-            pump(self.overlay.root, 0.04)
-            self.assertEqual(rejected, ["Beta"])
-
-            pump(self.overlay.root, 0.5)
-            self.assertFalse(latest.winfo_exists())
-            self.assertIsNone(self.overlay._learned_word_receipt)
-            self.assertIsNone(self.overlay._learned_word_reject_binding)
+            with mock.patch("knight_flow.meeting_quiet.meeting_in_progress", return_value=False):
+                deadline = time.perf_counter() + 3.0
+                while time.perf_counter() < deadline and not (
+                    self.overlay._flag_view is not None and self.overlay._flag_view is not first
+                    and self.overlay._flag_view.phase == "hold"
+                ):
+                    pump(self.overlay.root, 0.02)
+            self.assertEqual(rejected, ["Alpha"])
+            latest = self.overlay._flag_view
+            self.assertIsNotNone(latest, "the waiting word never appeared")
+            self.assertEqual(latest.message.title, 'Added "Beta"')
+            self.overlay._flag_contract()
+            self.assertTrue(self._message_gone())
+            self.assertFalse(self.overlay.root.bind("<Alt-d>").strip(), "Alt+D outlived the notices")
         finally:
-            if latest is not None:
-                with contextlib.suppress(Exception):
-                    latest.destroy()
-            receipt = getattr(self.overlay, "_learned_word_receipt", None)
-            if receipt is not None:
-                with contextlib.suppress(Exception):
-                    receipt.destroy()
             if previous_reduce_motion is marker:
                 ui.pop("reduce_motion", None)
             else:

@@ -252,6 +252,61 @@ def _read_macos() -> dict[str, str] | None:
         return {"left": left, "right": right}
 
 
+def caret_rect() -> tuple[int, int, int, int] | None:
+    """Where the typing caret is on screen (x, y, w, h), when Windows knows.
+
+    X-742: the lengthened Pill never covers the caret when it can go elsewhere
+    (message spec 3.2). GetGUIThreadInfo's rcCaret is the Win32 caret of the
+    foreground thread, a synchronous read of a few microseconds that changes
+    nothing. Editors that draw their own caret report none, and None means
+    unknown: the Pill then places the message by the screen edges alone.
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class GUITHREADINFO(ctypes.Structure):
+            _fields_ = (
+                ("cbSize", wintypes.DWORD),
+                ("flags", wintypes.DWORD),
+                ("hwndActive", wintypes.HWND),
+                ("hwndFocus", wintypes.HWND),
+                ("hwndCapture", wintypes.HWND),
+                ("hwndMenuOwner", wintypes.HWND),
+                ("hwndMoveSize", wintypes.HWND),
+                ("hwndCaret", wintypes.HWND),
+                ("rcCaret", wintypes.RECT),
+            )
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.GetForegroundWindow.restype = wintypes.HWND
+        user32.GetWindowThreadProcessId.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.DWORD))
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        user32.GetGUIThreadInfo.argtypes = (wintypes.DWORD, ctypes.POINTER(GUITHREADINFO))
+        user32.GetGUIThreadInfo.restype = wintypes.BOOL
+        user32.ClientToScreen.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.POINT))
+        user32.ClientToScreen.restype = wintypes.BOOL
+        foreground = user32.GetForegroundWindow()
+        if not foreground:
+            return None
+        thread = user32.GetWindowThreadProcessId(foreground, None)
+        info = GUITHREADINFO()
+        info.cbSize = ctypes.sizeof(GUITHREADINFO)
+        if not user32.GetGUIThreadInfo(thread, ctypes.byref(info)) or not info.hwndCaret:
+            return None
+        rect = info.rcCaret
+        origin = wintypes.POINT(rect.left, rect.top)
+        if not user32.ClientToScreen(info.hwndCaret, ctypes.byref(origin)):
+            return None
+        width = max(1, int(rect.right - rect.left))
+        height = max(1, int(rect.bottom - rect.top))
+        return int(origin.x), int(origin.y), width, height
+    except Exception:
+        return None
+
+
 def read_caret_context(*, timeout: float = 0.08) -> dict[str, str] | None:
     """Bound total waiting; a hung accessibility provider cannot grow workers."""
     if sys.platform not in {"win32", "darwin"} or not _READ_LOCK.acquire(blocking=False):

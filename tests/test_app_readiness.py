@@ -61,7 +61,7 @@ class AppReadinessTests(unittest.TestCase):
                 return LicenseState(plan="trial", status="active", active=True, email="person@example.com", detail="Trial active.")
 
         class Overlay:
-            def set_state(self, *_args: object) -> None:
+            def set_state(self, *_args: object, **_kwargs) -> None:
                 return None
 
         app.license_manager = Manager()

@@ -27,6 +27,10 @@ MAX_BYTES = 5 * 1024 * 1024  # rotate at 5MB; one .1 backup kept
 
 
 def journal_enabled(config: dict[str, Any]) -> bool:
+    # Find-more P0-6: the journal holds the raw and finished text of every
+    # take, and Settings says History off "keeps no record". Off wins.
+    if config.get("privacy", {}).get("save_history", True) is False:
+        return False
     return bool(config.get("diagnostics", {}).get("formatting_journal", False))
 
 

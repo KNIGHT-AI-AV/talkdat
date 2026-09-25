@@ -78,7 +78,8 @@ class DestructiveActionConfirmationTests(unittest.TestCase):
         self.assertIn("Clear text history?", block)
         self.assertIn("This cannot be undone.", block)
         self.assertIn("parent=window", block)
-        self.assertLess(block.index("messagebox.askyesno"), block.index("clear_all_history()"))
+        # Find-more P0-6: the clear is history.clear_saved_text, shared with the web shell.
+        self.assertLess(block.index("messagebox.askyesno"), block.index("clear_saved_text()"))
 
     def test_scratchpad_delete_confirms_before_clearing_or_deleting(self) -> None:
         function, source = nested_function("delete_tab")

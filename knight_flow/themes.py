@@ -94,6 +94,38 @@ SETTINGS_THEME_GROUPS = (
     ("Signal", ("Rose Quartz", "Emerald Vault", "Neon Wire", "Ultraviolet Hour", "Plum Velvet")),
 )
 
+# X-767 (IP audit, 2026-09-24): the names people SEE for two families whose
+# stored name borrowed someone else's. "Night City" is the city of CD PROJEKT's
+# Cyberpunk games (and the palette is that franchise's yellow, cyan and pink);
+# "Champagne" is a protected designation of origin. The stored name stays the
+# key everywhere -- saved settings, material file names, the site-theme map --
+# so every saved choice still loads; only the words on screen change.
+SETTINGS_THEME_DISPLAY_NAMES = {
+    "Night City Neon": "Yellow Neon",
+    "Champagne Glass": "Pale Gold Glass",
+}
+
+
+def theme_display_name(name: str) -> str:
+    """The name to show for a stored family or theme ("Night City Neon Dark"
+    reads "Yellow Neon Dark"); every other name is its own display name."""
+    text = str(name or "")
+    for stored, shown in SETTINGS_THEME_DISPLAY_NAMES.items():
+        if text == stored or text.startswith(stored + " "):
+            return shown + text[len(stored):]
+    return text
+
+
+def theme_stored_name(name: str) -> str:
+    """The stored name for a displayed family or theme; the inverse of
+    theme_display_name, and the identity for a name that is already stored."""
+    text = str(name or "")
+    for stored, shown in SETTINGS_THEME_DISPLAY_NAMES.items():
+        if text == shown or text.startswith(shown + " "):
+            return stored + text[len(shown):]
+    return text
+
+
 SETTINGS_THEME_PALETTE_KEYS = (
     "bg",
     "panel",

@@ -7,6 +7,7 @@ import os
 import shutil
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -365,6 +366,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "fullscreen_activation_visibility_migrated": True,
         "fullscreen_poll_ms": 450,
         "fullscreen_tolerance_px": 8,
+        # X-642: the Pill is presented with per-pixel alpha on Windows (X-641).
+        # False forces the old colour-key path, for a machine where layered
+        # windows misbehave; read at start. A failing layered window falls
+        # back by itself, so this is the manual override, not the safety net.
+        "pill_per_pixel_alpha": True,
     },
     "privacy": {
         # X-465, his order: every capability runs on this machine. Sign-in,
@@ -801,10 +807,35 @@ def _migrate_overlay_balanced_scale(config: dict[str, Any], loaded: dict[str, An
     overlay["balanced_scale_migrated"] = True
 
 
+# Find-more P1-1: the paste-delay and animation migrations below ran on EVERY
+# load with no done-stamp, so a paste delay of 30 or 80 ms (the one fix
+# Settings offers for apps that miss the paste) and two animation settings
+# went back to the default at every launch. They now run once. They shipped
+# on 2026-07-09 and every launch since has saved their result, so a config
+# last run after that holds either the migrated value or the person's own
+# choice, and only older ones are migrated.
+_LOAD_MIGRATIONS_SHIPPED_AT = 1783641600  # 2026-07-10 00:00 UTC
+
+
+def _already_migrated(loaded: dict[str, Any], section: str, stamp: str) -> bool:
+    loaded_section = loaded.get(section) if isinstance(loaded.get(section), dict) else {}
+    if loaded_section.get(stamp):
+        return True
+    updates = loaded.get("updates") if isinstance(loaded.get("updates"), dict) else {}
+    try:
+        return float(updates.get("last_run_at") or 0) >= _LOAD_MIGRATIONS_SHIPPED_AT
+    except (TypeError, ValueError):
+        return False
+
+
 def _migrate_overlay_animation(config: dict[str, Any], loaded: dict[str, Any]) -> None:
-    """Move older defaults onto the deterministic trigger animation."""
+    """Move older defaults onto the deterministic trigger animation, once (P1-1)."""
     overlay = config.setdefault("overlay", {})
     loaded_overlay = loaded.get("overlay", {}) if isinstance(loaded.get("overlay"), dict) else {}
+    migrated = _already_migrated(loaded, "overlay", "animation_defaults_migrated")
+    overlay["animation_defaults_migrated"] = True
+    if migrated:
+        return
     if int(loaded_overlay.get("resize_frame_ms", 12)) in {10, 12, 14, 16}:
         overlay["resize_frame_ms"] = 8
     if int(loaded_overlay.get("resize_steps", 60)) in {18, 28, 36, 60}:
@@ -822,8 +853,12 @@ def _migrate_fullscreen_activation_visibility(config: dict[str, Any], loaded: di
 
 
 def _migrate_paste_latency_default(config: dict[str, Any], loaded: dict[str, Any]) -> None:
-    """Move older untouched paste-delay defaults to the faster current default."""
+    """Move older untouched paste-delay defaults to the faster current default, once (P1-1)."""
     loaded_dictation = loaded.get("dictation", {}) if isinstance(loaded.get("dictation"), dict) else {}
+    migrated = _already_migrated(loaded, "dictation", "paste_delay_default_migrated")
+    config.setdefault("dictation", {})["paste_delay_default_migrated"] = True
+    if migrated:
+        return
     try:
         delay = int(loaded_dictation.get("clipboard_paste_delay_ms", 80) or 80)
     except (TypeError, ValueError):
@@ -1249,16 +1284,97 @@ def _reset_session_only_settings(config: dict[str, Any]) -> None:
             target[key] = shipped
 
 
+# P0-7 (find-more sweep): every word, snippet, profile and setting lives in
+# config.json. A read or parse failure used to carry on with the defaults, and
+# the first save of the launch (stamp_first_run, the startup save, any
+# Settings change) wrote those defaults over the file, silently. A file that
+# will not parse is now moved aside and kept; a file that cannot be opened at
+# all stays where it is and no save touches it until the next launch.
+_UNREADABLE_CONFIG_ROOTS: set[Path] = set()
+# ERROR_SHARING_VIOLATION and ERROR_LOCK_VIOLATION: another process (a backup
+# or sync client, antivirus) has the file open. It hit the model marker on this
+# PC on 2026-09-22, and it passes, so it is worth a few short retries.
+_SHARING_VIOLATIONS = {32, 33}
+_READ_ATTEMPTS = 5
+
+
+def _read_config_file(path: Path) -> tuple[dict[str, Any], str]:
+    """The parsed file and "", or {} and why it could not be used.
+
+    "locked" means the bytes could not be read; "damaged" means they were read
+    and are not a settings object (bad JSON, bad UTF-8, or not an object).
+    """
+    raw = b""
+    for attempt in range(_READ_ATTEMPTS):
+        try:
+            raw = path.read_bytes()
+            break
+        except FileNotFoundError:
+            return {}, ""
+        except OSError as error:
+            transient = isinstance(error, PermissionError) or getattr(error, "winerror", None) in _SHARING_VIOLATIONS
+            if not transient or attempt == _READ_ATTEMPTS - 1:
+                log.warning("config.json could not be read: %s", error)
+                return {}, "locked"
+            time.sleep(0.1 * (attempt + 1))
+    try:
+        # ValueError covers both a JSON error and bad UTF-8; the old read let
+        # UnicodeDecodeError escape and the app failed to start.
+        loaded = json.loads(raw.decode("utf-8-sig"))
+    except ValueError as error:
+        log.warning("config.json is not valid settings: %s", error)
+        return {}, "damaged"
+    if not isinstance(loaded, dict):
+        log.warning("config.json holds %s, not settings", type(loaded).__name__)
+        return {}, "damaged"
+    return loaded, ""
+
+
+def _keep_unreadable_config(path: Path, problem: str) -> None:
+    """Move a damaged file aside, or fence saves when it cannot be moved."""
+    from . import launch_notices
+
+    kept: Path | None = None
+    if problem == "damaged":
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        for suffix in range(100):
+            candidate = path.with_name(f"{path.name}.unreadable-{stamp}" + (f"-{suffix}" if suffix else ""))
+            if candidate.exists():
+                continue
+            try:
+                os.replace(path, candidate)
+                kept = candidate
+            except OSError as error:
+                log.warning("config.json could not be moved aside: %s", error)
+            break
+    if kept is not None:
+        log.warning("config.json could not be read; it was kept as %s and defaults are in use", kept.name)
+        launch_notices.notice(
+            "config",
+            f"Your settings file could not be read, so Talk DAT! started with default settings. "
+            f"The old file was kept as {kept.name} in {path.parent}.",
+            message="Your settings could not be read. Talk DAT! started with default settings.",
+        )
+        return
+    _UNREADABLE_CONFIG_ROOTS.add(path.parent.resolve())
+    log.warning("config.json could not be read; defaults are in use and nothing is saved this session")
+    launch_notices.notice(
+        "config",
+        "Your settings file could not be opened, so Talk DAT! started with default settings. "
+        "Changes are not saved until you restart Talk DAT!, so your saved settings stay as they were.",
+        message="Your settings could not be opened. Restart Talk DAT! to load them.",
+    )
+
+
 def load_config(project_root: Path | None = None) -> dict[str, Any]:
     load_project_env(project_root)
     path = config_path()
     if not path.exists():
         save_config(DEFAULT_CONFIG)
 
-    try:
-        loaded = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError):
-        loaded = {}
+    loaded, problem = _read_config_file(path)
+    if problem:
+        _keep_unreadable_config(path, problem)
 
     config = normalize_shortcuts(deep_merge(DEFAULT_CONFIG, loaded if isinstance(loaded, dict) else {}))
     _migrate_licensing_enforcement(config)
@@ -1331,7 +1447,7 @@ _SAVE_LOCK = threading.RLock()
 _RESTORED_CONFIG_ROOTS: set[Path] = set()
 
 
-def save_config(config: dict[str, Any], *, forget_sections: tuple[str, ...] = (), credential_backend=None) -> None:
+def save_config(config: dict[str, Any], *, forget_sections: tuple[str, ...] = (), credential_backend=None) -> bool:
     """Persist the config.
 
     `forget_sections` names top-level sections the caller deliberately removed
@@ -1368,6 +1484,15 @@ def save_config(config: dict[str, Any], *, forget_sections: tuple[str, ...] = ()
     with _SAVE_LOCK:
         if path.parent.resolve() in _RESTORED_CONFIG_ROOTS:
             raise ValueError("Restart Talk DAT to use the restored settings before making more changes.")
+        if path.parent.resolve() in _UNREADABLE_CONFIG_ROOTS:
+            # P0-7: the file on disk could not be opened at launch and is
+            # still there. What this process holds is the defaults, so any
+            # write would replace the person's settings with them. Refused
+            # quietly, because startup and the beacons save unasked; the
+            # launch notice already said changes are not kept, and the
+            # Settings page turns False into an error.
+            log.warning("settings not saved: config.json could not be read at launch")
+            return False
         persisted = config_for_persistence(config, store=credential_backend)
         _reset_session_only_settings(persisted)
         try:
@@ -1421,6 +1546,7 @@ def save_config(config: dict[str, Any], *, forget_sections: tuple[str, ...] = ()
     # be read by another local account even if the directory mode is ever
     # loosened by a restore, a sync client or a careless chmod -R.
     _restrict_to_owner(path, 0o600)
+    return True
 
 
 def deepgram_params(config: dict[str, Any]) -> dict[str, Any]:

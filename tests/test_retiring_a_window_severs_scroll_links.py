@@ -36,20 +36,18 @@ import tkinter as tk
 import unittest
 from tkinter import ttk
 
-try:
-    _probe = tk.Tk()
-    _probe.destroy()
-    _ROOT_ERROR: Exception | None = None
-except Exception as error:  # no display, or Tk not built in
-    _ROOT_ERROR = error
-
 from tests import gui_offscreen  # noqa: F401  (X-164: never show on a real screen)
+from tests.tk_support import acquire_root, probe_error as _ROOT_ERROR, release_root
 
 
 @unittest.skipIf(_ROOT_ERROR is not None, f"no usable Tk display: {_ROOT_ERROR}")
 class SeveringScrollLinksTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.root = tk.Tk()
+        # macOS: one Tk root per process, ever (tests/tk_support). A fresh
+        # tk.Tk() per test -- this file built one for a module-level probe and
+        # another per test method, eight in the process -- crashes Tk 9 on
+        # Aqua with SIGTRAP on the next update after the second one.
+        self.root = acquire_root()
         self.root.geometry("300x200")
         self.addCleanup(self._destroy_root)
         self.frame = tk.Frame(self.root)
@@ -66,10 +64,7 @@ class SeveringScrollLinksTests(unittest.TestCase):
         self.root.update()
 
     def _destroy_root(self) -> None:
-        try:
-            self.root.destroy()
-        except Exception:
-            pass
+        release_root(self.root)
 
     def _scroll_and_collect_background_errors(self) -> list[str]:
         """Scroll the canvas and return whatever reached Tk's error handler.
@@ -154,14 +149,11 @@ class TheSlicePlannerSeversBeforeItDestroysTests(unittest.TestCase):
     """
 
     def setUp(self) -> None:
-        self.root = tk.Tk()
+        self.root = acquire_root()
         self.addCleanup(self._destroy_root)
 
     def _destroy_root(self) -> None:
-        try:
-            self.root.destroy()
-        except Exception:
-            pass
+        release_root(self.root)
 
     def test_the_planner_severs_the_tree_it_is_about_to_slice(self) -> None:
         from knight_flow import overlay as overlay_module

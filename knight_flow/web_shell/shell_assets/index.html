@@ -39,14 +39,16 @@
         <button id="help-button" class="quiet" aria-haspopup="dialog">Quick help</button>
       </header>
       <nav id="sections" aria-label="Section pages" hidden></nav>
+      <div id="say-header" class="say-header" hidden><span class="status-dot" aria-hidden="true"></span><span id="say-header-text"></span></div>
       <main id="page" tabindex="-1"><div class="empty"><h1>Opening Talk DAT!</h1><p>Your settings will appear when the app is ready.</p></div></main>
-      <footer id="save-strip" hidden><span id="dirty-status">Unsaved changes</span><div><button id="discard" class="quiet">Discard</button><button id="save" class="primary">Save changes</button></div></footer>
+      <footer id="save-strip" hidden><span id="dirty-status">Unsaved changes</span><span id="say-footer"></span><div><button id="discard" class="quiet">Discard</button><button id="save" class="primary">Save changes</button></div></footer>
     </div>
   </div>
   <div id="help-popover" class="popover" role="dialog" aria-labelledby="help-title" hidden><h2 id="help-title">How to dictate</h2><p>Hold your dictation shortcut to speak. Release it to finish and insert the text in your app.</p><p>Use History to find a recent dictation or recover a protected recording.</p><button id="help-close" class="quiet">Close help</button></div>
   <dialog id="close-dialog"><h2>Keep your changes?</h2><p>Your edits are still here. Save them before closing, or discard this draft.</p><div class="dialog-actions"><button id="continue-editing">Continue editing</button><button id="discard-close">Discard and close</button><button id="save-close" class="primary">Save and close</button></div></dialog>
   <dialog id="conflict-dialog"><h2>Settings changed in another window</h2><p>Your draft is still here. Compare it with the latest saved values before choosing what to keep.</p><div id="conflict-values"></div><div class="dialog-actions"><button id="conflict-cancel">Continue editing</button><button id="conflict-latest">Use latest settings</button><button id="conflict-keep" class="primary">Save my draft</button></div></dialog>
-  <div id="notice" role="status" aria-live="polite" hidden></div>
+  <div id="notice" role="status" aria-live="polite"></div>
+  <div id="alert" role="alert"></div>
   <dialog id="model-remove-dialog"><h2>Remove this download?</h2><p id="model-remove-description"></p><div class="dialog-actions"><button id="model-remove-cancel" autofocus>Keep model</button><button id="model-remove-confirm">Remove download</button></div></dialog>
 </body>
 </html>

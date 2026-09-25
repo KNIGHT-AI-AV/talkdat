@@ -200,7 +200,7 @@ class EverySettableRouteCanActuallyBeSetTests(unittest.TestCase):
         def __init__(self) -> None:
             self.said: list[tuple[str, str, str]] = []
 
-        def set_state(self, state: str, message: str = "", detail: str = "") -> None:
+        def set_state(self, state: str, message: str = "", detail: str = "", **_kwargs) -> None:
             self.said.append((state, message, detail))
 
         def refresh_route_paint(self) -> None:

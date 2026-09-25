@@ -25,7 +25,9 @@ window.TalkDatReset = ({container,el,request,notice,changed=()=>{}}) => {
       const back=dialog.querySelector("[data-reset-back]");if(back)back.disabled=busy;
     }
   }
-  function closeDialog() {if(dialog){dialog.close();dialog.remove();dialog=null;}}
+  // X-682: the review dialog leaves on its exit curve before it leaves the page;
+  // removing it in the same tick as close() cut the exit to one frame.
+  function closeDialog() {if(dialog){const leaving=dialog;dialog=null;leaving.close();(window.TalkDatAfterExit||((node,done)=>done()))(leaving,()=>leaving.remove());}}
   function showPreview() {
     const preview=state.preview;if(!preview||dialog)return;
     const title=el("h2",{id:"reset-review-title",text:"Review what will be cleared"});

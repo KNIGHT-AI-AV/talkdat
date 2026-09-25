@@ -24,6 +24,7 @@ from unittest import mock
 
 from knight_flow import connectivity, local_fallback, local_stt
 from knight_flow.local_stt import DEFAULT_LOCAL_MODEL_ID, LOCAL_MODEL_BY_ID
+from knight_flow.platform_copy import THIS_COMPUTER
 
 
 def cloud_config(**stt: object) -> dict:
@@ -355,23 +356,25 @@ class FallbackEscalationTests(unittest.TestCase):
         app._note_cloud_fallback()
         app._note_cloud_fallback()
         self.assertEqual("deepgram", app.config["stt"]["provider"])
-        app.overlay.show_toast.assert_not_called()
+        app.overlay.flag.assert_not_called()
 
     def test_the_third_in_ten_minutes_switches_and_says_so(self) -> None:
         app = self._app()
         for _ in range(3):
             app._note_cloud_fallback()
         self.assertEqual("local", app.config["stt"]["provider"])
-        app.overlay.show_toast.assert_called_once()
-        message = app.overlay.show_toast.call_args[0][0]
-        self.assertIn("local model", message)
-        self.assertIn("cloud connection", message)
+        app.overlay.flag.assert_called_once()
+        call = app.overlay.flag.call_args
+        self.assertEqual(call.args[0], f"Using {THIS_COMPUTER} for now")
+        self.assertIn("speech provider keeps failing", call.kwargs["detail"])
+        self.assertIn("restart goes back", call.kwargs["detail"])
+        self.assertEqual(call.kwargs["tone"], "warn")
 
     def test_it_switches_once_not_on_every_later_fallback(self) -> None:
         app = self._app()
         for _ in range(5):
             app._note_cloud_fallback()
-        app.overlay.show_toast.assert_called_once()
+        app.overlay.flag.assert_called_once()
 
     def test_old_fallbacks_age_out(self) -> None:
         """Two flaky moments a day apart are weather, not an outage."""
@@ -381,7 +384,7 @@ class FallbackEscalationTests(unittest.TestCase):
             app._note_cloud_fallback()
             app._note_cloud_fallback()
         self.assertEqual("deepgram", app.config["stt"]["provider"])
-        app.overlay.show_toast.assert_not_called()
+        app.overlay.flag.assert_not_called()
 
 
 class ReturnToCloudTests(unittest.TestCase):
@@ -413,8 +416,9 @@ class ReturnToCloudTests(unittest.TestCase):
             app._maybe_return_to_cloud()
         self.assertEqual("deepgram", app.config["stt"]["provider"])
         self.assertFalse(app._switched_to_local_for_session)
-        message = app.overlay.show_toast.call_args[0][0]
-        self.assertIn("restored", message)
+        call = app.overlay.flag.call_args
+        self.assertEqual(call.args[0], "Back on Deepgram")
+        self.assertEqual(call.kwargs["tone"], "done")
 
     def test_a_fallback_two_minutes_ago_means_not_yet(self) -> None:
         """One good ping in the middle of an outage must not flap the route."""
@@ -424,7 +428,7 @@ class ReturnToCloudTests(unittest.TestCase):
              mock.patch("knight_flow.app.time.monotonic", return_value=500.0):
             app._maybe_return_to_cloud()
         self.assertEqual("local", app.config["stt"]["provider"])
-        app.overlay.show_toast.assert_not_called()
+        app.overlay.flag.assert_not_called()
 
     def test_still_offline_means_still_local(self) -> None:
         app = self._switched_app()
@@ -439,4 +443,4 @@ class ReturnToCloudTests(unittest.TestCase):
         app.config["stt"]["provider"] = "deepgram"
         app._maybe_return_to_cloud()
         self.assertEqual("deepgram", app.config["stt"]["provider"])
-        app.overlay.show_toast.assert_not_called()
+        app.overlay.flag.assert_not_called()

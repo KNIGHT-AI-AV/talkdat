@@ -61,7 +61,10 @@ def native_stats_probe(connection,evidence,html):
                 window.evaluate_js("document.querySelector('.activity-estimates summary').click();true")
                 evidence.send({'retained':retained,'final':window.evaluate_js("document.querySelector('.activity-metric strong').textContent"),
                     'days':window.evaluate_js("document.querySelectorAll('.activity-week li').length"),
-                    'estimate':window.evaluate_js("document.querySelector('.activity-estimates').innerText.includes('not a bill')"),
+                    # innerText needs a real layout pass, which a hidden/
+                    # off-screen WKWebView on macOS never runs; textContent
+                    # reads the DOM directly and does not depend on one.
+                    'estimate':window.evaluate_js("document.querySelector('.activity-estimates').textContent.includes('not a bill')"),
                     'targets':window.evaluate_js("Array.from(document.querySelectorAll('[data-workspace=stats] button')).every(b=>b.getBoundingClientRect().height>=44)"),
                     'desktop':surface})
             except Exception as error:evidence.send({'error':str(error),'ui':window.evaluate_js('document.body.innerText.slice(-2000)')})

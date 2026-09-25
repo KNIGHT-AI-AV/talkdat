@@ -53,7 +53,10 @@ def native_history_export_probe(connection,evidence,html):
                 click('Open');click('Show folder')
                 until("document.getElementById('notice').textContent==='Copied the full entry.'")
                 time.sleep(.12)
-                evidence.send({'receipt':window.evaluate_js("document.querySelector('.history-export-receipts').innerText"),'desktop':surface})
+                # innerText needs a real layout pass, which a hidden/off-screen
+                # WKWebView on macOS never runs; textContent reads the DOM
+                # directly and does not depend on one.
+                evidence.send({'receipt':window.evaluate_js("document.querySelector('.history-export-receipts').textContent"),'desktop':surface})
             except Exception as error:evidence.send({'error':str(error),'ui':window.evaluate_js('document.body.innerText.slice(-1600)')})
             finally:window.destroy()
         window.events.loaded+=probe;return window

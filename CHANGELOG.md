@@ -3,6 +3,29 @@
 All notable product changes to Talk DAT! are recorded here. The project uses beta
 versions while broader field verification remains in progress.
 
+## 0.4.168-beta
+
+The Pill tells you things itself, looks sharper, and keeps your words safer.
+
+- Messages come from the Pill. It stretches to say what happened, in its own colours, then goes back to its normal size. It never takes the focus from the app you are typing in.
+- A word Talk DAT! learned, or an update that is ready, shows on the Pill with Undo or Install beside it.
+- In Settings, a button answers on its own face: Copy turns into Copied, and an error shows next to Retry on the same button.
+- The Pill has smooth edges on light backgrounds, and it draws each frame in about a third of the time.
+- Pressing Esc while your words are being processed keeps them. They go to the clipboard and History instead of being thrown away.
+- A click on the Pill while it is processing no longer cancels your dictation.
+- Windows shortcuts that start with Ctrl and the Windows key no longer turn on the microphone.
+- Press and hold the Pill to talk, and let go to finish.
+- Quit, Restart and updates wait a few seconds for a dictation to finish first.
+- A dictation that stopped on its own is only typed into the app where it started.
+- A backslash in a word or snippet no longer breaks dictation.
+- If the settings file cannot be read, it is kept aside instead of being replaced.
+- Nothing is kept from a dictation into a password field.
+- History off and Clear history now clear the text everywhere it was stored.
+- A dictation that fails is kept in Recovery until you deal with it.
+- Apps that read the clipboard slowly now get your dictation, not your old clipboard.
+- Settings buttons respond when you hover and press, windows close with a short animation, and text is easier to read in every theme.
+- Every part Talk DAT! includes now ships with its licence text.
+
 ## 0.4.167-beta
 
 Status on the Mac keeps its permissions checklist.

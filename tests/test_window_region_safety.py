@@ -51,7 +51,7 @@ class OrdinaryWindowsNeverUseAliasedRegionsTests(unittest.TestCase):
             while owner is not None and not isinstance(owner, ast.FunctionDef):
                 owner = parents.get(owner)
             owners.append(owner.name if isinstance(owner, ast.FunctionDef) else "")
-        self.assertEqual(owners, ["_apply_pill_region"])
+        self.assertEqual(sorted(owners), ["_apply_pill_region", "_flag_key_geometry"])
 
     def test_region_helper_delegates_to_the_explicit_shaped_policy(self) -> None:
         body = function_source(OVERLAY, "_apply_window_region")

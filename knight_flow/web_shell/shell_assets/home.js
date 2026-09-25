@@ -53,7 +53,15 @@ window.TalkDatHome=({container,el,request,notice})=>{
       el("span",{text:speech.local
         ?`Speech runs on this computer (${speech.model||"local model"}).`
         :`Speech runs through ${speech.label||"your provider"} (${speech.model||"automatic"}).`})]);
-    hero.replaceChildren(...lines,chip);
+    // Find-more P0-3 and P0-7: what the launch found (a take waiting in
+    // Recovery, settings that could not be read) is said above the greeting.
+    const alerts=(g.alerts||[]).filter(a=>a&&a.text).map(a=>{
+      const line=el("div",{class:"home-alert",role:"alert"},[el("p",{text:a.text})]);
+      if(a.page==="recovery")line.append(el("button",{type:"button",class:"quiet",text:"Open Recovery",
+        onclick:()=>window.TalkDat.navigate("recovery")}));
+      return line;
+    });
+    hero.replaceChildren(...alerts,...lines,chip);
   }
   // What's new is read as Markdown blocks by the app (2026-09-23): the
   // section's opening paragraph arrives as `summary`, its "- " items as

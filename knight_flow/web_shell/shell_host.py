@@ -19,6 +19,141 @@ MAX_MESSAGE = 1_048_576
 #: failed (no reply, a closed pipe, a send that could not go out). The page
 #: says so in the sidebar; an ordinary refusal from the app never carries it.
 DISCONNECTED = 'disconnected'
+#: X-682: the Pill menu's page fades for one exit (--t-exit, 140 ms, in shell.css)
+#: before its window hides. Hiding at once cut every close to a single frame.
+MENU_EXIT_SECONDS = 0.14
+
+
+#: X-684: the menu window class's drop shadow. A frameless WinForms window has no
+#: DWM shadow, so the Pill menu was a flat slab with four hard edges.
+CS_DROPSHADOW = 0x00020000
+GCL_STYLE = -26
+
+
+class _HwndWindow:
+    """Lets win32_chrome's Tk-shaped helpers take a WinForms form's HWND."""
+
+    def __init__(self, hwnd):
+        self._hwnd = int(hwnd)
+
+    def winfo_id(self):
+        return self._hwnd
+
+
+class _ClassStyle:
+    """GCL_STYLE through a private user32 handle (never ctypes.windll's shared one, X-605)."""
+
+    def __init__(self):
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.WinDLL('user32', use_last_error=True)
+        self._get = getattr(user32, 'GetClassLongPtrW', None) or user32.GetClassLongW
+        self._set = getattr(user32, 'SetClassLongPtrW', None) or user32.SetClassLongW
+        self._get.argtypes = (wintypes.HWND, ctypes.c_int)
+        self._get.restype = ctypes.c_size_t
+        self._set.argtypes = (wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t)
+        self._set.restype = ctypes.c_size_t
+
+    def get(self, hwnd):
+        return int(self._get(hwnd, GCL_STYLE))
+
+    def set(self, hwnd, style):
+        import ctypes
+        ctypes.set_last_error(0)
+        return bool(self._set(hwnd, GCL_STYLE, style)) or ctypes.get_last_error() == 0
+
+
+def _apply_menu_chrome(hwnd, *, chrome_api=None, windows_build=None, class_style=None):
+    """Rounded corners on Windows 11 and the menu drop shadow on 10 and 11.
+
+    X-684 (polish audit P0-4). Windows 11 rounds in the compositor, anti-aliased;
+    Windows 10 cannot (a window region is a one-bit clip, the Pill's black stair
+    edge), so there the menu stays square and keeps only the shadow. Both are set
+    before the first show, so the first frame is already the final shape. A window-
+    level fade would need a layered window, where WebView2 renders blank, so the
+    page's own entrance does the motion instead. Returns (corners, shadow).
+    """
+    from knight_flow import win32_chrome
+    receipt = win32_chrome.apply_window_chrome(_HwndWindow(hwnd), win32_chrome.UTILITY_CHROME, api=chrome_api,
+                                               platform_name='win32', windows_build=windows_build)
+    shadow = False
+    with contextlib.suppress(Exception):
+        styles = class_style or _ClassStyle()
+        style = styles.get(hwnd)
+        shadow = bool(style & CS_DROPSHADOW) or styles.set(hwnd, style | CS_DROPSHADOW)
+    return receipt.mode, shadow
+
+
+def menu_origin(bounds, cursor):
+    """The side of the menu that faces the Pill, as a transform-origin, and the rise.
+
+    X-684: the menu opens from a right-click ON the Pill, so the pointer marks it.
+    The page grows from there (Things 3: things grow from where they live): up out
+    of a Pill below the menu, down out of a Pill above it.
+    """
+    if not isinstance(bounds, (list, tuple)) or len(bounds) != 4:
+        raise ValueError('menu bounds')
+    x, y, width, height = (int(value) for value in bounds)
+    if width <= 0 or height <= 0:
+        raise ValueError('menu bounds')
+    across = min(1.0, max(0.0, (float(cursor[0]) - x) / width))
+    below = float(cursor[1]) >= y + height / 2
+    return f'{across * 100:.0f}% {100 if below else 0}%', '8px' if below else '-8px'
+
+
+def _cursor_position():
+    import ctypes
+    from ctypes import wintypes
+    point = wintypes.POINT()
+    user32 = ctypes.WinDLL('user32', use_last_error=True)
+    user32.GetCursorPos.argtypes = (ctypes.POINTER(wintypes.POINT),)
+    user32.GetCursorPos.restype = wintypes.BOOL
+    if not user32.GetCursorPos(ctypes.byref(point)):
+        raise OSError('GetCursorPos')
+    return point.x, point.y
+
+
+def _menu_origin_js(bounds):
+    """Script that tells the page where the Pill is, or nothing if that is unknown."""
+    try:
+        origin, rise = menu_origin(bounds, _cursor_position())
+    except (OSError, ValueError, TypeError, AttributeError):
+        return ''
+    return ('document.documentElement.style.setProperty("--menu-origin",' + json.dumps(origin) + ');'
+            'document.documentElement.style.setProperty("--menu-rise",' + json.dumps(rise) + ');')
+
+
+#: X-688: the WebView2 context-menu items the Settings window keeps. Everything a
+#: browser adds (Back, Reload, Save as, Print, Share, Inspect) goes.
+EDIT_MENU_ITEMS = frozenset({'emoji', 'undo', 'redo', 'cut', 'copy', 'paste', 'pasteAndMatchStyle', 'selectAll'})
+
+
+def _keep_edit_items(_sender, args):
+    """ContextMenuRequested: keep the editing commands; open nothing if none are left."""
+    items = args.MenuItems
+    for index in range(items.Count - 1, -1, -1):
+        item = items[index]
+        if str(item.Kind) != 'Separator' and str(item.Name) not in EDIT_MENU_ITEMS:
+            items.RemoveAt(index)
+    kinds = [str(items[index].Kind) for index in range(items.Count)]
+    if all(kind == 'Separator' for kind in kinds):
+        args.Handled = True
+
+
+def _allow_edit_menu(control):
+    """Cut, Copy and Paste in the Settings window's text fields (interaction grid, build 24).
+
+    pywebview turns WebView2's own context menu off (debug off) in its
+    initialization handler, so a right-click in the search box, a note title or a
+    provider key offered nothing. This subscribes after it and turns the menu back
+    on, trimmed to the editing commands; the page keeps it shut outside text fields
+    and selected reader text (shell.js).
+    """
+    def enable(sender, _args):
+        core = sender.CoreWebView2
+        core.Settings.AreDefaultContextMenusEnabled = True
+        core.ContextMenuRequested += _keep_edit_items
+    control.CoreWebView2InitializationCompleted += enable
 
 
 def trusted_document(url, bundled_uri=None):
@@ -91,6 +226,28 @@ class _RendererApi:
         self._close_token = None
         self._ready = threading.Event()
         self._materials = None
+        self._menu_hide_lock = threading.Lock()
+        self._menu_hide_generation = 0
+
+    def _hide_menu_after_exit(self):
+        """Hide the menu once its page has faded; a show in between cancels it."""
+        with self._menu_hide_lock:
+            self._menu_hide_generation += 1
+            generation = self._menu_hide_generation
+
+        def hide():
+            with self._menu_hide_lock:
+                if generation != self._menu_hide_generation:
+                    return
+            self._window.hide()
+
+        timer = threading.Timer(MENU_EXIT_SECONDS, hide)
+        timer.daemon = True
+        timer.start()
+
+    def _cancel_menu_hide(self):
+        with self._menu_hide_lock:
+            self._menu_hide_generation += 1
 
     def _close_event(self, confirmed):
         if self._close_token is not None:
@@ -125,11 +282,11 @@ class _RendererApi:
             self._close_event(False)
             return {'ok': True, 'result': None}
         if method == 'dismiss' and self._mode == 'menu':
-            self._window.hide()
+            self._hide_menu_after_exit()
             return {'ok': True, 'result': None}
         if method == 'close':
             if self._mode == 'menu' and self._close_token is None:
-                self._window.hide()
+                self._hide_menu_after_exit()
                 return {'ok': True, 'result': None}
             self._close_event(True)
             self._force_close = True
@@ -154,7 +311,7 @@ class _RendererApi:
             # can fail during renderer startup; hiding first loses the error.
             if method == 'action' and self._mode == 'menu' and answer and answer.get('ok'):
                 if not str(payload.get('name', '')).startswith('route:') and payload.get('name') != 'menu:toggle_intensity':
-                    self._window.hide()
+                    self._hide_menu_after_exit()
             return answer
         except (OSError, ValueError) as error:
             if isinstance(error, ValueError) and 'too large' in str(error):
@@ -166,6 +323,7 @@ class _RendererApi:
                 self._pending.pop(request_id, None)
 
     def _show(self):
+        self._cancel_menu_hide()
         if sys.platform == 'darwin':
             from PyObjCTools import AppHelper
             from webview.platforms.cocoa import BrowserView
@@ -241,9 +399,11 @@ class _RendererApi:
                 if message.get('command') == 'navigate':
                     page = message.get('page', 'general')
                     if isinstance(page, str) and len(page) <= 40 and self._ready.wait(20):
+                        origin = ''
                         if self._mode == 'menu':
                             self._place_menu(message.get('bounds'))
-                        self._window.evaluate_js('window.TalkDat.navigate(' + json.dumps(page) + ');true')
+                            origin = _menu_origin_js(message.get('bounds'))
+                        self._window.evaluate_js(origin + 'window.TalkDat.navigate(' + json.dumps(page) + ');true')
                         self._show()
                         if self._mode == 'menu':
                             # Whatever showing did, the menu ends on the Pill.
@@ -345,11 +505,20 @@ def _run_window(connection, html, page, hidden=False, mode='settings', bounds=No
                     args.Cancel = True
             native.NavigationStarting += refuse_external
             api._navigation_handler = refuse_external
+            if mode == 'menu':
+                # X-684: corners and shadow before the first frame; never fatal.
+                with contextlib.suppress(Exception):
+                    _apply_menu_chrome(int(window.native.Handle.ToInt64()))
+            if mode != 'menu':
+                # X-688: Cut, Copy and Paste in text fields; never fatal.
+                with contextlib.suppress(Exception):
+                    _allow_edit_menu(native)
         api._guard_ready = True
     window.events.before_show += protect_navigation
     window.events.closing += api._closing
     def ready():
-        window.evaluate_js('window.TalkDat.navigate(' + json.dumps(page) + ');true')
+        origin = _menu_origin_js(bounds) if mode == 'menu' and bounds is not None else ''
+        window.evaluate_js(origin + 'window.TalkDat.navigate(' + json.dumps(page) + ');true')
         if mode == 'menu':
             api._place_menu(bounds)
             if not hidden:

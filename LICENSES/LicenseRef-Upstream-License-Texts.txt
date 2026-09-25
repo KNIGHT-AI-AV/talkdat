@@ -1,0 +1,6 @@
+The files under knight_flow/assets/licenses/third_party/ are the license
+texts and notices of third-party software that Talk DAT! binaries bundle,
+reproduced verbatim as those licenses require of anyone who distributes the
+software they cover. Each file names its own copyright holders and terms.
+They are not licensed under the Apache License 2.0, and Talk DAT! claims no
+rights in them.

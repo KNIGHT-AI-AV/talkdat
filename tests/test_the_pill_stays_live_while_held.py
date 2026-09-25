@@ -23,7 +23,7 @@ class RecordingOverlay:
     def __init__(self) -> None:
         self.states: list[tuple[str, str | None]] = []
 
-    def set_state(self, state: str, message: str | None = None, preview: str | None = None) -> None:
+    def set_state(self, state: str, message: str | None = None, preview: str | None = None, **_kwargs) -> None:
         self.states.append((state, message))
 
     def set_level(self, level: float) -> None:

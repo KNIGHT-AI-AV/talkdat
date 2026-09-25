@@ -117,10 +117,24 @@ def main() -> int:
     kernel32.CloseHandle(info.hProcess)
     user32.CloseDesktop(desktop)
     if log.exists():
+        output = log.read_bytes()
+        if not sys.argv[1:]:
+            # X-720: a FULL run leaves a report keyed by commit, which
+            # publish_release.py requires. A single module never does.
+            # The open-source export leaves the release tooling out, so a
+            # public checkout simply writes no report.
+            sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+            try:
+                from scripts.suite_report import write as write_report
+            except ImportError:
+                write_report = None
+            written = write_report(Path(__file__).resolve().parents[1], int(code.value), output) if write_report else None
+            if written is not None:
+                print(f"suite report: {written}")
         # Bytes, not text: a cp1252 console cannot encode U+FFFD, and a crash
         # here used to swallow the whole suite result (2026-09-22).
         sys.stdout.flush()
-        sys.stdout.buffer.write(log.read_bytes())
+        sys.stdout.buffer.write(output)
         sys.stdout.buffer.flush()
         log.unlink(missing_ok=True)
     return int(code.value)

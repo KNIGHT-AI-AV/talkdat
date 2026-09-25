@@ -22,7 +22,7 @@ class _Overlay:
         self.onboarding_test_sink = None
         self.root = SimpleNamespace(after=lambda _delay, callback: callback())
 
-    def set_state(self, state: str, message: str = "", _preview: str = "") -> None:
+    def set_state(self, state: str, message: str = "", _preview: str = "", **_kwargs) -> None:
         self.states.append((state, message))
 
     def set_level(self, _level: float) -> None:

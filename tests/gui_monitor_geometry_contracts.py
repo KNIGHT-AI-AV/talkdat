@@ -197,6 +197,30 @@ class RealMonitorGeometryContracts(unittest.TestCase):
                 assert_inside(self, probe, rect)
                 probe.destroy()
 
+    def assert_message_inside(self, rect: tuple[int, int, int, int], *, inset: int = 8) -> None:
+        overlay = self.overlay
+        deadline = time.perf_counter() + 3.0
+        while time.perf_counter() < deadline and not (
+            overlay._flag_view is not None and overlay._flag_view.phase == "hold"
+        ):
+            pump(overlay.root)
+        view = overlay._flag_view
+        self.assertIsNotNone(view, "the message never showed")
+        left, top, right, bottom = rect
+        box = view.envelope
+        self.assertGreaterEqual(box.x, left + inset)
+        self.assertGreaterEqual(box.y, top + inset)
+        self.assertLessEqual(box.x + box.w, right - inset)
+        self.assertLessEqual(box.y + box.h, bottom - inset)
+        overlay._flag_contract()
+        deadline = time.perf_counter() + 3.0
+        while time.perf_counter() < deadline and overlay._flag_view is not None:
+            pump(overlay.root)
+        # The next entrance is paced (at most one per 700 ms).
+        end = time.perf_counter() + 0.75
+        while time.perf_counter() < end:
+            pump(overlay.root)
+
     def test_help_note_receipt_toast_and_history_more_stay_with_their_host_monitor(self) -> None:
         for monitor_name, rect in WORK_AREAS.items():
             with self.subTest(monitor=monitor_name):
@@ -218,27 +242,31 @@ class RealMonitorGeometryContracts(unittest.TestCase):
                     assert_inside(self, note, rect)
                     note.destroy()
 
-                    self.overlay.root.geometry(f"240x40+{left + 12}+{top + 12}")
-                    pump(self.overlay.root)
-                    with mock.patch("knight_flow.meeting_quiet.meeting_in_progress", return_value=False):
-                        self.overlay.show_learned_word("Mayowa's production review " * 18, lambda: None)
-                    pump(self.overlay.root)
-                    receipt = next(
-                        child
-                        for child in self.overlay.root.winfo_children()
-                        if isinstance(child, tk.Toplevel)
-                        and any(isinstance(item, (tk.Button, FlatButton)) and str(item.cget("text")) == "Don't save" for item in descendants(child))
-                    )
-                    assert_inside(self, receipt, rect)
-                    receipt.destroy()
+                    # X-742: the word notice and a long message are the Pill
+                    # itself, lengthened; the window that holds them stays on
+                    # the Pill's own monitor. The Pill is put on this monitor
+                    # the way the app puts it there (its own work area), since
+                    # a message returns the Pill to its own rectangle after.
+                    with (
+                        mock.patch.object(self.overlay, "_logical_work_area", return_value=rect),
+                        mock.patch("knight_flow.meeting_quiet.meeting_in_progress", return_value=False),
+                    ):
+                        self.overlay._last_geometry = ""
+                        self.overlay._position()
+                        pump(self.overlay.root)
+                        # Each monitor says the same words; a fresh queue, so
+                        # the 10 s repeat rule does not swallow them.
+                        from knight_flow import island
 
-                    self.overlay._show_toast_now(("The production review is ready for the photo shoot. " * 24).strip())
-                    pump(self.overlay.root)
-                    toast = self.overlay._toast_window
-                    self.assertIsNotNone(toast)
-                    assert_inside(self, toast, rect)
-                    toast.destroy()
-                    self.overlay._toast_window = None
+                        self.overlay._flag_queue = island.MessageQueue()
+                        self.overlay.show_learned_word("Mayowa's production review " * 18, lambda: None)
+                        self.assert_message_inside(rect)
+                        self.overlay._show_toast_now(
+                            ("The production review is ready for the photo shoot. " * 24).strip()
+                        )
+                        self.assert_message_inside(rect)
+                    self.overlay._last_geometry = ""
+                    self.overlay._position()
 
                 host.destroy()
 

@@ -31,7 +31,12 @@ class RecoveryWorkspace:
         if operation=='copy':
             text=str(row.get('final_text') or row.get('raw_transcript') or '')
             if not text:raise ValueError('This recording has no text yet. Choose Recover text.')
-            self.copy_text(text);return {'message':'Copied the full recovered text.'}
+            self.copy_text(text)
+            # Find-more P0-3: a copied take has reached the person; it no longer
+            # needs to outlive rotation.
+            from knight_flow.audio_spool import mark_session_handled
+            mark_session_handled(str(row.get('session_id','')))
+            return {'message':'Copied the full recovered text.'}
         if not row.get('has_audio'):raise ValueError('This session has no recorded audio.')
         if operation=='play':
             self.play(row);return {'message':'Opened the recording in your audio player.'}

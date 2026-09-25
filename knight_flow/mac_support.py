@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -949,6 +951,225 @@ def frontmost_window_title() -> str:
         return text if len(text) <= 512 else ""
     except Exception:
         return ""
+
+
+# Find-more P1-4: the paste target proofs on the Mac.
+#
+# Paste Last, Fix That, Command mode and the right-click tools only paste when
+# they can prove the target is still the one the person chose: Windows uses the
+# focused control's HWND, the caret owner and rectangle, and the session's last
+# input tick. Off Windows those answered 0 and (), so on the Mac Paste Last
+# always stopped ("the target changed") and Fix That and Command mode only
+# copied. The Mac's target is the frontmost app's pid (frontmost_window_id)
+# plus the focused accessibility element: its identity and its frame. The
+# input proof is the time of the last key-down or click.
+
+def edit_target_signature(
+    pid: int, element: int, frame: tuple[float, float, float, float] | None,
+) -> tuple[int, ...]:
+    """(pid, element, x, y, width, height), or () when any part is unknown.
+
+    () makes the callers fail closed to a copy, as a missing caret does on
+    Windows: a field that cannot be identified is never pasted into blind.
+    """
+    if not pid or not element or frame is None:
+        return ()
+    x, y, width, height = (int(round(float(value))) for value in frame)
+    if width <= 0 or height <= 0:
+        return ()
+    return (int(pid), int(element), x, y, width, height)
+
+
+def _read_focused_element() -> tuple[int, int, tuple[float, float, float, float] | None] | None:
+    """(pid, identity, frame) of the focused accessibility element, or None.
+
+    The thin glue, on the AX C API through ctypes like caret_context and
+    field_context (no new Objective-C bridge). The identity is CFHash of the
+    element: CFEqual is how AX compares two answers for the same element, and
+    equal objects hash equal, so two reads of one field agree while another
+    field differs. Never prompts for permission; bounded by a 0.1 s messaging
+    timeout so a hung app cannot hold a paste.
+    """
+    import ctypes as c
+    from contextlib import ExitStack
+
+    ax = c.CDLL("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices")
+    cf = c.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+    ptr = c.c_void_p
+
+    class CGPoint(c.Structure):
+        _fields_ = [("x", c.c_double), ("y", c.c_double)]
+
+    class CGSize(c.Structure):
+        _fields_ = [("width", c.c_double), ("height", c.c_double)]
+
+    def bind(lib, name, result, *args):
+        fn = getattr(lib, name)
+        fn.restype, fn.argtypes = result, args
+        return fn
+
+    trusted = bind(ax, "AXIsProcessTrusted", c.c_bool)
+    if not trusted():
+        return None
+    system = bind(ax, "AXUIElementCreateSystemWide", ptr)
+    timeout = bind(ax, "AXUIElementSetMessagingTimeout", c.c_int, ptr, c.c_float)
+    attribute = bind(ax, "AXUIElementCopyAttributeValue", c.c_int, ptr, ptr, c.POINTER(ptr))
+    owner_pid = bind(ax, "AXUIElementGetPid", c.c_int, ptr, c.POINTER(c.c_int))
+    read_value = bind(ax, "AXValueGetValue", c.c_bool, ptr, c.c_int, ptr)
+    make_string = bind(cf, "CFStringCreateWithCString", ptr, ptr, c.c_char_p, c.c_uint32)
+    cf_hash = bind(cf, "CFHash", c.c_ulong, ptr)
+    release = bind(cf, "CFRelease", None, ptr)
+    utf8 = 0x08000100
+    point_type, size_type = 1, 2  # kAXValueCGPointType, kAXValueCGSizeType
+    with ExitStack() as refs:
+        def owned(value):
+            if value:
+                refs.callback(release, value)
+            return value
+
+        def get(element, name):
+            value = ptr()
+            key = owned(make_string(None, name.encode("ascii"), utf8))
+            if attribute(element, key, c.byref(value)) != 0:
+                return None
+            return owned(value.value)
+
+        root = owned(system())
+        timeout(root, 0.1)
+        element = get(root, "AXFocusedUIElement")
+        if not element:
+            return None
+        pid = c.c_int(0)
+        if owner_pid(element, c.byref(pid)) != 0 or not pid.value:
+            return None
+        identity = int(cf_hash(element))
+        position, size = get(element, "AXPosition"), get(element, "AXSize")
+        point, extent = CGPoint(), CGSize()
+        frame = None
+        if (position and size and read_value(position, point_type, c.byref(point))
+                and read_value(size, size_type, c.byref(extent))):
+            frame = (point.x, point.y, extent.width, extent.height)
+        return int(pid.value), identity, frame
+
+
+def focused_element_id() -> int:
+    """The focused element's identity (the Mac's focused-control HWND), or 0."""
+    if not IS_MAC:
+        return 0
+    try:
+        found = _read_focused_element()
+    except Exception:
+        return 0
+    return int(found[1]) if found else 0
+
+
+def focused_element_signature() -> tuple[int, ...]:
+    """edit_target_signature of the focused element, or ()."""
+    if not IS_MAC:
+        return ()
+    try:
+        found = _read_focused_element()
+    except Exception:
+        return ()
+    return edit_target_signature(*found) if found else ()
+
+
+class InputClock:
+    """Turns "when was the last input" into a generation that moves only on new input.
+
+    Windows hands out a tick (GetLastInputInfo) that callers compare for
+    equality. The Mac gives seconds since the last event; now minus that is
+    the moment of the last input, which is the same number on every read
+    until the person presses a key or clicks. Two reads differ by the few
+    microseconds between the clocks, so a moment within TOLERANCE_S of the
+    one on record is the same input. Unknown is 0, never a usable generation.
+    """
+
+    TOLERANCE_S = 0.015
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._last: float | None = None
+        self._generation = 0
+
+    def generation(self, last_input_at: float | None) -> int:
+        if last_input_at is None:
+            return 0
+        with self._lock:
+            if self._last is None or abs(last_input_at - self._last) > self.TOLERANCE_S:
+                self._last = last_input_at
+                self._generation += 1
+            return self._generation
+
+
+_INPUT_CLOCK = InputClock()
+
+
+def _seconds_since_last_input() -> float | None:
+    """Seconds since the last key-down or click the hardware delivered.
+
+    Key-downs and button presses only: letting go of a shortcut (key-up,
+    modifier change) is not "moving on", which is the trap X-667 fixed on
+    Windows by waiting; a mouse move or scroll changes no focus. Needs no
+    permission.
+    """
+    import Quartz
+
+    state = Quartz.kCGEventSourceStateHIDSystemState
+    kinds = (
+        Quartz.kCGEventKeyDown,
+        Quartz.kCGEventLeftMouseDown,
+        Quartz.kCGEventRightMouseDown,
+        Quartz.kCGEventOtherMouseDown,
+    )
+    return min(float(Quartz.CGEventSourceSecondsSinceLastEventType(state, kind)) for kind in kinds)
+
+
+def input_generation() -> int:
+    """The Mac's counterpart of the Windows input tick, or 0 when unknown."""
+    if not IS_MAC or _INPUT_CLOCK is None:
+        return 0
+    try:
+        before = time.monotonic()
+        seconds = _seconds_since_last_input()
+        after = time.monotonic()
+    except Exception:
+        return 0
+    if seconds is None:
+        return 0
+    # The midpoint of the two clock reads: the error is half the read's length.
+    return _INPUT_CLOCK.generation((before + after) / 2 - float(seconds))
+
+
+def _any_key_or_button_down() -> bool:
+    import Quartz
+
+    state = 0  # kCGEventSourceStateCombinedSessionState, as physical_key_down
+    if any(Quartz.CGEventSourceKeyState(state, code) for code in range(128)):
+        return True
+    return any(Quartz.CGEventSourceButtonState(state, button) for button in range(3))
+
+
+def any_key_or_button_down() -> bool:
+    """Whether any key or mouse button is physically held. False when unknown:
+    a read that fails must never hold a paste back."""
+    if not IS_MAC:
+        return False
+    try:
+        return bool(_any_key_or_button_down())
+    except Exception:
+        return False
+
+
+def wait_for_keys_released(timeout_ms: int) -> bool:
+    """The Mac half of paste.wait_for_keys_released: poll the window server
+    until nothing is held. True when everything is up, False at the deadline."""
+    deadline = time.monotonic() + max(0, int(timeout_ms)) / 1000
+    while any_key_or_button_down():
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.02)
+    return True
 
 
 _url_handler: Any = None

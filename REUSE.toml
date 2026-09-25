@@ -47,3 +47,11 @@ path = [
 precedence = "override"
 SPDX-FileCopyrightText = "1989, 1991, 1999, 2007 Free Software Foundation, Inc. <https://fsf.org/>"
 SPDX-License-Identifier = "LicenseRef-FSF-Verbatim"
+
+# X-760: upstream license texts of bundled parts whose wheels ship none
+# (scripts/collect_licenses.py copies them into THIRD_PARTY_LICENSES.txt).
+[[annotations]]
+path = "knight_flow/assets/licenses/third_party/**"
+precedence = "override"
+SPDX-FileCopyrightText = "The copyright holders named in each file"
+SPDX-License-Identifier = "LicenseRef-Upstream-License-Texts"

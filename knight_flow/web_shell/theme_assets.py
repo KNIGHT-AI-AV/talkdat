@@ -11,7 +11,7 @@ from io import BytesIO
 from pathlib import Path
 import threading
 
-from knight_flow.themes import SETTINGS_THEME_FAMILIES, SETTINGS_THEME_GROUPS
+from knight_flow.themes import SETTINGS_THEME_FAMILIES, SETTINGS_THEME_GROUPS, theme_display_name, theme_stored_name
 
 ASSET_ROOT = Path(__file__).resolve().parents[1] / 'assets' / 'materials'
 MAX_ASSET_BYTES = 2 * 1024 * 1024
@@ -57,7 +57,8 @@ def material_catalog():
 
 def material_metadata(family):
     group = next(label for label, families in SETTINGS_THEME_GROUPS if family in families)
-    return {'family': family, 'group': group,
+    # X-767: the tile shows the display name; the catalog stays keyed by the stored one.
+    return {'family': theme_display_name(family), 'group': group,
             'material_art': family in SHARED_MATERIALS or family in ORIGINAL_MATERIALS,
             'material_note': 'Photographic material'}
 
@@ -73,7 +74,7 @@ class MaterialLibrary:
     def read(self, theme, size):
         if type(theme) is not str or type(size) is not str or size not in {'preview', 'full'}:
             raise ValueError('Unknown theme material')
-        spec = self.catalog.get(theme)
+        spec = self.catalog.get(theme_stored_name(theme))
         if spec is None or size not in spec:
             raise ValueError('Unknown theme material')
         path = Path(spec[size]).resolve()

@@ -184,6 +184,16 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+# X-761 (IP audit 2026-09-24): sounddevice's wheel carries PortAudio twice, a
+# plain build and one compiled with Steinberg's ASIO SDK (the *-asio.dll
+# files). sounddevice loads the ASIO build only when SD_ENABLE_ASIO is set,
+# which Talk DAT! never does, and Steinberg's SDK comes under Steinberg's own
+# license, not PortAudio's MIT one. Shipping unused code under terms nobody
+# signed buys nothing, so the ASIO builds stay out.
+_ASIO_BUILD = r"(?i)-asio\.(dll|dylib)$"
+import re as _re
+a.binaries = [entry for entry in a.binaries if not _re.search(_ASIO_BUILD, entry[0])]
+a.datas = [entry for entry in a.datas if not _re.search(_ASIO_BUILD, entry[0])]
 pyz = PYZ(a.pure)
 
 # X-108: ONEDIR, deliberately. Onefile extracted 1,653 files into %TEMP% on

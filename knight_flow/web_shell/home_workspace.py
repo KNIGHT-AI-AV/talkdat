@@ -85,7 +85,13 @@ def home_greeting(config):
     # node, so this is about layout, not escaping. Blank means no name, which
     # is the default and stays correct for anyone who never fills it in.
     name = " ".join(str(config.get("ui", {}).get("display_name") or "").split())[:40]
+    # P0-3 and P0-7 (find-more sweep): what the launch found and could only
+    # write to the log (an interrupted take waiting in Recovery, a settings
+    # file that could not be read) is said here, for the whole session.
+    from knight_flow.launch_notices import pending
+
     return {
+        "alerts": pending(),
         "name": name,
         "version": APP_VERSION,
         "summary": digest["summary"],
@@ -145,7 +151,7 @@ def update_answer(outcome) -> dict:
                 "message": message}
     if phase == "store":
         return {"phase": "store",
-                "message": "Updates for this copy come from the Microsoft Store. The Store page is opening."}
+                "message": "Updates for this copy come from the Microsoft Store. Its page is opening."}
     if phase == "busy":
         return {"phase": "busy", "message": "Already checking for updates. The answer will appear here."}
     detail = " ".join(str(outcome.get("message") or "").split())[:240]

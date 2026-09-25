@@ -45,7 +45,10 @@ GLYPH_JS = """const glyph=icon=>{const style=getComputedStyle(icon),image=String
   let hash=5381;for(let i=0;i<image.length;i++)hash=((hash<<5)+hash+image.charCodeAt(i))|0;
   return (hash>>>0).toString(16)+'|'+(style.maskPosition||style.webkitMaskPosition);};"""
 
-ROWS_JS = "(()=>{" + GLYPH_JS + """return JSON.stringify([...document.querySelectorAll('.menu-row')].map(row=>
+# X-682: for one exit after a submenu opens or closes, the old list stays in the
+# page, inert and aria-hidden, while it slides out; the rows a page shows are the
+# live list's.
+ROWS_JS = "(()=>{" + GLYPH_JS + """return JSON.stringify([...document.querySelectorAll('.menu-items:not(.menu-items-leaving) .menu-row')].map(row=>
   ({label:row.getAttribute('aria-label'),glyph:glyph(row.querySelector('.nav-icon'))})));})()"""
 
 RAIL_JS = "(()=>{" + GLYPH_JS + """return JSON.stringify([...document.querySelectorAll('#navigation button')].map(button=>

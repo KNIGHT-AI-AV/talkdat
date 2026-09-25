@@ -8,7 +8,7 @@ from pathlib import Path
 from knight_flow.config import DEFAULT_CONFIG
 from knight_flow.local_stt import available_local_models
 from knight_flow.stt_registry import PROVIDERS, provider_is_ready, sync_legacy_deepgram
-from knight_flow.themes import SETTINGS_THEME_FAMILIES
+from knight_flow.themes import SETTINGS_THEME_FAMILIES, theme_display_name, theme_stored_name
 from .shell_state import SettingsStore
 from .theme_assets import material_metadata
 
@@ -248,12 +248,15 @@ class ShellBackend:
                 section['fields'].append(public)
             page['sections'] = list(sections.values())
             pages.append(page)
-        theme = str(read_path(self.config, 'ui.settings_theme', 'Flow Dark'))
+        # X-767: the page works in display names; save() maps them back to the
+        # stored key, so a renamed family keeps every saved choice.
+        theme = theme_display_name(str(read_path(self.config, 'ui.settings_theme', 'Flow Dark')))
         themes = []
         for family in SETTINGS_THEME_FAMILIES:
             for mode in ('Dark', 'Light'):
                 name = family+' '+mode
-                colors = {**self.palette(name), 'name': name, 'mode': mode.lower(), **material_metadata(family)}
+                colors = {**self.palette(name), 'name': theme_display_name(name), 'mode': mode.lower(),
+                          **material_metadata(family)}
                 colors['ring'] = colors.get('focus_ring', colors.get('accent'))
                 themes.append(colors)
         palette = next((item for item in themes if item['name'] == theme), themes[0])
@@ -301,6 +304,10 @@ class ShellBackend:
         if method == 'state':
             return self.snapshot()
         if method == 'save':
+            changes = payload.get('changes') if isinstance(payload, dict) else None
+            if isinstance(changes, dict) and isinstance(changes.get('ui.settings_theme'), str):
+                payload = {**payload, 'changes': {**changes,
+                                                  'ui.settings_theme': theme_stored_name(changes['ui.settings_theme'])}}
             self.store.save(payload)
             warning = ''
             try:

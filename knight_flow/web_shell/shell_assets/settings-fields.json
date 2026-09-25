@@ -1254,11 +1254,11 @@
       },
       {
         "value": "Champagne Glass Dark",
-        "label": "Champagne Glass Dark"
+        "label": "Pale Gold Glass Dark"
       },
       {
         "value": "Champagne Glass Light",
-        "label": "Champagne Glass Light"
+        "label": "Pale Gold Glass Light"
       },
       {
         "value": "Teal Circuit Dark",
@@ -1334,11 +1334,11 @@
       },
       {
         "value": "Night City Neon Dark",
-        "label": "Night City Neon Dark"
+        "label": "Yellow Neon Dark"
       },
       {
         "value": "Night City Neon Light",
-        "label": "Night City Neon Light"
+        "label": "Yellow Neon Light"
       },
       {
         "value": "Neon Sakura Dark",
@@ -1755,7 +1755,7 @@
     "page": "formatting",
     "section": "Your writing",
     "default": false,
-    "description": ""
+    "description": "Keeps the words before and after formatting on this computer, to help find formatting mistakes. Nothing is written while history is off."
   },
   {
     "id": "plugins.enabled",
@@ -2441,7 +2441,7 @@
       }
     ],
     "default": "translategemma:4b",
-    "description": ""
+    "description": "TranslateGemma is Google's model. Ollama downloads it the first time you use translation, and using it means accepting the Gemma Terms of Use (ai.google.dev/gemma/terms)."
   },
   {
     "id": "translation.formality",

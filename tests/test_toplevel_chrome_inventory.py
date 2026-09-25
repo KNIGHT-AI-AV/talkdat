@@ -59,7 +59,9 @@ class EveryToplevelHasOneChromeRoleTests(unittest.TestCase):
             calls += 1
             if not any(keyword.arg == "role" for keyword in node.keywords):
                 missing.append((node.lineno, owner_name(node, parents)))
-        self.assertGreaterEqual(calls, 16, "the inventory unexpectedly lost a Toplevel")
+        # 16 until X-742/X-743 moved the toast and the two pop-overs onto the
+        # Pill itself; a loss below 14 is unexpected.
+        self.assertGreaterEqual(calls, 14, "the inventory unexpectedly lost a Toplevel")
         self.assertEqual(missing, [])
 
     def test_context_menu_uses_opaque_native_chrome_not_a_color_key(self) -> None:

@@ -44,9 +44,14 @@ def probe_window(connection, html, page, hidden, mode, bounds):
                     rect=wintypes.RECT();hwnd=wintypes.HWND(int(window.native.Handle.ToInt64()))
                     u.GetWindowRect(hwnd,ctypes.byref(rect))
                     report={'bounds':[rect.left,rect.top,rect.right-rect.left,rect.bottom-rect.top]}
+                    # X-684: the real window carries the menu class's drop shadow.
+                    private=ctypes.WinDLL('user32',use_last_error=True)
+                    private.GetClassLongPtrW.argtypes=(wintypes.HWND,ctypes.c_int);private.GetClassLongPtrW.restype=ctypes.c_size_t
+                    report['shadow']=bool(private.GetClassLongPtrW(hwnd,-26)&0x00020000)
                     report['layout']=window.evaluate_js("({scroll:document.getElementById('page').scrollHeight,height:document.getElementById('page').clientHeight,rows:[...document.querySelectorAll('.menu-row:not([hidden])')].map(n=>({x:n.getBoundingClientRect().x,h:n.getBoundingClientRect().height})),mask:getComputedStyle(document.querySelector('.menu-row .nav-icon')).maskMode})")
                     window.evaluate_js("document.querySelector('[data-action=\"menu:settings\"]').click();true")
-                    until("document.getElementById('notice').textContent==='Synthetic open failure'")
+                    # X-744: an error is read to screen readers from #alert (role=alert).
+                    until("document.getElementById('alert').textContent==='Synthetic open failure'")
                     report['error_visible']=bool(u.IsWindowVisible(hwnd))
                     api.request('state',{'probe':'menu','report':report})
                     window.evaluate_js("document.querySelector('[data-action=\"menu:settings\"]').click();true")
@@ -108,6 +113,7 @@ class PillMenuNativeTests(unittest.TestCase):
             for result in reports.values():self.assertNotIn('error',result,result)
             self.assertEqual(reports['menu']['bounds'],shell._menu_bounds)
             self.assertTrue(reports['menu']['error_visible'])
+            self.assertTrue(reports['menu']['shadow'], 'the menu window casts no shadow')
             self.assertTrue(reports['settings']['visible'])
             self.assertEqual(reports['settings']['heading'],'General')
             layout=reports['menu']['layout']

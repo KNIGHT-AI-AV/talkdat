@@ -342,6 +342,10 @@ if (-not (Test-Path $InstallerExe)) {
 
 Invoke-Checked "installer signing" { & $Python (Join-Path $Root "scripts\sign_windows.py") @SignArgs $InstallerExe }
 
+# X-763: the installer, as built, carries every required licence text in its
+# payload (the app folder and the docs the install writes).
+Invoke-Checked "shipped licences" { & $Python (Join-Path $Root "scripts\check_shipped_licences.py") "$InstallerExe" }
+
 Copy-Item $InstallerExe $ReleaseInstaller -Force
 
 Write-Output "Custom installer output:"

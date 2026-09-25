@@ -31,7 +31,7 @@ class _OverlayTripwire:
         self.state = "idle"
         self.state_threads: list[int] = []
 
-    def set_state(self, *_args: object) -> None:
+    def set_state(self, *_args: object, **_kwargs) -> None:
         called_from = threading.get_ident()
         if called_from != self._ui_thread_id:
             raise AssertionError("overlay state changed from a worker thread")

@@ -18,6 +18,17 @@ from .config import app_dir
 
 MINIMUM_SAFETY_SESSIONS = 5
 _ACTIVE_STATUSES = {"arming", "recording", "finalizing", "processing"}
+# Find-more P0-3: a take that failed is often the only copy of its words, and
+# rotation deleted it after five more dictations, recovered or not (his spool
+# held 11 files that day). These are kept until they are recovered, copied or
+# cleared by hand, within an age and a count cap so the folder cannot grow
+# without end. "no_transcript" counts only when a voice was heard.
+_KEPT_UNTIL_HANDLED = {
+    "interrupted", "no_transcript", "transcription_failed", "processing_failed",
+    "delivery_failed", "app_closed", "app_restarted", "recording_error", "recovery_failed",
+}
+UNHANDLED_KEEP_SECONDS = 14 * 24 * 3600
+UNHANDLED_KEEP_COUNT = 50
 
 
 def audio_spool_dir() -> Path:
@@ -141,6 +152,11 @@ def repair_wav(path: Path, sample_rate: int = 16000, channels: int = 1) -> int:
 class AudioSafetyCapture:
     """Durably records one trigger hold independently of STT and text delivery."""
 
+    # Find-more P0-2: the app hands the take's field read (FieldProbe) to the
+    # capture when it starts, so every way a take ends can ask whether it went
+    # into a password field and keep nothing if it did.
+    field_probe: Any = None
+
     def __init__(
         self,
         *,
@@ -158,6 +174,7 @@ class AudioSafetyCapture:
         self._queue: queue.Queue[tuple[str, Any]] = queue.Queue()
         self._metadata_lock = threading.RLock()
         self._closed = threading.Event()
+        self._discarded = False
         self._bytes_written = 0
         self._sample_rate = 16000
         self._channels = 1
@@ -253,6 +270,26 @@ class AudioSafetyCapture:
         rotate_safety_recordings(limit=self.limit)
         return self.snapshot()
 
+    def discard(self) -> None:
+        """Close the writer and delete this session's audio and metadata.
+
+        Find-more P0-2: a take typed into a password field was finalized like
+        any other, so its audio and its words stayed in the spool and were
+        listed in Recovery, while the Pill said "Nothing was kept". A discarded
+        capture never writes its metadata again, whatever calls it later.
+        """
+        if not self._closed.is_set():
+            completed = threading.Event()
+            self._queue.put(("close", completed))
+            completed.wait(5.0)
+            self._closed.set()
+        with self._metadata_lock:
+            self._discarded = True
+            self._metadata.update(raw_transcript="", final_text="", status="discarded")
+        for path in (self.audio_path, self.metadata_path):
+            with contextlib.suppress(OSError):
+                path.unlink()
+
     def snapshot(self) -> dict[str, Any]:
         with self._metadata_lock:
             return dict(self._metadata)
@@ -335,6 +372,8 @@ class AudioSafetyCapture:
             self._write_metadata_locked()
 
     def _write_metadata_locked(self) -> None:
+        if self._discarded:
+            return
         _atomic_write_json(self.metadata_path, self._metadata)
 
 
@@ -466,6 +505,13 @@ def recover_interrupted_sessions(*, limit: int = MINIMUM_SAFETY_SESSIONS) -> int
     for item in list_safety_sessions(1000):
         if str(item.get("status") or "") not in _ACTIVE_STATUSES:
             continue
+        if item.get("password_field"):
+            # Find-more P0-2: a take into a password field that a crash cut
+            # short. The Pill promises nothing is kept, so it is not recovered.
+            for key in ("audio_path", "metadata_path"):
+                with contextlib.suppress(OSError):
+                    Path(str(item.get(key) or "")).unlink()
+            continue
         path = Path(str(item.get("audio_path") or ""))
         data_size = repair_wav(path)
         sample_rate, channels = 16000, 1
@@ -494,12 +540,61 @@ def recover_interrupted_sessions(*, limit: int = MINIMUM_SAFETY_SESSIONS) -> int
     return recovered
 
 
+def waiting_for_the_person(item: dict[str, Any], now: float | None = None) -> bool:
+    """A failed take nobody has recovered, copied or cleared yet (P0-3)."""
+    status = str(item.get("status") or "")
+    if status not in _KEPT_UNTIL_HANDLED or item.get("handled_at") or not item.get("has_audio"):
+        return False
+    if status == "no_transcript" and not item.get("heard_voice"):
+        return False
+    now = time.time() if now is None else now
+    return now - _created_timestamp(item, now) < UNHANDLED_KEEP_SECONDS
+
+
+def recovery_sessions(limit: int = MINIMUM_SAFETY_SESSIONS) -> list[dict[str, Any]]:
+    """What Recovery lists: the newest `limit`, plus every take still waiting.
+
+    Rotation keeps a waiting take past the newest few, so the list has to
+    show it too, or it would be kept where nobody can reach it.
+    """
+    sessions = list_safety_sessions(1000)
+    newest = sessions[: max(1, int(limit))]
+    now = time.time()
+    waiting = [item for item in sessions[len(newest):] if waiting_for_the_person(item, now)]
+    return newest + waiting[:UNHANDLED_KEEP_COUNT]
+
+
+def mark_session_handled(session_id: str) -> None:
+    """The person copied or recovered this take; normal rotation applies again."""
+    with contextlib.suppress(OSError):
+        update_safety_session(session_id, handled_at=time.time())
+
+
+def recoverable_interrupted_since(since: float) -> int:
+    """How many takes this launch marked interrupted that still have audio."""
+    count = 0
+    for item in list_safety_sessions(1000):
+        if str(item.get("status") or "") != "interrupted" or not item.get("has_audio"):
+            continue
+        try:
+            updated = float(item.get("updated_at") or 0.0)
+        except (TypeError, ValueError):
+            updated = 0.0
+        count += updated >= since
+    return count
+
+
 def rotate_safety_recordings(*, limit: int = MINIMUM_SAFETY_SESSIONS) -> None:
     keep = max(MINIMUM_SAFETY_SESSIONS, int(limit or MINIMUM_SAFETY_SESSIONS))
     root = audio_spool_dir()
     sessions = list_safety_sessions(1000)
+    now = time.time()
+    waiting = 0
     for item in sessions[keep:]:
         if str(item.get("status") or "") in _ACTIVE_STATUSES:
+            continue
+        if waiting_for_the_person(item, now) and waiting < UNHANDLED_KEEP_COUNT:
+            waiting += 1
             continue
         for key in ("audio_path", "metadata_path"):
             value = str(item.get(key) or "")
@@ -509,6 +604,27 @@ def rotate_safety_recordings(*, limit: int = MINIMUM_SAFETY_SESSIONS) -> None:
         if not item.get("metadata_path"):
             with contextlib.suppress(OSError):
                 (root / str(item.get("audio_file") or "")).unlink()
+
+
+def blank_safety_transcripts() -> int:
+    """Find-more P0-6: remove the words kept with each recording; keep the audio.
+
+    "Clear text history" says recordings are kept, and they are, but their
+    metadata held the raw and finished text of each take. A recording still
+    being made is left alone (the Clear buttons refuse during a dictation).
+    Returns how many could not be rewritten.
+    """
+    failures = 0
+    for item in list_safety_sessions(1000):
+        if str(item.get("status") or "") in _ACTIVE_STATUSES:
+            continue
+        if not (item.get("raw_transcript") or item.get("final_text")):
+            continue
+        try:
+            update_safety_session(str(item.get("session_id") or ""), raw_transcript="", final_text="")
+        except OSError:
+            failures += 1
+    return failures
 
 
 def clear_safety_recordings() -> int:

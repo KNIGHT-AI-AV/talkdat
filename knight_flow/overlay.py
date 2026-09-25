@@ -9,6 +9,7 @@ BRAND_DISPLAY_FAMILY = font_families.UI_FAMILY
 
 import contextlib
 import ctypes
+import dataclasses
 import functools
 import importlib.util
 import json
@@ -64,6 +65,14 @@ from .audio_spool import audio_spool_dir, clear_safety_recordings, list_safety_s
 from .audio_input import list_input_devices, resolve_input_device
 from .chimes import DEFAULT_OFF_SOUND, DEFAULT_ON_SOUND, play_sound_named, sound_label, sound_names
 from .clay import CLAY_OPACITY
+from .layered_window import NOT_MAPPED, LayeredPresenter, capsule_alpha_mask
+from . import island
+from . import pill_message
+from .announce import announce as announce_to_screen_reader, spoken_text
+from .island import FlagAction
+# X-741: the Pill's looks moved beside the composer that also paints them
+# over the lengthened Pill; re-exported here, the public import site.
+from .pill_message import PILL_FEEDBACK_LOOKS, pill_feedback_frame
 from .monitors import centre_on, list_monitors, preferred_monitor
 from .release_notes import readable_release_notes
 from . import mac_support
@@ -117,6 +126,11 @@ from .pill_motion import (  # re-exported: overlay stays the public import site
     LOCAL_FORMATTER_PROFILE_BY_LABEL,
     LOCAL_FORMATTER_PROFILE_BY_MODEL,
     TRANSPARENT_COLOR,
+    AckLimiter,
+    ack_catch_up,
+    ack_is_running,
+    ack_offset,
+    ack_opacity,
     completion_rainbow_alpha,
     completion_rainbow_enabled,
     faceted_voice_trace,
@@ -129,6 +143,7 @@ from .pill_motion import (  # re-exported: overlay stays the public import site
     next_context_menu_action,
     perceptual_voice_level,
     pill_is_expanded,
+    standby_gray_level,
     processing_rainbow_step,
     processing_transition_alpha,
     quantized_active_render_key,
@@ -154,6 +169,7 @@ from .themes import (
     blend_hex,
     material_grain,
     material_ink,
+    theme_display_name,
     theme_material,
 )
 from .export_report import REPORT_DESIGNS, export_report_pdf
@@ -561,48 +577,6 @@ def fade_layer_edges(layer: Image.Image, fade_px: int = 4) -> Image.Image:
 RELEASE_NOTE_ITEM = re.compile(r"^(\s*)(•|\d+\.)\s+")
 
 
-#: (shadow, mid, highlight) gradient-map stops, then the rim glow, for the
-#: Pill's success and error looks. Both come from the Pill's own palette: the
-#: teal of its cool end for a finished take, the red of its warm end, pushed
-#: to an ember, for a failed one.
-PILL_FEEDBACK_LOOKS: dict[str, tuple[tuple[int, int, int], ...]] = {
-    "captured": ((2, 36, 36), (22, 190, 160), (210, 255, 240), (80, 255, 216)),
-    "error": ((40, 3, 5), (218, 40, 30), (255, 168, 100), (255, 92, 56)),
-}
-
-
-def pill_feedback_frame(frame: Image.Image, kind: str, strength: float) -> Image.Image:
-    """Wash the Pill's own artwork in the success teal or the error ember.
-
-    A gradient map over the artwork's luminance rather than a flat overlay, so
-    every painted streak survives and the Pill still looks hand-drawn: only its
-    colour speaks. The artwork's own colour is drained first, so the wash never
-    passes through a muddy red-plus-teal midpoint on its way in or out, and a
-    soft rim glows just inside the silhouette. Alpha is left exactly as it was,
-    so the colour-keyed window keeps its shape.
-    """
-    look = PILL_FEEDBACK_LOOKS.get(str(kind))
-    level = max(0.0, min(1.0, float(strength)))
-    if look is None or level <= 0.0:
-        return frame
-    shadow, mid, highlight, rim_color = look
-    rgba = frame.convert("RGBA")
-    alpha = rgba.getchannel("A")
-    rgb = rgba.convert("RGB")
-    tinted = ImageOps.colorize(ImageOps.grayscale(rgb), black=shadow, white=highlight, mid=mid)
-    drained = ImageEnhance.Color(rgb).enhance(max(0.0, 1.0 - 1.6 * level))
-    washed = Image.blend(drained, tinted, min(1.0, level * 1.1)).convert("RGBA")
-    washed.putalpha(alpha)
-    body = alpha.point(lambda value: 255 if value >= 250 else 0)
-    band = max(3, (min(rgba.size) // 12) | 1)
-    rim = ImageChops.subtract(body, body.filter(ImageFilter.MinFilter(band)))
-    rim = rim.filter(ImageFilter.GaussianBlur(radius=max(1.0, band / 2.5)))
-    rim = ImageChops.multiply(rim, body).point(lambda value: int(value * 0.85 * level))
-    glow = Image.new("RGBA", rgba.size, (*rim_color, 255))
-    glow.putalpha(rim)
-    return Image.alpha_composite(washed, glow)
-
-
 def shortened_path(value: Path | str, *, keep_tail: int = 2) -> str:
     """A filesystem location as anchor, ellipsis, destination.
 
@@ -875,6 +849,69 @@ def default_finish() -> str:
     return str(DEFAULT_CONFIG.get("cleanup", {}).get("format_intensity", "standard"))
 
 
+@dataclasses.dataclass
+class _FlagView:
+    """The one message on the Pill (X-742): what it says, where it is, how far along."""
+
+    message: island.Message
+    layout: Any  # pill_message.FlagLayout
+    placement: island.Placement
+    pill: island.Rect  # the Pill's own rectangle, which it comes back to
+    envelope: island.Rect  # the window while the message lasts
+    target: island.Shape
+    motion: island.PillMotion
+    theme: str
+    scale: float
+    keyed: bool  # the colour-key fallback: a plain settled capsule
+    reduced: bool
+    contrast: Any
+    body_plain: Image.Image
+    body_toned: Image.Image
+    words: Image.Image
+    words_blur: Image.Image
+    words_origin: tuple[int, int]
+    started_ms: float
+    old_words: Image.Image | None = None
+    prev_tone: str = ""
+    prev_body: Image.Image | None = None
+    phase: str = "in"  # in | hold | out
+    hold_total: int | None = None
+    hold_left: int | None = None
+    hovered: bool = False
+    pressed: Any = None
+    preempt: bool = False
+    after_fold: Callable[[], None] | None = None
+    bindings: list = dataclasses.field(default_factory=list)
+    capsule_now: tuple[int, int, int, int] = (0, 0, 0, 0)
+    frames: int = 0
+    pip_screen: tuple[float, float] | None = None
+    body_cache: dict = dataclasses.field(default_factory=dict)
+
+    @property
+    def pin(self) -> str:
+        return self.placement.pin
+
+    @property
+    def vgrow(self) -> str:
+        return self.placement.vgrow
+
+    def body_for(self, level: float) -> Image.Image:
+        """The frosted body at this tone level: blurred once, then only blended."""
+        if self.body_toned is self.body_plain:
+            return self.body_plain
+        bucket = round(max(0.0, min(1.0, float(level))) * 12) / 12
+        if bucket <= 0.0:
+            return self.body_plain
+        if bucket >= 1.0:
+            return self.body_toned
+        cached = self.body_cache.get(bucket)
+        if cached is None:
+            if len(self.body_cache) > 16:
+                self.body_cache.clear()
+            cached = self.body_cache[bucket] = Image.blend(self.body_plain, self.body_toned, bucket)
+        return cached
+
+
 class Overlay:
     def __init__(self, config: dict[str, Any], callbacks: dict[str, Callback], root: Any = None) -> None:
         # `root` is for tests. The application never passes one -- it wants the
@@ -997,7 +1034,28 @@ class Overlay:
         self.root.attributes("-alpha", self.opacity)
         # -transparentcolor does not exist on Aqua; it raises, and the swallow
         # left the Pill as an opaque near-black rectangle with square corners.
+        # On Windows this is the colour key (bg + -transparentcolor).
         mac_support.make_window_transparent(self.root, TRANSPARENT_COLOR)
+        # X-641: per-pixel alpha for the Pill (knight_flow/layered_window.py).
+        # The colour key above stays until the first layered frame lands, so
+        # the Pill looks exactly as it did for the instant before Tk maps it.
+        # X-642: overlay.pill_per_pixel_alpha = false keeps the colour key.
+        per_pixel = bool(overlay_config.get("pill_per_pixel_alpha", True))
+        self._pill_presenter: LayeredPresenter | None = (
+            LayeredPresenter(self.root) if sys.platform == "win32" and per_pixel else None
+        )
+        self._pill_layered_source: Image.Image | None = None
+        if self._pill_presenter is not None:
+            self._pill_presenter.set_alpha(self.opacity)
+            self._pill_presenter_path = "per-pixel alpha (waiting for the first frame)"
+        elif sys.platform == "win32":
+            self._pill_presenter_path = "colour key (overlay.pill_per_pixel_alpha is off)"
+            log.info("pill presenter: %s", self._pill_presenter_path)
+        elif mac_support.IS_MAC:
+            # The Mac keeps mac-port's Cocoa path: a transparent NSWindow.
+            self._pill_presenter_path = "transparent window (macOS)"
+        else:
+            self._pill_presenter_path = "colour key (not Windows)"
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         try:
             self.root.iconbitmap(str(ensure_icon_file()))
@@ -1028,6 +1086,16 @@ class Overlay:
         self._minimized_utility_stack: list[tk.Toplevel] = []
         self._last_minimized_utility: tk.Toplevel | None = None
         self._toast_window: tk.Toplevel | None = None
+        # X-742: the message system. One queue (island.MessageQueue) and at
+        # most one message on the Pill, drawn into the Pill's own bitmap.
+        self._flag_queue = island.MessageQueue()
+        self._flag_view: _FlagView | None = None
+        self._flag_hold_after: str | None = None
+        self._flag_timers: list[str] = []
+        self._flag_announced: list[tuple[str, str]] = []
+        self._flag_deferred_compact: bool | None = None
+        self._pill_rect: tuple[int, int, int, int] | None = None
+        self._pip_since: float | None = None
         self._learned_word_receipt: tk.Toplevel | None = None
         self._learned_word_reject_binding: str | None = None
         # X-75: the site's display face, process-private; None falls back to Segoe.
@@ -1144,10 +1212,28 @@ class Overlay:
             widget.bind("<Enter>", self._on_enter)
             widget.bind("<Leave>", self._on_leave)
             widget.bind("<Button-3>", self._open_context_menu_from_event)
+            widget.bind("<ButtonRelease-3>", self._refused_menu_press_released)
+        self._menu_press_refused = False
         for widget in (self.root, self.container, self.canvas):
             widget.bind("<ButtonPress-1>", self._start_drag)
             widget.bind("<B1-Motion>", self._drag)
             widget.bind("<ButtonRelease-1>", self._end_drag)
+        self._update_flag_pressed = False
+        self._pill_hold_after: str | None = None
+        self._pill_holding = False
+        self._pill_hold_cancelled = False
+        self._update_flag_hint_after: str | None = None
+        self._update_flag_hint_shown = False
+        self.canvas.bind("<Motion>", self._on_pill_motion, add="+")
+        # X-620, the ACK primitive (see pill_motion). One limiter for the whole
+        # app, because the 4-in-3-seconds cap is app-wide.
+        self._ack_limiter = AckLimiter()
+        self._ack_counts: dict[str, int] = {}
+        self._ack_requested = False
+        self._ack_key_shown = False
+        self._ack_started_at: float | None = None
+        self._ack_direction: tuple[float, float] = (0.0, 1.0)
+        self._rest_after_id: str | None = None
         self.root.bind(
             "<Configure>",
             lambda event: (self._repaint(), self._sync_native_pill_frame()) if event.widget is self.root else None,
@@ -1528,6 +1614,19 @@ class Overlay:
         except Exception:
             log.debug("no-activate style could not be applied", exc_info=True)
 
+    def _make_popover_no_activate(self, window: tk.Toplevel) -> None:
+        """X-629b: no-activate for a pop-over whose position was just set.
+
+        Tk applies `wm geometry` at idle. Restyling the HWND first sends a
+        window-position change that Tk takes as the window's real place, and
+        the pending position is dropped: the learned-word receipt stayed
+        wherever it was created (found by gui_monitor_geometry_contracts).
+        The geometry is committed first, then the style.
+        """
+        with contextlib.suppress(Exception):
+            window.update_idletasks()
+        self._make_no_activate(window)
+
     def _install_foreground_watch(self) -> None:
         """X-02: the pill follows the active window WITHOUT being clicked.
 
@@ -1628,6 +1727,8 @@ class Overlay:
             return
         if self._stay_hidden_during_session():
             return
+        if getattr(self, "_flag_view", None) is not None:
+            return  # X-742: a message on the Pill is not moved to another screen
         try:
             self._position()
         except Exception:
@@ -1814,6 +1915,18 @@ class Overlay:
         self.current_width = width
         self.current_height = height
         self._last_requested_y = y
+        self._pill_rect = (int(x), int(y), width, height)
+        view = getattr(self, "_flag_view", None)
+        if view is not None:
+            # X-742: while the Pill is lengthened the message owns the window
+            # (its rectangle arrives with each frame). A Pill that moved or
+            # changed size under a message ends the message at once.
+            if (int(x), int(y), width, height) != (view.pill.x, view.pill.y, view.pill.w, view.pill.h):
+                self._flag_end_now()
+                return
+            if draw:
+                self._draw_visual()
+            return
         geometry = f"{width}x{height}+{x}+{y}"
         geometry_changed = geometry != self._last_geometry
         if geometry_changed:
@@ -1837,6 +1950,11 @@ class Overlay:
             self.root.update_idletasks()
 
     def _apply_pill_region(self, width: int, height: int, *, redraw: bool = True) -> None:
+        presenter = getattr(self, "_pill_presenter", None)
+        if presenter is not None and presenter.armed:
+            # X-641: a layered Pill's capsule lives in its alpha. A one-bit
+            # region on top would cut the stepped edge straight back in.
+            return
         self._apply_window_region(self.root, width, height, max(1, height // 2), redraw=redraw)
 
     def _compose_pill_image(self, width: int, height: int, active: bool) -> Image.Image | None:
@@ -1944,7 +2062,13 @@ class Overlay:
         if getattr(self, "_update_flag", "") == severity:
             return
         self._update_flag = severity
+        self._pip_since = time.perf_counter() * 1000.0 if severity else None
         self._render_update_flag()
+        # X-641: at rest nothing redraws, so the layered Pill shows the new dot now.
+        self._represent_layered()
+        # X-742: and the pip's one breath needs the loop awake for 900 ms.
+        with contextlib.suppress(Exception):
+            self._wake_animation()
 
     def _render_update_flag(self) -> None:
         canvas = getattr(self, "canvas", None)
@@ -1955,28 +2079,87 @@ class Overlay:
             severity = getattr(self, "_update_flag", "")
             if not severity:
                 return
-            width = max(24, int(self.current_width))
-            radius = 5
-            x = width - 11
-            y = 10
-            fill = "#e5484d" if severity == "red" else "#46a758"
+            scale = self._flag_scale()
+            x, y = pill_message.pip_centre(max(1, int(self.current_width)), max(1, int(self.current_height)), scale)
+            radius = 3.0 * scale
+            fill = "#%02x%02x%02x" % pill_message.PIP_COLOURS.get(severity, pill_message.PIP_COLOURS["green"])
             canvas.create_oval(
                 x - radius, y - radius, x + radius, y + radius,
                 fill=fill, outline="#0b0e10", width=1, tags="update_flag",
             )
             canvas.tag_raise("update_flag")
-            canvas.tag_bind("update_flag", "<Button-1>", self._on_update_flag_click)
+            # X-619: no tag_bind here any more. The dot's press is decided in
+            # _start_drag / _end_drag, the Pill's own press path; see
+            # _press_is_on_update_flag.
         except tk.TclError:
             log.debug("update flag could not be drawn", exc_info=True)
 
+    def _update_flag_hit(self, x_root: int, y_root: int) -> bool:
+        """X-619: whether a point on screen is on the update dot.
+
+        Geometric, not a canvas item: the dot is 10 px drawn, and a near miss
+        used to land on the Pill and start a take. The hit area is a 24
+        logical px circle around the dot's centre. A transparent canvas item
+        cannot be that hit area, because the Pill's colour-keyed pixels pass
+        clicks through to whatever is underneath.
+        """
+        if not getattr(self, "_update_flag", ""):
+            return False
+        reach = max(5, ui_scale.px(12, self.config))
+        view = getattr(self, "_flag_view", None)
+        if view is not None:
+            # X-742: the lengthened Pill carries the pip at its own right end.
+            if view.pip_screen is None:
+                return False
+            centre_x, centre_y = view.pip_screen
+            return (int(x_root) - centre_x) ** 2 + (int(y_root) - centre_y) ** 2 <= reach * reach
+        try:
+            x = int(x_root) - int(self.canvas.winfo_rootx())
+            y = int(y_root) - int(self.canvas.winfo_rooty())
+        except Exception:
+            return False
+        centre_x, centre_y = pill_message.pip_centre(
+            max(1, int(self.current_width)), max(1, int(self.current_height)), self._flag_scale()
+        )
+        return (x - centre_x) ** 2 + (y - centre_y) ** 2 <= reach * reach
+
     def _on_update_flag_click(self, _event: tk.Event | None = None) -> str:
-        # Returning "break" matters: without it the Pill's own press binding
-        # also fires and the click starts a dictation nobody asked for.
         callback = self.callbacks.get("install_update")
         if callable(callback):
             with contextlib.suppress(Exception):
                 callback()
         return "break"
+
+    def _on_pill_motion(self, event: tk.Event) -> None:
+        """X-619 (d9): the dot says what it is after 600 ms of hover.
+
+        Red or green, nothing said what the dot meant. One line, once per
+        visit to the dot, never while a take is live.
+        """
+        over = self._update_flag_hit(int(event.x_root), int(event.y_root))
+        pending = getattr(self, "_update_flag_hint_after", None)
+        if not over:
+            if pending:
+                with contextlib.suppress(Exception):
+                    self.root.after_cancel(pending)
+            self._update_flag_hint_after = None
+            self._update_flag_hint_shown = False
+            return
+        if pending or getattr(self, "_update_flag_hint_shown", False):
+            return
+
+        def say_it() -> None:
+            self._update_flag_hint_after = None
+            try:
+                x_root, y_root = self.root.winfo_pointerxy()
+            except Exception:
+                return
+            if self.state in LIVE_STATES or not self._update_flag_hit(x_root, y_root):
+                return
+            self._update_flag_hint_shown = True
+            self._show_toast_now("Update ready. Click to see it.")
+
+        self._update_flag_hint_after = self.root.after(600, say_it)
 
     def _wrap_text_to_its_column(self, window: tk.Toplevel) -> None:
         """Deliberately does nothing. Kept as the record of a wrong fix.
@@ -2022,6 +2205,12 @@ class Overlay:
             pass
 
     def _set_compact(self, compact: bool, *, animate: bool = True) -> None:
+        view = getattr(self, "_flag_view", None)
+        if view is not None and view.preempt:
+            # X-742: the message folds on the 0.18 s spring first; the open
+            # animation starts from the Pill, not from the lengthened capsule.
+            self._flag_deferred_compact = compact
+            return
         if self.compact == compact:
             if self._open_anim_after is not None and self._open_anim_target_compact == compact:
                 return
@@ -2067,7 +2256,10 @@ class Overlay:
     def _ensure_open_frames(self) -> list[ImageTk.PhotoImage] | None:
         steps = int(self._clamp(self.resize_steps, 12, 40))
         position = str(self.config.get("overlay", {}).get("position", "bottom-center"))
-        key = (self.compact_width, self.compact_height, self.active_width, self.active_height, steps, position)
+        # X-641: the layered Pill plays the transition from PIL frames (pushed
+        # with per-pixel alpha); only the colour-key path needs PhotoImages.
+        layered = getattr(self, "_pill_presenter", None) is not None
+        key = (self.compact_width, self.compact_height, self.active_width, self.active_height, steps, position, layered)
         if self._open_frames_key == key and self._open_frames:
             return self._open_frames
         try:
@@ -2100,13 +2292,13 @@ class Overlay:
                 frame = Image.new("RGBA", (frame_width, frame_height), (0, 0, 0, 0))
                 offset = self._transition_frame_offset(width, height, frame_width, frame_height)
                 frame.alpha_composite(scaled, offset)
-                frames.append(ImageTk.PhotoImage(frame))
+                frames.append(frame if layered else ImageTk.PhotoImage(frame))
                 rainbow_mix = processing_transition_alpha(index, steps + 1)
                 processing_source = Image.blend(base, processing_base, rainbow_mix)
                 processing_scaled = processing_source.resize((width, height), Image.Resampling.LANCZOS)
                 processing_frame = Image.new("RGBA", (frame_width, frame_height), (0, 0, 0, 0))
                 processing_frame.alpha_composite(processing_scaled, offset)
-                processing_frames.append(ImageTk.PhotoImage(processing_frame))
+                processing_frames.append(processing_frame if layered else ImageTk.PhotoImage(processing_frame))
             self._open_frames = frames
             self._processing_close_frames = processing_frames
             self._open_frames_key = key
@@ -2162,7 +2354,13 @@ class Overlay:
             lambda: self._play_open_frames(order, target_width, target_height, frame_delay, playback_frames),
         )
 
-    def _show_open_photo(self, photo: ImageTk.PhotoImage) -> None:
+    def _show_open_photo(self, photo: ImageTk.PhotoImage | Image.Image) -> None:
+        if isinstance(photo, Image.Image):
+            # X-641: a PIL frame is the layered path's; the canvas only sees it
+            # if the layered push did not land (the window not mapped yet).
+            if self._present_layered(photo):
+                return
+            photo = ImageTk.PhotoImage(photo)
         self.visual_photo = photo
         if self.visual_canvas_item is None:
             self.visual_canvas_item = int(self.canvas.create_image(0, 0, image=photo, anchor="nw", tags="visual"))
@@ -2172,6 +2370,117 @@ class Overlay:
             self.canvas.coords(self.visual_canvas_item, 0, 0)
         except tk.TclError:
             self.visual_canvas_item = int(self.canvas.create_image(0, 0, image=photo, anchor="nw", tags="visual"))
+
+    def _present_layered(self, image: Image.Image, offset: tuple[int, int] = (0, 0)) -> bool:
+        """X-641: show a composed Pill frame with real per-pixel alpha.
+
+        True when the frame reached the screen through UpdateLayeredWindow;
+        False means the caller paints it on the canvas (the colour-key path).
+        """
+        if getattr(self, "_flag_view", None) is not None:
+            # X-742: the Pill is lengthened; this frame is its cap.
+            return self._present_flag(image)
+        presenter = getattr(self, "_pill_presenter", None)
+        if presenter is None:
+            return False
+        was_armed = presenter.armed
+        if presenter.present(self._layered_frame(image, offset)):
+            self._pill_layered_source = image
+            if not was_armed:
+                self._pill_presenter_path = "per-pixel alpha (UpdateLayeredWindow)"
+                log.info("pill presenter: %s", self._pill_presenter_path)
+            return True
+        if presenter.last_error == NOT_MAPPED:
+            # Tk has not mapped the Pill yet: this frame goes to the canvas,
+            # which the colour key set in __init__ still presents.
+            return False
+        self._fall_back_to_colour_key(presenter.last_error)
+        return False
+
+    def _fall_back_to_colour_key(self, reason: str) -> None:
+        """X-642: UpdateLayeredWindow failed for good; the Pill goes back to the key.
+
+        A Pill that cannot present is invisible, and the Pill is the one piece
+        of the app that is always on screen, so this happens in the same frame
+        rather than at the next start: the layered bitmap is released (the bit
+        toggled, never cleared: LayeredPresenter.release says why), Tk's key
+        and alpha are set again, the capsule region comes back, and the
+        transition is rebuilt for the canvas. The caller then paints the
+        failed frame on the canvas.
+        """
+        presenter = getattr(self, "_pill_presenter", None)
+        self._pill_presenter = None
+        self._pill_layered_source = None
+        self._pill_presenter_path = f"colour key (UpdateLayeredWindow failed: {reason})"
+        log.warning("pill presenter: UpdateLayeredWindow failed (%s); back to the colour key", reason)
+        if presenter is not None:
+            presenter.release()
+        try:
+            self.root.attributes("-transparentcolor", TRANSPARENT_COLOR)
+            self.root.attributes("-alpha", self.current_alpha)
+        except Exception:
+            log.debug("colour key could not be restored", exc_info=True)
+        self._open_frames = []
+        self._processing_close_frames = []
+        self._open_frames_key = None
+        self._apply_pill_region(max(1, int(self.current_width)), max(1, int(self.current_height)))
+
+    def _layered_frame(self, image: Image.Image, offset: tuple[int, int] = (0, 0)) -> Image.Image:
+        """The frame as the layered window shows it: capsule-clipped, dot on top.
+
+        The clip is the old region's footprint made smooth (capsule_alpha_mask),
+        so clicks land on the same pixels as before and a glow that reaches the
+        window's edge fades along the Pill's curve. A copy, never the input:
+        the input may be a cached frame.
+        """
+        frame = image.convert("RGBA") if image.mode != "RGBA" else image.copy()
+        width, height = frame.size
+        frame.putalpha(ImageChops.multiply(frame.getchannel("A"), capsule_alpha_mask(width, height)))
+        if offset != (0, 0):
+            # X-620 on the layered path: the ACK moves the drawn Pill 1 to 2 px
+            # inside the same bitmap, exactly as the canvas path moves its image.
+            shifted = Image.new("RGBA", frame.size, (0, 0, 0, 0))
+            shifted.paste(frame, (int(offset[0]), int(offset[1])))
+            frame = shifted
+        self._paint_update_dot(frame)
+        return frame
+
+    def _paint_update_dot(self, frame: Image.Image) -> None:
+        """X-742: the pip, a 6 px light set into the Pill's rim (it was a 10 px
+        dot in hard-coded red and green laid over the right cap).
+
+        On the layered path the canvas no longer reaches the screen, but its
+        oval item still marks the click (_render_update_flag draws it at the
+        same centre), and the pip sits inside the Pill's own opaque pixels, so
+        the press always lands on the Pill. It breathes once when it arrives.
+        """
+        severity = getattr(self, "_update_flag", "")
+        if not severity:
+            return
+        scale = self._flag_scale()
+        since = getattr(self, "_pip_since", None)
+        age = None if since is None else time.perf_counter() * 1000.0 - since
+        pill_message.paint_pip(
+            frame, pill_message.pip_centre(frame.width, frame.height, scale), severity=severity, scale=scale,
+            grow=pill_message.pip_scale(age),
+        )
+
+    def _pip_breathing(self) -> bool:
+        since = getattr(self, "_pip_since", None)
+        if not getattr(self, "_update_flag", "") or since is None:
+            return False
+        return time.perf_counter() * 1000.0 - since < pill_message.PIP_BREATHE_MS + 34
+
+    def _represent_layered(self) -> None:
+        """Push the last layered frame again (the update dot changed at rest)."""
+        presenter = getattr(self, "_pill_presenter", None)
+        source = getattr(self, "_pill_layered_source", None)
+        if presenter is None or not presenter.armed or source is None:
+            return
+        if not self._present_layered(source):
+            # X-642: it fell back to the colour key; the canvas still holds a
+            # frame from before the layered path took over, so paint a new one.
+            self._draw_visual()
 
     def _transition_frame_offset(
         self,
@@ -3414,21 +3723,28 @@ class Overlay:
             pass
 
     def show(self) -> None:
-        def reveal() -> None:
-            self.force_visible()
-            # Utility windows intentionally use the Windows tool-window style,
-            # so they do not create a pile of separate taskbar buttons. The
-            # tray's existing "Open Talk DAT!" action is therefore the direct
-            # restore route for the most recently minimized utility.
-            latest = getattr(self, "_last_minimized_utility", None)
-            if latest is None:
-                return
-            for name, candidate in reversed(tuple(self.utility_windows.items())):
-                if candidate is latest and bool(getattr(candidate, "_talkdat_minimized", False)):
-                    self._focus_utility_window(name)
-                    return
+        self._post_ui(self.reveal_now)
 
-        self._post_ui(reveal)
+    def reveal_now(self) -> bool:
+        """Show the Pill; restore the most recently minimized utility window.
+
+        Returns whether a window was restored (X-634: the tray's "Open Talk
+        DAT!" opens Home only when there was nothing to bring back). UI
+        thread only.
+        """
+        self.force_visible()
+        # Utility windows intentionally use the Windows tool-window style,
+        # so they do not create a pile of separate taskbar buttons. The
+        # tray's existing "Open Talk DAT!" action is therefore the direct
+        # restore route for the most recently minimized utility.
+        latest = getattr(self, "_last_minimized_utility", None)
+        if latest is None:
+            return False
+        for name, candidate in reversed(tuple(self.utility_windows.items())):
+            if candidate is latest and bool(getattr(candidate, "_talkdat_minimized", False)):
+                self._focus_utility_window(name)
+                return True
+        return False
 
     def hide(self) -> None:
         self._post_ui(self.root.withdraw)
@@ -3573,6 +3889,10 @@ class Overlay:
         if should_hide:
             if not self.fullscreen_hidden:
                 self.fullscreen_hidden = True
+                # X-742: a Pill standing down for fullscreen video says
+                # nothing; a message in progress goes back to the queue.
+                if getattr(self, "_flag_view", None) is not None:
+                    self._flag_end_now()
                 try:
                     if mac_support.IS_MAC:
                         # Never withdraw on macOS -- see force_visible. Parking
@@ -3593,6 +3913,7 @@ class Overlay:
         if self.fullscreen_hidden:
             self.fullscreen_hidden = False
             self.force_visible()
+            self._flag_after(0, self._flag_pump)
 
     def _refresh_fullscreen_visibility(self) -> None:
         try:
@@ -3716,21 +4037,85 @@ class Overlay:
         return ui_scale.px(12, self.config)
 
     def _start_drag(self, event: tk.Event) -> None:
+        # X-619 (D3): the update dot owns its press. Its old tag_bind returned
+        # "break", which stops only the canvas ITEM bindings; the Pill's own
+        # press and release bindings still ran, so one click opened the update
+        # AND started a hands-free take. The press is claimed here, before the
+        # Pill records a click origin, and acted on at release.
+        if self._update_flag_hit(int(event.x_root), int(event.y_root)):
+            self._update_flag_pressed = True
+            self.pill_click_origin = None
+            self.pill_click_dragged = False
+            return
+        # A press anywhere else clears a dot press whose release was lost, so
+        # a swallowed release can never leave the Pill deaf to clicks.
+        self._update_flag_pressed = False
+        # X-742: a press on a message (its words or a segment's button) is the
+        # message's; a segment's Pill end is still the Pill and falls through.
+        if self._flag_press(event):
+            return
         self.pill_click_origin = (int(event.x_root), int(event.y_root))
         self.pill_click_pressed_at = time.monotonic()
         self.pill_click_dragged = False
+        # X-635 (interaction grid D5): a press held on an idle Pill is
+        # hold-to-talk. It used to do nothing while held and start a
+        # hands-free take on release -- recording after the person had
+        # spoken. Released sooner, it is the click it always was.
+        self._cancel_pill_hold_timer()
+        self._pill_holding = False
+        self._pill_hold_cancelled = False
+        if self._pill_can_hold():
+            self._pill_hold_after = self.root.after(self.PILL_HOLD_MS, self._pill_hold_begins)
         if self.fixed_position:
             self._position()
             return
         self.drag_origin = (event.x, event.y)
 
+    PILL_HOLD_MS = 450
+    PILL_HOLD_SLIDE_OFF = 40
+
+    def _pill_can_hold(self) -> bool:
+        """Only an idle Pill holds: on a live one a press is the stop, and on
+        the rainbow it is "is it working?" (X-621)."""
+        if self.state in LIVE_STATES or completion_rainbow_enabled(self.state):
+            return False
+        return callable(self.callbacks.get("push_to_talk")) and callable(self.callbacks.get("pill_hold_release"))
+
+    def _cancel_pill_hold_timer(self) -> None:
+        pending = getattr(self, "_pill_hold_after", None)
+        self._pill_hold_after = None
+        if pending:
+            with contextlib.suppress(Exception):
+                self.root.after_cancel(pending)
+
+    def _pill_hold_begins(self) -> None:
+        self._pill_hold_after = None
+        if self.pill_click_origin is None or self.pill_click_dragged or not self._pill_can_hold():
+            return
+        self._pill_holding = True
+        self.callbacks["push_to_talk"]()
+
     def _drag(self, event: tk.Event) -> None:
+        view = getattr(self, "_flag_view", None)
+        if view is not None and view.pressed is not None:
+            return
         if self.pill_click_origin:
             slop = self._pill_click_slop()
             dx = abs(int(event.x_root) - self.pill_click_origin[0])
             dy = abs(int(event.y_root) - self.pill_click_origin[1])
             if dx > slop or dy > slop:
                 self.pill_click_dragged = True
+                # X-635: a press that moved before the hold began is a drag.
+                self._cancel_pill_hold_timer()
+            reach = ui_scale.px(self.PILL_HOLD_SLIDE_OFF, self.config)
+            if getattr(self, "_pill_holding", False) and (dx > reach or dy > reach):
+                # Sliding well off the Pill while holding is "never mind":
+                # that take is cancelled (its audio is kept in History).
+                self._pill_holding = False
+                self._pill_hold_cancelled = True
+                cancel = self.callbacks.get("pill_hold_cancel")
+                if callable(cancel):
+                    cancel()
         if self.fixed_position:
             return
         if self.drag_origin is None:
@@ -3742,6 +4127,35 @@ class Overlay:
         self.root.geometry(f"+{x}+{y}")
 
     def _end_drag(self, event: tk.Event) -> None:
+        if getattr(self, "_update_flag_pressed", False):
+            # X-619: a press that began on the dot opens the update at release
+            # (only if the release is still on it: a drag off is never mind)
+            # and never reaches the toggle below.
+            self._update_flag_pressed = False
+            self.pill_click_origin = None
+            self.pill_click_dragged = False
+            self.drag_origin = None
+            if self._update_flag_hit(int(event.x_root), int(event.y_root)):
+                self._on_update_flag_click()
+            return
+        if self._flag_release(event):
+            return
+        self._cancel_pill_hold_timer()
+        if getattr(self, "_pill_holding", False) or getattr(self, "_pill_hold_cancelled", False):
+            # X-635: the end of a hold is its release, never a click too; a
+            # hold cancelled by sliding off gets nothing (no ACK after a
+            # cancel).
+            holding = bool(getattr(self, "_pill_holding", False))
+            self._pill_holding = False
+            self._pill_hold_cancelled = False
+            self.pill_click_origin = None
+            self.pill_click_dragged = False
+            self.drag_origin = None
+            if self.fixed_position:
+                self._position()
+            if holding:
+                self.callbacks["pill_hold_release"]()
+            return
         should_toggle = False
         if self.pill_click_origin:
             slop = self._pill_click_slop()
@@ -3762,159 +4176,985 @@ class Overlay:
         if should_toggle:
             self._toggle_from_pill_click()
 
+    def _double_click_seconds(self) -> float:
+        """The person's own double-click time (Windows default 500 ms)."""
+        cached = getattr(self, "_double_click_cached", None)
+        if cached is not None:
+            return cached
+        seconds = 0.5
+        if sys.platform == "win32":
+            with contextlib.suppress(Exception):
+                seconds = max(0.1, min(5.0, int(ctypes.windll.user32.GetDoubleClickTime()) / 1000.0))
+        self._double_click_cached = seconds
+        return seconds
+
     def _toggle_from_pill_click(self) -> None:
-        callback = self.callbacks.get("hands_free")
+        # X-625 (interaction grid P1-P3 double-click): a second click inside
+        # the double-click time is "I was not sure the first one took", never
+        # a second decision. A double-click used to start a take and stop it
+        # again, which records nothing and reads as broken. Measured from the
+        # previous click, so a triple click is one decision too. The hotkeys
+        # keep their own 250 ms chatter rule.
+        now = time.monotonic()
+        previous = getattr(self, "_last_pill_click_at", None)
+        self._last_pill_click_at = now
+        if previous is not None and now - previous < self._double_click_seconds():
+            self.acknowledge("pill")
+            return
+        if completion_rainbow_enabled(self.state):
+            # X-621 (D2): a click on the rainbow is "is it working?", never a
+            # redo. It used to cancel the result that was landing and open a
+            # new take. The answer is the ACK; the result delivers.
+            self.acknowledge("pill")
+            return
+        callback = self.callbacks.get("pill_hands_free") or self.callbacks.get("hands_free")
         if callback:
             callback()
+
+    def set_paused(self, paused: bool) -> None:
+        """X-633: show that dictation is paused (gray at 60%) or resumed."""
+        def apply() -> None:
+            self._paused_look = bool(paused)
+            self._wake_animation()
+
+        self._post_ui(apply)
+
+    def _ack_clock_ms(self) -> float:
+        return time.perf_counter() * 1000.0
+
+    def acknowledge(
+        self,
+        surface: str = "pill",
+        direction: tuple[float, float] = (0.0, 1.0),
+        *,
+        canvas: tk.Canvas | None = None,
+    ) -> bool:
+        """X-620: the ACK, for a gesture that ended with nothing to do.
+
+        Returns whether it played. Callers fire it at the END of a gesture
+        (release, keyup), never on a press, never after a cancel, never when a
+        function already ran for the same gesture. Hotkeys have no body of
+        their own, so their ACK plays on the Pill ("pill" surface). Safe from
+        any thread; the Pill is drawn on the UI thread.
+
+        What it never does: play a sound, raise a message, move focus, or
+        change the window's geometry or region. The Pill's image moves inside
+        its unchanged canvas (a region change mid-effect is the X-111 black
+        slab risk), and under reduced motion the dip is painted into the
+        composed image, never through the root alpha that _animate pins.
+        """
+        if threading.get_ident() != getattr(self, "_ui_thread_id", threading.get_ident()):
+            self._post_ui(lambda: self.acknowledge(surface, direction, canvas=canvas))
+            return True
+        if not self._ack_limiter.allow(str(surface), self._ack_clock_ms()):
+            return False
+        self._ack_counts[str(surface)] = self._ack_counts.get(str(surface), 0) + 1
+        if str(surface).startswith("pill"):
+            self._ack_direction = (float(direction[0]), float(direction[1]))
+            self._ack_requested = True
+            self._ack_key_shown = False
+            # Zero at the first frame that draws it, not at the request: a
+            # sleeping idle loop can be up to one tick late, and a clock
+            # started at the request would skip the start of the motion.
+            self._ack_started_at = None
+            self._wake_animation()
+        elif canvas is not None:
+            self._play_canvas_ack(canvas, direction)
+        return True
+
+    def _play_canvas_ack(self, canvas: tk.Canvas, direction: tuple[float, float]) -> None:
+        """X-632: the ACK on a surface of its own (the ramble bar).
+
+        Everything drawn on the canvas moves together and comes back; the
+        window never moves or resizes. Under reduced motion the window's own
+        alpha dips instead (a plain square window, not the Pill's colour-keyed
+        one, so the X-111 concern does not apply).
+        """
+        reduced = self._motion_is_reduced()
+        clock = {"started": time.perf_counter(), "key_shown": False}
+        drawn = {"dx": 0, "dy": 0}
+        try:
+            window = canvas.winfo_toplevel()
+            base_alpha = float(window.attributes("-alpha"))
+        except Exception:
+            return
+
+        def frame() -> None:
+            try:
+                if not canvas.winfo_exists():
+                    return
+                moment = time.perf_counter()
+                elapsed, clock["key_shown"] = ack_catch_up(
+                    (moment - clock["started"]) * 1000.0, key_shown=clock["key_shown"], reduced_motion=reduced
+                )
+                clock["started"] = moment - elapsed / 1000.0
+                running = ack_is_running(elapsed, reduced_motion=reduced)
+                if reduced:
+                    window.attributes("-alpha", base_alpha * (ack_opacity(elapsed) if running else 1.0))
+                else:
+                    dx, dy = ack_offset(elapsed, direction) if running else (0, 0)
+                    canvas.move("all", dx - drawn["dx"], dy - drawn["dy"])
+                    drawn["dx"], drawn["dy"] = dx, dy
+                if running:
+                    canvas.after(16, frame)
+            except Exception:
+                log.debug("canvas ACK stopped", exc_info=True)
+
+        frame()
+
+    def _ack_frame(self, now: float | None = None) -> tuple[int, int, float]:
+        """(dx, dy, opacity) for the Pill image this frame; (0, 0, 1.0) at rest."""
+        if not getattr(self, "_ack_requested", False):
+            return 0, 0, 1.0
+        moment = time.perf_counter() if now is None else now
+        if self._ack_started_at is None:
+            self._ack_started_at = moment
+        elapsed_ms = (moment - self._ack_started_at) * 1000.0
+        reduced = self._motion_is_reduced()
+        drawn_ms, self._ack_key_shown = ack_catch_up(
+            elapsed_ms, key_shown=bool(getattr(self, "_ack_key_shown", False)), reduced_motion=reduced
+        )
+        if drawn_ms != elapsed_ms:
+            # X-620b: a slow frame skipped the press itself. Show it now and
+            # play the rest of the curve from there.
+            self._ack_started_at = moment - drawn_ms / 1000.0
+            elapsed_ms = drawn_ms
+        if not ack_is_running(elapsed_ms, reduced_motion=reduced):
+            self._ack_requested = False
+            self._ack_started_at = None
+            return 0, 0, 1.0
+        if reduced:
+            return 0, 0, ack_opacity(elapsed_ms)
+        dx, dy = ack_offset(elapsed_ms, self._ack_direction)
+        return dx, dy, 1.0
+
+    def _ack_is_live(self) -> bool:
+        return bool(getattr(self, "_ack_requested", False))
+
+    def _wake_animation(self) -> None:
+        """Bring the sleeping idle loop forward so an ACK starts this frame.
+
+        Only the at-rest branch parks its reschedule in _rest_after_id, and
+        every tick clears it first, so this never starts a second loop.
+        """
+        pending = getattr(self, "_rest_after_id", None)
+        if not pending:
+            return
+        with contextlib.suppress(Exception):
+            self.root.after_cancel(pending)
+        self._rest_after_id = self.root.after(0, self._animate)
 
     TOAST_HOLD_MS = 1600
     TOAST_FADE_MS = 500
     TOAST_TICK_MS = 25
 
-    def show_toast(self, message: str, *, detail: str = "", kind: str = "info") -> None:
-        """Float a short message above the pill, then fade it away.
+    # ------------------------------------------------------------------
+    # X-742: messages. The Pill says them itself.
+    #
+    # The owner's rule for every message: the host part itself changes shape
+    # in its own material ("they don't come out flush, they look like a
+    # separate piece" was rejected). On the desktop the host is the Pill, so
+    # there is no toast window any more: the Pill lengthens, in the same
+    # per-pixel-alpha bitmap it already presents (layered_window.py). The
+    # window grows to hold the longer capsule for the life of the message and
+    # comes back to the Pill's exact rectangle after it; alpha-0 pixels stay
+    # click-through, and the window is the Pill's own no-activate window.
+    # island.py decides where it goes, how it moves and what shows next;
+    # pill_message.py draws it.
+    # ------------------------------------------------------------------
 
-        For outcomes that are otherwise invisible. "Talk DAT! is up to date"
-        reported only through the pill's own state text was indistinguishable
-        from the Check for updates click having done nothing at all.
+    FLAG_HOLD_TICK_MS = 250
+    #: How far along the stretch the frosted body is fully uncovered. Below it
+    #: the body fades in, so frame 0 is exactly the Pill's own frame.
+    FLAG_BODY_REVEAL = 0.12
 
-        ``kind="error"`` is the Pill's error message (2026-09-23): the first
-        line says what happened, ``detail`` says what to do, an ember edge
-        marks it, and it stays long enough to read both. A click dismisses it.
+    def flag(
+        self,
+        message: str,
+        *,
+        detail: str = "",
+        tone: str = "info",
+        actions: Sequence[FlagAction] = (),
+        key: str = "",
+        progress: float | None = None,
+        hold_ms: int | None = None,
+        origin: str = "system",
+    ) -> None:
+        """Say it with the Pill. Safe from any thread, never raises.
 
-        Safe from any thread, and never allowed to raise: a failure to draw a
-        toast must not take dictation down with it.
+        With no actions the Pill lengthens: its end nearest a side of the
+        screen stays where it is, the capsule stretches away from it and rises
+        away from its edge, its art compresses into the cap and the words sit
+        on the same art, frosted. With actions it adds a segment of itself
+        (one outline, a 1 px divider in its own material), and the Pill end
+        still starts a dictation.
+
+        tone: "info" | "done" | "warn" | "error" | "busy"
+        key: the same key updates the showing message in place
+        origin: "person" (a press or hotkey caused it) | "system" | "pill-menu"
         """
-        self._post_ui(lambda: self._show_toast_now(message, detail=detail, kind=kind))
+        try:
+            item = island.message_from(
+                message, detail=detail, tone=tone, actions=actions, key=key, progress=progress,
+                hold=hold_ms, origin=origin,
+            )
+        except Exception:
+            log.exception("a message could not be read")
+            return
+        if not item.title and not item.detail:
+            return
+        try:
+            self._post_ui(lambda: self._flag_now(item))
+        except Exception:
+            log.exception("a message could not reach the Pill")
+
+    def recent_messages(self) -> list[dict[str, Any]]:
+        """The last 20 messages, for the Status pages (nothing essential lives
+        only in a message that has gone)."""
+        return self._flag_queue_now().recent_messages()
+
+    def _flag_queue_now(self) -> island.MessageQueue:
+        queue_ = getattr(self, "_flag_queue", None)
+        if queue_ is None:
+            queue_ = self._flag_queue = island.MessageQueue()
+        return queue_
+
+    def _flag_clock_ms(self) -> float:
+        return time.perf_counter() * 1000.0
+
+    def _flag_context(self) -> island.Context:
+        withdrawn = bool(getattr(self, "fullscreen_hidden", False))
+        with contextlib.suppress(Exception):
+            withdrawn = withdrawn or str(self.root.state()) == "withdrawn"
+        meeting = False
+        try:
+            from .meeting_quiet import meeting_in_progress
+
+            meeting = bool(meeting_in_progress(self.config))
+        except Exception:
+            log.debug("meeting check failed", exc_info=True)
+        return island.Context(live=self.state in LIVE_STATES, meeting=meeting, withdrawn=withdrawn)
+
+    def _flag_now(self, item: island.Message) -> None:
+        try:
+            decision = self._flag_queue_now().offer(item, self._flag_clock_ms(), self._flag_context())
+            self._flag_apply(decision)
+        except Exception:
+            log.exception("the Pill could not say a message")
+
+    def _flag_apply(self, decision: island.Decision) -> None:
+        kind = decision.kind
+        view = getattr(self, "_flag_view", None)
+        if kind == "show":
+            self._flag_show(decision.message)
+        elif kind == "replace":
+            if decision.requeued is not None and view is not None:
+                self._flag_queue_now().requeue(decision.requeued, self._flag_remaining_ms(view))
+            if view is None:
+                self._flag_show(decision.message)
+            else:
+                self._flag_replace(decision.message)
+        elif kind == "update":
+            self._flag_update(decision.message)
+        elif kind == "nudge":
+            if view is not None:
+                view.motion.nudge(self._flag_clock_ms())
+                if view.hold_total is not None:
+                    view.hold_left = view.hold_total
+                self._flag_draw()
+        elif kind in ("queue", "wait") and decision.due_ms is not None:
+            delay = max(1, int(math.ceil(decision.due_ms - self._flag_clock_ms())))
+            if decision.reason == "busy" and decision.message is not None:
+                slot = decision.message.key
+                self._flag_after(delay, lambda: self._flag_busy_due(slot))
+            else:
+                self._flag_after(delay, self._flag_pump)
+        else:
+            log.debug("message not shown now (%s: %s)", kind, decision.reason)
+
+    def _flag_after(self, delay_ms: int, callback: Callable[[], None]) -> None:
+        with contextlib.suppress(Exception):
+            self._flag_timers.append(self.root.after(max(0, int(delay_ms)), callback))
+            del self._flag_timers[:-16]
+
+    def _flag_busy_due(self, slot: str) -> None:
+        try:
+            decision = self._flag_queue_now().busy_due(slot, self._flag_clock_ms(), self._flag_context())
+            self._flag_apply(decision)
+        except Exception:
+            log.exception("a busy message could not show")
+
+    def _flag_pump(self) -> None:
+        """Show the next waiting message, if nothing is showing."""
+        if getattr(self, "_flag_view", None) is not None:
+            return
+        try:
+            decision = self._flag_queue_now().next(self._flag_clock_ms(), self._flag_context())
+        except Exception:
+            log.exception("the message queue failed")
+            return
+        if decision.kind == "show":
+            self._flag_show(decision.message)
+        elif decision.kind == "wait" and decision.due_ms is not None:
+            self._flag_after(int(math.ceil(decision.due_ms - self._flag_clock_ms())) + 1, self._flag_pump)
+
+    # -- where and what ------------------------------------------------------
+
+    def _flag_scale(self) -> float:
+        return float(ui_scale.scale(self.config))
+
+    def _flag_pill_rect(self) -> island.Rect:
+        """Where the Pill is on screen now: its window's real corner (only
+        read with no message showing, when the window is the Pill)."""
+        width, height = max(1, int(self.current_width)), max(1, int(self.current_height))
+        return island.Rect(int(self.root.winfo_rootx()), int(self.root.winfo_rooty()), width, height)
+
+    def _flag_work_area(self) -> island.Rect:
+        rect = self._pill_monitor_work_area()
+        if rect is None:
+            rect = self._logical_work_area()
+        return island.Rect.from_edges(*rect)
+
+    def _flag_theme(self) -> str:
+        try:
+            mode = str(self._settings_palette(self._settings_theme_key()).get("mode", "dark"))
+        except Exception:
+            mode = "dark"
+        return "light" if mode.lower() == "light" else "dark"
+
+    def _flag_high_contrast(self) -> tuple[tuple[int, int, int], tuple[int, int, int]] | None:
+        """Windows high contrast: the Pill's words on the system window colours."""
+        if sys.platform != "win32":
+            return None
+        try:
+            class HIGHCONTRASTW(ctypes.Structure):
+                _fields_ = (("cbSize", wintypes.UINT), ("dwFlags", wintypes.DWORD),
+                            ("lpszDefaultScheme", wintypes.LPWSTR))
+
+            state = HIGHCONTRASTW()
+            state.cbSize = ctypes.sizeof(HIGHCONTRASTW)
+            user32 = ctypes.windll.user32
+            if not user32.SystemParametersInfoW(0x0042, state.cbSize, ctypes.byref(state), 0):
+                return None
+            if not state.dwFlags & 0x0001:
+                return None
+
+            def colour(index: int) -> tuple[int, int, int]:
+                value = int(user32.GetSysColor(index))
+                return value & 0xFF, (value >> 8) & 0xFF, (value >> 16) & 0xFF
+
+            return colour(5), colour(8)
+        except Exception:
+            return None
+
+    def _flag_caret_rect(self) -> island.Rect | None:
+        try:
+            from .caret_context import caret_rect
+
+            rect = caret_rect()
+        except Exception:
+            rect = None
+        return island.Rect(*rect) if rect else None
+
+    def _flag_art(self, pill: island.Rect) -> Image.Image:
+        """The Pill's own picture right now: the cap and the frosted body."""
+        source = getattr(self, "_pill_layered_source", None)
+        if source is not None and source.size == (pill.w, pill.h):
+            return source.convert("RGBA")
+        image = self._compose_pill_image(pill.w, pill.h, active=False)
+        if image is not None and image.size == (pill.w, pill.h):
+            return image.convert("RGBA")
+        fallback = Image.new("RGBA", (pill.w, pill.h), (18, 30, 32, 255))
+        fallback.putalpha(capsule_alpha_mask(pill.w, pill.h))
+        return fallback
+
+    def _flag_keyed(self) -> bool:
+        presenter = getattr(self, "_pill_presenter", None)
+        return presenter is None or not presenter.armed
+
+    def _flag_build(self, message: island.Message, now: float, previous: "_FlagView | None" = None) -> "_FlagView":
+        scale = self._flag_scale()
+        pill = previous.pill if previous is not None else self._flag_pill_rect()
+        work = self._flag_work_area()
+        theme = self._flag_theme()
+        contrast = self._flag_high_contrast()
+        margin = ui_scale.px(12, self.config)
+        full = pill_message.layout(message, scale=scale, work_width=work.w, pill_w=pill.w)
+        small = None if message.is_segment else pill_message.layout(
+            message, scale=scale, work_width=work.w, pill_w=pill.w, compact=True
+        )
+        placement = island.pill_frame(
+            pill, work, full.size, caret=self._flag_caret_rect(), margin=margin,
+            compact_size=small.size if small is not None else None,
+        )
+        lay = pill_message.layout(
+            message, scale=scale, work_width=work.w, pill_w=pill.w, pin=placement.pin, compact=placement.compact
+        )
+        keyed = self._flag_keyed()
+        if keyed:
+            envelope = placement.rect.union(pill)
+        else:
+            envelope = island.envelope(pill, placement)
+            if previous is not None:
+                envelope = envelope.union(previous.envelope)
+        art = self._flag_art(pill)
+        size = (envelope.w, envelope.h)
+        body_plain = pill_message.frosted_body(art, size, theme=theme, scale=scale, high_contrast=contrast)
+        body_toned = body_plain
+        if contrast is None and message.tone in pill_message.TONE_LOOKS:
+            body_toned = pill_message.frosted_body(
+                art, size, theme=theme, scale=scale, tone=message.tone, tone_level=1.0
+            )
+        origin = (placement.rect.x - envelope.x, placement.rect.y - envelope.y)
+        words = Image.new("RGBA", size, (0, 0, 0, 0))
+        words.alpha_composite(
+            pill_message.words_layer(lay, lay.size, theme=theme, progress=message.progress, high_contrast=contrast),
+            origin,
+        )
+        rest = island.rest_shape(pill.w, pill.h)
+        target = island.Shape(w=lay.width, h=lay.height, head=lay.head, feather=lay.feather)
+        downgraded = bool(getattr(self, "_effects_downgraded", False))
+        reduced = keyed or self._motion_is_reduced() or downgraded
+        if previous is not None:
+            motion = previous.motion
+        else:
+            fade = 0.0 if keyed else (island.DOWNGRADED_FADE_MS if downgraded else island.FADE_MS)
+            motion = island.PillMotion(rest, now, reduced=reduced, fade_ms=fade)
+        return _FlagView(
+            message=message, layout=lay, placement=placement, pill=pill, envelope=envelope, target=target,
+            motion=motion, theme=theme, scale=scale, keyed=keyed, reduced=reduced, contrast=contrast,
+            body_plain=body_plain, body_toned=body_toned, words=words,
+            words_blur=words.filter(ImageFilter.GaussianBlur(pill_message.TEXT_BLUR_PX * scale)),
+            words_origin=origin, started_ms=now,
+        )
+
+    # -- the life of a message ------------------------------------------------
+
+    def _flag_show(self, message: island.Message | None) -> None:
+        if message is None:
+            return
+        now = self._flag_clock_ms()
+        try:
+            view = self._flag_build(message, now)
+        except Exception:
+            log.exception("the Pill could not lengthen for a message")
+            self._flag_queue_now().finished(message)
+            return
+        self._flag_view = view
+        # The springs start at the first frame, not before the layers were
+        # built (the blur takes a few frames' time): frame 0 is the Pill.
+        now = self._flag_clock_ms()
+        view.started_ms = now
+        view.motion.grow(view.target, now)
+        view.phase = "in"
+        self._flag_bind(view)
+        self._flag_announce(message)
+        if view.keyed:
+            self._flag_key_geometry(view)
+        self._flag_draw()
+
+    def _flag_replace(self, message: island.Message) -> None:
+        """New words while out: the springs retarget from where the Pill is."""
+        view = self._flag_view
+        if view is None:
+            self._flag_show(message)
+            return
+        now = self._flag_clock_ms()
+        try:
+            fresh = self._flag_build(message, now, previous=view)
+        except Exception:
+            log.exception("the Pill could not change its message")
+            return
+        dx, dy = view.envelope.x - fresh.envelope.x, view.envelope.y - fresh.envelope.y
+        old = Image.new("RGBA", fresh.words.size, (0, 0, 0, 0))
+        old.alpha_composite(view.words, (dx, dy))
+        fresh.old_words = old
+        fresh.prev_tone = view.message.tone
+        previous_body = fresh.body_plain.copy()
+        previous_body.alpha_composite(view.body_for(1.0 if view.message.tone in pill_message.TONE_LOOKS else 0.0), (dx, dy))
+        fresh.prev_body = previous_body
+        self._flag_cancel_hold()
+        self._flag_unbind(view)
+        tone_changed = view.message.tone != message.tone
+        now = self._flag_clock_ms()
+        fresh.started_ms = now
+        fresh.motion.replace(fresh.target, now, tone_changed=tone_changed)
+        fresh.phase = "in"
+        self._flag_view = fresh
+        self._flag_bind(fresh)
+        self._flag_announce(message)
+        if fresh.keyed:
+            self._flag_key_geometry(fresh)
+        self._flag_draw()
+
+    def _flag_update(self, message: island.Message) -> None:
+        """The same key: the words, progress or tone change in place."""
+        view = self._flag_view
+        if view is None:
+            self._flag_show(message)
+            return
+        tone_changed = view.message.tone != message.tone
+        if tone_changed or message.is_segment != view.message.is_segment:
+            self._flag_replace(message)
+            return
+        lay = pill_message.layout(
+            message, scale=view.scale, work_width=self._flag_work_area().w, pill_w=view.pill.w,
+            pin=view.pin, compact=view.placement.compact,
+        )
+        if lay.size != view.layout.size:
+            self._flag_replace(message)
+            return
+        view.message = message
+        view.layout = lay
+        view.words = Image.new("RGBA", view.words.size, (0, 0, 0, 0))
+        view.words.alpha_composite(
+            pill_message.words_layer(lay, lay.size, theme=view.theme, progress=message.progress,
+                                     high_contrast=view.contrast),
+            view.words_origin,
+        )
+        view.words_blur = view.words.filter(ImageFilter.GaussianBlur(pill_message.TEXT_BLUR_PX * view.scale))
+        if view.phase == "hold":
+            self._flag_cancel_hold()
+            self._flag_start_hold()
+        self._flag_draw()
+
+    def _flag_remaining_ms(self, view: "_FlagView") -> int | None:
+        if view.hold_left is not None:
+            return int(view.hold_left)
+        return view.message.reading_ms()
+
+    def _flag_start_hold(self) -> None:
+        view = self._flag_view
+        if view is None:
+            return
+        total = view.message.reading_ms()
+        view.hold_total = total
+        view.hold_left = total
+        view.hovered = False
+        if total is None:
+            return  # busy: it stays until the work it names changes
+        self._flag_cancel_hold()
+        self._flag_hold_after = self.root.after(self.FLAG_HOLD_TICK_MS, self._flag_hold_tick)
+
+    def _flag_cancel_hold(self) -> None:
+        pending = getattr(self, "_flag_hold_after", None)
+        self._flag_hold_after = None
+        if pending:
+            with contextlib.suppress(Exception):
+                self.root.after_cancel(pending)
+
+    def _flag_hold_tick(self) -> None:
+        """Reading time: the pointer on the message holds it; leaving restarts
+        it at half its length, never under 1.2 s (X-629's hover hold)."""
+        self._flag_hold_after = None
+        view = self._flag_view
+        if view is None or view.phase != "hold" or view.hold_left is None:
+            return
+        if self._flag_pointer_on(view):
+            view.hovered = True
+        elif view.hovered:
+            view.hovered = False
+            view.hold_left = island.resumed_hold_ms(int(view.hold_total or 0))
+        else:
+            view.hold_left -= self.FLAG_HOLD_TICK_MS
+            if view.hold_left <= 0:
+                self._flag_contract()
+                return
+        self._flag_hold_after = self.root.after(self.FLAG_HOLD_TICK_MS, self._flag_hold_tick)
+
+    def _flag_pointer_on(self, view: "_FlagView") -> bool:
+        try:
+            pointer_x, pointer_y = self.root.winfo_pointerxy()
+        except Exception:
+            return False
+        x, y, w, h = view.capsule_now
+        left, top = view.envelope.x + x, view.envelope.y + y
+        return left <= pointer_x < left + w and top <= pointer_y < top + h
+
+    def _flag_contract(self, *, preempt: bool = False) -> None:
+        view = self._flag_view
+        if view is None or view.phase == "out":
+            return
+        self._flag_cancel_hold()
+        self._flag_unbind(view)
+        view.phase = "out"
+        view.preempt = preempt
+        if view.keyed:
+            self._flag_finish(None)
+            return
+        view.motion.contract(self._flag_clock_ms(), preempt=preempt)
+        self._flag_draw()
+
+    def _flag_preempt(self) -> None:
+        """The dictation hotkey went down: the words go in 60 ms, the capsule
+        returns on the 0.18 s spring, and the Pill's own open animation starts
+        from there. The recording itself never waits for any of it."""
+        view = self._flag_view
+        if view is None:
+            return
+        if view.phase != "out":
+            self._flag_queue_now().requeue(view.message, self._flag_remaining_ms(view))
+        if view.phase == "out":
+            view.preempt = True
+            return
+        self._flag_contract(preempt=True)
+
+    def _flag_end_now(self) -> None:
+        """No motion: the Pill moved or was resized under a message, or its
+        presenter failed. The message is handed back if it still matters."""
+        view = self._flag_view
+        if view is None:
+            return
+        if view.phase != "out":
+            self._flag_queue_now().requeue(view.message, self._flag_remaining_ms(view))
+        view.phase = "out"
+        self._flag_cancel_hold()
+        self._flag_unbind(view)
+        self._flag_finish(None, redraw=True)
+
+    def _flag_finish(self, field: Image.Image | None, *, redraw: bool = False) -> None:
+        """The capsule is the Pill again: its window takes back the Pill's own
+        rectangle in the same call that shows the Pill's own frame."""
+        view = self._flag_view
+        if view is None:
+            return
+        self._flag_view = None
+        self._flag_queue_now().finished(view.message)
+        self._flag_unbind(view)
+        presenter = getattr(self, "_pill_presenter", None)
+        pill = view.pill
+        if field is not None and not view.keyed and presenter is not None and presenter.armed:
+            if presenter.present(self._layered_frame(field), position=(pill.x, pill.y)):
+                self._pill_layered_source = field
+            else:
+                redraw = True
+        self._last_geometry = ""
+        try:
+            self._apply_geometry(self.current_width, self.current_height, draw=redraw or view.keyed)
+        except Exception:
+            log.exception("the Pill could not take back its own rectangle")
+        deferred = getattr(self, "_flag_deferred_compact", None)
+        self._flag_deferred_compact = None
+        action = view.after_fold
+        self._flag_after(0, lambda: self._flag_after_fold(action, deferred))
+
+    def _flag_after_fold(self, action: Callable[[], None] | None, deferred: bool | None) -> None:
+        if deferred is not None:
+            with contextlib.suppress(Exception):
+                self._set_compact(deferred, animate=True)
+        if action is not None:
+            try:
+                action()
+            except Exception:
+                # X-626: a failure is logged, never swallowed; a swallowed
+                # TypeError is how Fix That's Add closed as if it had saved.
+                log.exception("a message's action failed")
+        self._flag_pump()
+
+    # -- keys and presses ---------------------------------------------------------
+
+    def _flag_bind(self, view: "_FlagView") -> None:
+        for index, action in enumerate(view.message.actions):
+            if not action.accelerator:
+                continue
+            with contextlib.suppress(Exception):
+                binding = self.root.bind(
+                    action.accelerator, lambda _event, choice=index: self._flag_choose(choice), add="+"
+                )
+                view.bindings.append((action.accelerator, binding))
+
+    def _flag_unbind(self, view: "_FlagView") -> None:
+        for sequence, binding in view.bindings:
+            with contextlib.suppress(Exception):
+                self.root.unbind(sequence, binding)
+        view.bindings.clear()
+
+    def _flag_choose(self, index: int) -> str:
+        """A segment's action (its button, or Alt+D / Alt+U): the segment folds
+        away, then the action runs on the UI thread."""
+        view = self._flag_view
+        if view is not None and view.phase != "out" and 0 <= index < len(view.message.actions):
+            view.after_fold = view.message.actions[index].run
+            self._flag_contract()
+        return "break"
+
+    def _flag_hit(self, view: "_FlagView", x_root: int, y_root: int) -> str | int | None:
+        """What a press on the lengthened Pill is on: "pill" (a segment's Pill
+        end, still the Pill), an action's index, "body", or None (not on it)."""
+        x, y = int(x_root) - view.envelope.x, int(y_root) - view.envelope.y
+        cx, cy, cw, ch = view.capsule_now
+        if not (cx <= x < cx + cw and cy <= y < cy + ch):
+            return None
+        lay = view.layout
+        if lay.mode == "segment":
+            head = view.target.head
+            head_left = cx if view.pin == "left" else cx + cw - head
+            if head_left <= x < head_left + head:
+                return "pill"
+            tx, ty = x - view.words_origin[0], y - view.words_origin[1]
+            for button in lay.buttons:
+                bx, by, bw, bh = button.hit
+                if bx <= tx < bx + bw and by <= ty < by + bh:
+                    return button.index
+        return "body"
+
+    def _flag_press(self, event: tk.Event) -> bool:
+        view = getattr(self, "_flag_view", None)
+        if view is None or view.phase == "out":
+            return False
+        hit = self._flag_hit(view, int(event.x_root), int(event.y_root))
+        if hit is None or hit == "pill":
+            return False
+        view.pressed = hit
+        self.pill_click_origin = None
+        self.pill_click_dragged = False
+        if isinstance(hit, int):
+            self._flag_restyle_words(view, pressed=hit)
+        return True
+
+    def _flag_release(self, event: tk.Event) -> bool:
+        view = getattr(self, "_flag_view", None)
+        if view is None or view.pressed is None:
+            return False
+        pressed, view.pressed = view.pressed, None
+        self.pill_click_origin = None
+        self.pill_click_dragged = False
+        self.drag_origin = None
+        if pressed == "body":
+            # A message is never a wall: a click puts it away, and the next
+            # click on the Pill dictates.
+            self._flag_contract()
+            return True
+        self._flag_restyle_words(view, pressed=None)
+        if self._flag_hit(view, int(event.x_root), int(event.y_root)) == pressed:
+            self._flag_choose(int(pressed))
+        return True
+
+    def _flag_restyle_words(self, view: "_FlagView", *, pressed: int | None) -> None:
+        with contextlib.suppress(Exception):
+            view.words = Image.new("RGBA", view.words.size, (0, 0, 0, 0))
+            view.words.alpha_composite(
+                pill_message.words_layer(view.layout, view.layout.size, theme=view.theme,
+                                         progress=view.message.progress, high_contrast=view.contrast,
+                                         pressed=pressed),
+                view.words_origin,
+            )
+            view.words_blur = view.words
+            self._flag_draw()
+
+    def _flag_announce(self, message: island.Message) -> None:
+        """Screen readers hear every message once, with its tone as urgency."""
+        hints = tuple(
+            f"{action.label} with {pill_message._keycap_text(action.accelerator)}"
+            for action in message.actions if action.accelerator
+        )
+        text = spoken_text(message.title, message.detail, hints)
+        announced = getattr(self, "_flag_announced", None)
+        if announced is None:
+            announced = self._flag_announced = []
+        announced.append((message.tone, text))
+        del announced[:-20]
+        try:
+            hwnd = int(ctypes.windll.user32.GetAncestor(int(self.root.winfo_id()), 2) or 0) if sys.platform == "win32" else 0
+            announce_to_screen_reader(hwnd, text, message.tone)
+        except Exception:
+            log.debug("screen reader notification skipped", exc_info=True)
+
+    # -- drawing ---------------------------------------------------------------
+
+    def _flag_draw(self) -> None:
+        """A frame now, and keep the loop awake while the capsule moves."""
+        with contextlib.suppress(Exception):
+            self._draw_visual()
+        self._wake_animation()
+
+    def _flag_is_moving(self, now: float | None = None) -> bool:
+        view = getattr(self, "_flag_view", None)
+        if view is None or view.keyed:
+            return False
+        moment = self._flag_clock_ms() if now is None else now
+        if view.message.tone == "busy":
+            return True  # the processing spectrum moves in the cap
+        if view.message.tone == "error" and moment - view.started_ms < 1000:
+            return True  # the ember's two beats
+        return view.phase in ("in", "out") or not view.motion.settled(moment)
+
+    def _flag_signature(self) -> tuple[Any, ...]:
+        view = getattr(self, "_flag_view", None)
+        if view is None:
+            return ()
+        return (id(view), view.phase, view.pressed, id(view.words))
+
+    def _flag_tone_beat(self, view: "_FlagView", now: float) -> float:
+        """The ember does the Pill's own two soft beats, then holds."""
+        if view.message.tone != "error":
+            return 1.0
+        return state_feedback_level("error", min(900.0, max(0.0, now - view.started_ms)),
+                                    reduced_motion=view.reduced)
+
+    def _flag_cap(self, view: "_FlagView", field: Image.Image, level: float, tone_mix: float, now: float) -> Image.Image:
+        base = field.convert("RGBA")
+        if view.message.tone == "busy" and not completion_rainbow_enabled(self.state):
+            spectrum = getattr(self, "processing_spectrum_strip", None)
+            if spectrum is not None:
+                offset = int(now * 0.08 * view.scale)
+                rainbow = scrolling_spectrum_frame(spectrum, base.width, base.height, offset)
+                rainbow = apply_metallic_sheen(rainbow.convert("RGBA"), base)
+                rainbow.putalpha(base.getchannel("A"))
+                base = Image.blend(base, rainbow.convert("RGBA"), max(0.0, min(1.0, level)))
+        cap = pill_message.tone_wash(base, view.message.tone, level)
+        if tone_mix < 1.0 and view.prev_tone and view.prev_tone != view.message.tone:
+            old = pill_message.tone_wash(field.convert("RGBA"), view.prev_tone, 1.0).convert("RGBA")
+            cap = Image.blend(old, cap.convert("RGBA"), tone_mix)
+        return cap
+
+    def _flag_frame(self, view: "_FlagView", field: Image.Image, now: float) -> Image.Image:
+        """One frame of the lengthened Pill, the size of the window holding it."""
+        if view.keyed:
+            shape = dataclasses.replace(view.target, text=1.0, tone=1.0, mix=1.0)
+        else:
+            shape = view.motion.sample(now)
+        pill, env = view.pill, view.envelope
+        w = shape.w * shape.pulse
+        h = shape.h * shape.pulse
+        pill_x, pill_y = pill.x - env.x, pill.y - env.y
+        x = pill_x if view.pin == "left" else pill_x + pill.w - w
+        if view.vgrow == "up":
+            y = pill_y + pill.h - h
+        elif view.vgrow == "down":
+            y = pill_y
+        else:
+            y = pill_y + pill.h / 2.0 - h / 2.0
+        if view.reduced:
+            reveal = 1.0
+        else:
+            span = max(1.0, view.target.w - pill.w)
+            reveal = max(0.0, min(1.0, (shape.w - pill.w) / span / self.FLAG_BODY_REVEAL))
+        level = shape.tone * self._flag_tone_beat(view, now)
+        cap = self._flag_cap(view, field, level, shape.tone_mix, now)
+        body = view.body_for(level)
+        if view.prev_body is not None and shape.tone_mix < 1.0:
+            body = Image.blend(view.prev_body, body, shape.tone_mix)
+        divider = None
+        if view.layout.mode == "segment" and view.layout.divider_x is not None:
+            divider = x + view.target.head if view.pin == "left" else x + w - view.target.head - 1
+        frame = pill_message.compose(
+            size=(env.w, env.h), capsule=(x, y, w, h), pin=view.pin, head=shape.head, feather=shape.feather,
+            cap=cap, body=body, body_origin=(0, 0), body_alpha=reveal, words=view.words,
+            words_alpha=shape.text, words_blur=view.words_blur, old_words=view.old_words,
+            old_words_alpha=shape.text_old, rim=0.0 if view.contrast is not None else reveal, theme=view.theme,
+            divider_x=divider, scale=view.scale,
+        )
+        view.capsule_now = (int(round(x)), int(round(y)), int(round(w)), int(round(h)))
+        severity = getattr(self, "_update_flag", "")
+        if severity:
+            if view.layout.mode == "segment" and view.pin == "left":
+                end = x + view.target.head
+            else:
+                end = x + w
+            centre = (end - 8.0 * view.scale, y + h / 2.0)
+            pill_message.paint_pip(frame, centre, severity=severity, scale=view.scale)
+            view.pip_screen = (env.x + centre[0], env.y + centre[1])
+        else:
+            view.pip_screen = None
+        if shape.mix < 1.0:
+            resting = Image.new("RGBA", frame.size, (0, 0, 0, 0))
+            resting.alpha_composite(self._layered_frame(field), (int(pill_x), int(pill_y)))
+            frame = Image.blend(resting, frame, shape.mix)
+        return frame
+
+    def _present_flag(self, field: Image.Image) -> bool:
+        """The Pill's frame, drawn as the Pill lengthened (X-742)."""
+        view = self._flag_view
+        # Frame 0 is drawn at the springs' own start: the Pill, exactly. Its
+        # art took a few milliseconds to render, and the capsule must not have
+        # moved a pixel before it was ever shown.
+        now = view.started_ms if view.frames == 0 else self._flag_clock_ms()
+        view.frames += 1
+        try:
+            frame = self._flag_frame(view, field, now)
+        except Exception:
+            log.exception("the lengthened Pill could not be drawn")
+            self._flag_view = None
+            self._flag_queue_now().finished(view.message)
+            self._last_geometry = ""
+            return False
+        if view.keyed:
+            self._flag_paint_keyed(frame)
+            if view.phase == "in":
+                view.phase = "hold"
+                self._flag_start_hold()
+            return True
+        presenter = self._pill_presenter
+        if not presenter.present(frame, position=(view.envelope.x, view.envelope.y)):
+            reason = presenter.last_error
+            log.warning("the lengthened Pill did not reach the screen (%s)", reason)
+            self._flag_view = None
+            self._flag_queue_now().requeue(view.message, self._flag_remaining_ms(view))
+            self._flag_unbind(view)
+            self._flag_cancel_hold()
+            self._last_geometry = ""
+            if reason != NOT_MAPPED:
+                self._fall_back_to_colour_key(reason)
+            self._flag_after(0, self._position)
+            return False
+        self._pill_layered_source = field
+        if view.phase == "in" and view.motion.settled(now):
+            view.phase = "hold"
+            self._flag_start_hold()
+        elif view.phase == "out" and view.motion.settled(now):
+            self._flag_finish(field)
+        return True
+
+    def _flag_key_geometry(self, view: "_FlagView") -> None:
+        """The colour-key fallback: a plain, settled capsule in the Pill's
+        window, cut by the capsule region of its new size. No motion (the key
+        and a one-bit region cannot animate an edge), nothing lost."""
+        env = view.envelope
+        try:
+            self.root.geometry(f"{env.w}x{env.h}+{env.x}+{env.y}")
+            self.canvas.place(x=0, y=0, width=env.w, height=env.h)
+            self.root.update_idletasks()
+            self._apply_window_region(self.root, env.w, env.h, max(1, env.h // 2))
+            # macOS: the native Pill takes the grown frame now, not at the
+            # next <Configure> (a no-op where there is no native Pill).
+            self._sync_native_pill_frame()
+        except Exception:
+            log.exception("the Pill's window could not grow for a message")
+
+    def _flag_paint_keyed(self, frame: Image.Image) -> None:
+        # macOS (mac-port): the Tk Pill is fully transparent and the pixels
+        # people see live in the native NSWindow, which follows the Tk
+        # window's frame (_sync_native_pill_frame). A message painted only on
+        # the canvas would never be seen there, so the frame goes to the
+        # native surface too, with its own alpha (no key on Aqua).
+        pill = getattr(self, "native_pill", None)
+        if pill is not None and pill.available:
+            pill.set_image(frame)
+        mask = frame.getchannel("A").point(lambda value: 255 if value >= 128 else 0)
+        ground = Image.new("RGB", frame.size, self._rgb(TRANSPARENT_COLOR))
+        ground.paste(frame.convert("RGB"), (0, 0), mask)
+        photo = ImageTk.PhotoImage(ground)
+        self.visual_photo = photo
+        try:
+            if self.visual_canvas_item is None:
+                self.visual_canvas_item = int(self.canvas.create_image(0, 0, image=photo, anchor="nw", tags="visual"))
+            else:
+                self.canvas.itemconfigure(self.visual_canvas_item, image=photo)
+                self.canvas.coords(self.visual_canvas_item, 0, 0)
+        except tk.TclError:
+            self.visual_canvas_item = int(self.canvas.create_image(0, 0, image=photo, anchor="nw", tags="visual"))
+
+    # -- the old names, kept (X-742) --------------------------------------------
+
+    def show_toast(self, message: str, *, detail: str = "", kind: str = "info") -> None:
+        """The old toast call: now the Pill says it (flag). Safe from any thread."""
+        self.flag(message, detail=detail, tone=kind if kind in island.TONES else "info")
 
     def _show_toast_now(self, message: str, *, detail: str = "", kind: str = "info") -> None:
-        previous = getattr(self, "_toast_window", None)
-        if previous is not None:
-            pending = getattr(previous, "_talkdat_toast_hold_after", None)
-            if pending:
-                with contextlib.suppress(Exception):
-                    previous.after_cancel(pending)
-            with contextlib.suppress(Exception):
-                previous.destroy()
-        self._toast_window = None
-        toast: tk.Toplevel | None = None
-        is_error = kind == "error"
-        detail = str(detail or "").strip()
-        try:
-            # 2026-09-23: the toast was the one Tk popup still painted in fixed
-            # #16181d / #f2f4f8, so a light theme got a black slab above its
-            # Pill. It now takes the same theme palette as every other popup.
-            palette = self._settings_palette(self._settings_theme_key())
-            surface = palette.get("surface", palette["panel"])
-            edge = palette["danger"] if is_error else palette["stroke"]
-            toast = self._new_toplevel(self.root, role=AUXILIARY_CHROME)
-            toast.overrideredirect(True)
-            toast.attributes("-topmost", True)
-            toast.attributes("-alpha", 1.0)
-            toast.configure(bg=surface)
-            rect = self._pill_monitor_work_area()
-            if rect is not None:
-                work_width = max(1, rect[2] - rect[0])
-            else:
-                work_width = max(1, toast.winfo_screenwidth())
-            wraplength = min(
-                ui_scale.px(520, self.config),
-                max(ui_scale.px(180, self.config), work_width - ui_scale.px(64, self.config)),
-            )
-            frame = tk.Frame(toast, bg=surface, highlightthickness=1, highlightbackground=edge,
-                             highlightcolor=edge)
-            frame.pack()
-            if is_error:
-                # The ember edge, the same warm signal the Pill is showing.
-                tk.Frame(frame, bg=palette["danger"], width=ui_scale.px(4, self.config)).pack(side="left", fill="y")
-            body = tk.Frame(frame, bg=surface, padx=ui_scale.spacing(20, self.config), pady=ui_scale.spacing(12, self.config))
-            body.pack(side="left")
-            weight = ("bold",) if detail else ()
-            tk.Label(body, text=message, bg=surface, fg=palette["text"],
-                     font=(BRAND_UI_FAMILY, type_scale.CAPTION, *weight), wraplength=wraplength,
-                     justify="left", anchor="w").pack(fill="x")
-            if detail:
-                tk.Label(body, text=detail, bg=surface, fg=palette["muted"],
-                         font=(BRAND_UI_FAMILY, type_scale.CAPTION), wraplength=wraplength,
-                         justify="left", anchor="w").pack(fill="x", pady=ui_scale.spacing((4, 0), self.config))
-            toast._talkdat_toast_kind = kind  # type: ignore[attr-defined]
-            toast.update_idletasks()
-
-            # Sit just above the pill, clamped to the screen so a pill parked at
-            # the very bottom edge cannot push the toast off-screen.
-            width, height = toast.winfo_reqwidth(), toast.winfo_reqheight()
-            centre_x = self.root.winfo_rootx() + self.root.winfo_width() // 2
-            # Clamp within the PILL'S monitor, not the primary: Tk's
-            # winfo_screenwidth is the primary display, and on a multi-
-            # monitor rig the old clamp dragged every toast onto it --
-            # "check for update showed on a different screen than the pill."
-            if rect is not None:
-                left, top, right, _bottom = rect
-            else:
-                left, top, right = 0, 0, toast.winfo_screenwidth()
-            x = max(left + 8, min(centre_x - width // 2, right - width - 8))
-            y = max(top + 8, self.root.winfo_rooty() - height - 14)
-            toast.geometry(f"{width}x{height}+{int(x)}+{int(y)}")
-        except Exception:
-            if toast is not None:
-                with contextlib.suppress(Exception):
-                    toast.destroy()
-            return
-
-        self._toast_window = toast
-        toast._talkdat_toast_hold_after = None  # type: ignore[attr-defined]
-
-        def release_toast(event: tk.Event) -> None:
-            if event.widget is not toast:
-                return
-            toast._talkdat_toast_hold_after = None  # type: ignore[attr-defined]
-            if self._toast_window is toast:
-                self._toast_window = None
-
-        toast.bind("<Destroy>", release_toast, add="+")
-
-        def finish() -> None:
-            if self._toast_window is toast:
-                self._toast_window = None
-            with contextlib.suppress(Exception):
-                toast.destroy()
-
-        def fade() -> None:
-            toast._talkdat_toast_hold_after = None  # type: ignore[attr-defined]
-            if self._toast_window is not toast:
-                return
-            self._animate_window_alpha(
-                toast,
-                start=1.0,
-                target=0.0,
-                duration_ms=self.TOAST_FADE_MS,
-                on_complete=finish,
-            )
-
-        def dismiss(_event: tk.Event | None = None) -> None:
-            pending = getattr(toast, "_talkdat_toast_hold_after", None)
-            if pending:
-                with contextlib.suppress(Exception):
-                    toast.after_cancel(pending)
-            finish()
-
-        # A message is never a wall: clicking it puts it away.
-        stack: list[tk.Misc] = [toast]
-        while stack:
-            widget = stack.pop()
-            with contextlib.suppress(Exception):
-                widget.bind("<Button-1>", dismiss, add="+")
-                stack.extend(widget.winfo_children())
-
-        hold_ms = error_toast_hold_ms(message, detail) if is_error else self.TOAST_HOLD_MS
-        toast._talkdat_toast_hold_ms = hold_ms  # type: ignore[attr-defined]
-        try:
-            toast._talkdat_toast_hold_after = toast.after(  # type: ignore[attr-defined]
-                hold_ms,
-                fade,
-            )
-        except Exception:
-            finish()
+        """Kept for its UI-thread callers; the Pill says it (X-742). On the UI
+        thread flag() runs at once, exactly as this name always did."""
+        self.flag(message, detail=detail, tone=kind if kind in island.TONES else "info", origin="person")
 
     def ask_one_line(self, title: str, placeholder: str) -> str:
         """X-351: one modal line of text, for the prompted rewrite. Runs
@@ -4065,10 +5305,24 @@ class Overlay:
         # Self-dismiss: the chip is an offer, not a window to manage.
         chip.after(6000, dismiss)
 
-    def set_state(self, state: str, message: str | None = None, preview: str | None = None) -> None:
-        self._post_ui(lambda: self._set_state_now(state, message, preview))
+    def set_state(
+        self, state: str, message: str | None = None, preview: str | None = None, *,
+        say: bool | str | None = None,
+    ) -> None:
+        """Change what the Pill is doing, and optionally say so (X-742).
 
-    def _set_state_now(self, state: str, message: str | None, preview: str | None) -> None:
+        say=None: errors speak (their words and what to do), everything else
+        stays silent, as before. say=True: speak with the state's own tone
+        (captured done, idle info, processing and starting busy, error error).
+        say="warn" and so on: speak with that tone. A spoken state that is not
+        an error shows its message only: the preview of a result is usually the
+        person's own dictation, which the Pill does not put on a shared screen.
+        """
+        self._post_ui(lambda: self._set_state_now(state, message, preview, say=say))
+
+    def _set_state_now(
+        self, state: str, message: str | None, preview: str | None, *, say: bool | str | None = None
+    ) -> None:
         previous_state = self.state
         was_processing = completion_rainbow_enabled(previous_state)
         now = time.perf_counter()
@@ -4099,12 +5353,22 @@ class Overlay:
         else:
             self._feedback_state = None
             self._feedback_started_at = None
+        if normalized in LIVE_STATES and getattr(self, "_flag_view", None) is not None:
+            # X-742: dictation wins. The message steps back first, so the
+            # Pill's own open animation starts from the Pill.
+            self._flag_preempt()
         self._set_compact(not pill_is_expanded(state), animate=True)
         self._schedule_idle_return(state)
         self._repaint()
         self._sync_fullscreen_visibility()
-        if normalized == "error" and message:
+        tone = island.say_tone(normalized, say)
+        if tone == "error" and message:
             self._show_error_message(message, preview)
+        elif tone and message:
+            self.flag(message, tone=tone, key="state", origin="person")
+        if previous_state in LIVE_STATES and state not in LIVE_STATES:
+            # Messages that waited for the dictation to end come now.
+            self._flag_after(0, self._flag_pump)
 
     def _state_feedback_strength(self, now: float | None = None) -> float:
         """How strongly the success or error look shows right now (0 when not)."""
@@ -4124,13 +5388,10 @@ class Overlay:
         (hidden by the person, or standing down for a fullscreen video): an
         error box floating over a film with no Pill under it explains nothing.
         """
-        try:
-            if str(self.root.state()) == "withdrawn":
-                return
-        except Exception:
-            return
-        with contextlib.suppress(Exception):
-            self._show_toast_now(str(message)[:240], detail=str(detail or "")[:280], kind="error")
+        # X-742: the Pill lengthens in its ember look. A withdrawn Pill says
+        # nothing (the queue keeps the error for 60 s and shows it when the
+        # Pill comes back), and an info never replaces it while it is unread.
+        self.flag(str(message)[:240], detail=str(detail or "")[:280], tone="error", key="state", origin="person")
 
     def _schedule_idle_return(self, state: str) -> None:
         if self.idle_after_id:
@@ -4191,6 +5452,9 @@ class Overlay:
 
     def _animate(self) -> None:
         tick_start = time.perf_counter()
+        # X-620: whatever scheduled this tick, it is running now; a wake for an
+        # ACK must never find a stale id and start a second loop.
+        self._rest_after_id = None
         self._drain_ui_commands()
         previous_tick = float(getattr(self, "last_animation_tick", tick_start))
         elapsed_ms = max(0.0, min(250.0, (tick_start - previous_tick) * 1000.0))
@@ -4234,7 +5498,8 @@ class Overlay:
         # pinned -- animating the layered window's alpha mid-effect is what
         # races the colorkey off (black slab). The hover fade is an idle
         # nicety; it resumes the moment the pill is idle again.
-        if live or completion:
+        # X-742: a message on the Pill never fades under the hand reading it.
+        if live or completion or getattr(self, "_flag_view", None) is not None:
             self._apply_root_alpha(self.opacity)
         else:
             self._apply_root_alpha(target_alpha)
@@ -4252,6 +5517,12 @@ class Overlay:
             and float(getattr(self, "display_level", 0.0)) < 0.01
             and float(getattr(self, "completion_effect_level", 0.0)) < 0.01
             and abs(self.hover_translucent_level - long_hover) < 0.01
+            # X-620: an ACK moves the picture for 180 ms; the loop wakes for
+            # it and, once it ends, draws the still frame once and sleeps.
+            and not self._ack_is_live()
+            # X-742: the lengthened Pill moves, and the pip breathes once.
+            and not self._flag_is_moving()
+            and not self._pip_breathing()
         )
         rest_signature = (
             self.state,
@@ -4263,12 +5534,16 @@ class Overlay:
             # otherwise at rest: its level is part of what has to be redrawn.
             # Quantized, so the held ember reads as unchanged and sleeps.
             state_feedback_bucket(self._state_feedback_strength(now)),
+            # X-633: pausing or resuming changes the picture at rest.
+            bool(getattr(self, "_paused_look", False)),
+            # X-742: a message arriving, pressed or leaving changes it too.
+            self._flag_signature(),
         )
         if at_rest and rest_signature == getattr(self, "_rest_signature", None):
             # Nothing to draw. Tick slowly enough to cost nothing and often
             # enough that a hover or a state change is picked up immediately.
             self.last_animation_tick = tick_start
-            self.root.after(100, self._animate)
+            self._rest_after_id = self.root.after(100, self._animate)
             return
         self._rest_signature = rest_signature if at_rest else None
         draw_started = time.perf_counter()
@@ -4299,6 +5574,15 @@ class Overlay:
         if not force and abs(alpha - self.current_alpha) < 0.006:
             return
         self.current_alpha = alpha
+        presenter = getattr(self, "_pill_presenter", None)
+        if presenter is not None:
+            presenter.set_alpha(alpha)
+            if presenter.armed:
+                # X-641: the layered Pill fades through the bitmap's constant
+                # alpha. Tk's -alpha is SetLayeredWindowAttributes, which would
+                # switch UpdateLayeredWindow off; and with no key there is
+                # nothing left for the X-111 race to drop.
+                return
         try:
             self._set_pill_alpha(alpha)
             # X-111: changing a layered window's alpha can race Windows into
@@ -4384,8 +5668,21 @@ class Overlay:
             # motion. Color and the grow arrive only when listening begins.
             # Applied after the caches and never stored: the gray frame must
             # not poison a color cache, and at compact size it costs nothing.
-            field = self._standby_gray_frame(field)
+            field = self._standby_gray_frame(field, self._standby_gray_level())
             idle_cache_key = None
+        elif not active and getattr(self, "_paused_look", False):
+            # X-633 (interaction grid d2): a paused Pill looked idle, so a
+            # click that did nothing read as broken. Paused is gray at 60%,
+            # painted into the image (never the root alpha, X-111) and, like
+            # the standby gray, never stored in a cache.
+            field = self._standby_gray_frame(field).convert("RGBA")
+            field.putalpha(field.getchannel("A").point(lambda value: int(value * 0.6)))
+            idle_cache_key = None
+            # X-640: the next press drains from colour again, not from gray.
+            self._standby_started_at = None
+        else:
+            # X-640: the next press drains from colour again, not from gray.
+            self._standby_started_at = None
         feedback = 0.0 if active else self._state_feedback_strength()
         if feedback > 0.0:
             # The success/error look, painted after the caches and never
@@ -4411,6 +5708,22 @@ class Overlay:
                 body_width=body_width,
                 body_height=body_height,
             )
+        # X-620: the ACK. Motion moves the image inside the unchanged canvas;
+        # reduced motion dips the composed image's own alpha, never cached.
+        ack_dx, ack_dy, ack_alpha = self._ack_frame()
+        if ack_alpha < 1.0:
+            dipped = field.convert("RGBA")
+            dipped.putalpha(dipped.getchannel("A").point(lambda value: int(value * ack_alpha)))
+            field = dipped
+            active_cache_key = None
+            idle_cache_key = None
+        if self._present_layered(field, offset=(ack_dx, ack_dy)):
+            # X-641: pushed with per-pixel alpha. No PhotoImage, no canvas
+            # swap: that pair was most of the frame on the colour-key path.
+            # The ACK nudge rides inside the bitmap, as it rides inside the
+            # canvas below, so the window itself never moves.
+            self._ack_drawn_offset = (ack_dx, ack_dy)
+            return
         cached_photo = None
         # The photo cache key carries no live width, so it may only serve a
         # SETTLED pill -- a mid-motion photo under the same key would replay
@@ -4430,17 +5743,18 @@ class Overlay:
         if pill is not None and pill.available:
             pill.set_image(field)
         self.visual_photo = cached_photo
+        self._ack_drawn_offset = (ack_dx, ack_dy)
         if self.visual_canvas_item is None:
             self.visual_canvas_item = int(
-                self.canvas.create_image(0, 0, image=self.visual_photo, anchor="nw", tags="visual")
+                self.canvas.create_image(ack_dx, ack_dy, image=self.visual_photo, anchor="nw", tags="visual")
             )
         else:
             try:
                 self.canvas.itemconfigure(self.visual_canvas_item, image=self.visual_photo)
-                self.canvas.coords(self.visual_canvas_item, 0, 0)
+                self.canvas.coords(self.visual_canvas_item, ack_dx, ack_dy)
             except tk.TclError:
                 self.visual_canvas_item = int(
-                    self.canvas.create_image(0, 0, image=self.visual_photo, anchor="nw", tags="visual")
+                    self.canvas.create_image(ack_dx, ack_dy, image=self.visual_photo, anchor="nw", tags="visual")
                 )
 
     def _voice_refracted_active_visual(
@@ -5264,19 +6578,34 @@ class Overlay:
         self.pill_lift_cache[key] = layer
         return layer
 
-    def _standby_gray_frame(self, image: Image.Image) -> Image.Image:
-        """The compact art, drained to gray, chroma-key background intact.
+    def _standby_gray_level(self) -> float:
+        """X-640: 0.5 on the first standby frame, 1.0 by 90 ms (standby_gray_level)."""
+        now = time.perf_counter()
+        started = getattr(self, "_standby_started_at", None)
+        if started is None:
+            started = self._standby_started_at = now
+        return standby_gray_level((now - started) * 1000.0, reduced_motion=self._motion_is_reduced())
 
-        A naive grayscale would shift the transparent key color off its
-        exact value and the window would grow an opaque box around the
-        pill -- the key pixels are masked out and repainted verbatim."""
+    def _standby_gray_frame(self, image: Image.Image, level: float = 1.0) -> Image.Image:
+        """The compact art drained toward gray by `level`, its alpha untouched.
+
+        X-640 (polish audit P0-2): this used to convert to RGB, which threw the
+        alpha away. The frame's clear surround is (0, 0, 0, 0), not the key
+        colour, so it became opaque black, the "repaint the key" step matched
+        nothing, and the region clipped it into a near-black ring 2 to 3 px
+        wide around the gray Pill on every press. Gray is now taken from the
+        colour channels only and the input's own alpha is carried through, so
+        the gray Pill has exactly the colour Pill's silhouette and soft edge.
+        """
         try:
-            source = image.convert("RGB")
-            gray = source.convert("L").convert("RGB")
-            key = Image.new("RGB", source.size, TRANSPARENT_COLOR)
-            key_mask = ImageChops.difference(source, key).convert("L").point(lambda v: 255 if v == 0 else 0)
-            gray.paste(key, (0, 0), key_mask)
-            return gray
+            rgba = image.convert("RGBA")
+            luma = rgba.convert("L")
+            gray = Image.merge("RGBA", (luma, luma, luma, rgba.getchannel("A")))
+            level = max(0.0, min(1.0, float(level)))
+            if level >= 1.0:
+                return gray
+            # Both frames carry the same alpha, so the blend leaves it intact.
+            return Image.blend(rgba, gray, level)
         except Exception:
             log.debug("standby gray render failed; keeping color frame", exc_info=True)
             return image
@@ -5363,10 +6692,49 @@ class Overlay:
     def _hex_rgba(self, color: str, alpha: int) -> tuple[int, int, int, int]:
         return (*self._rgb(color), int(self._clamp(alpha, 0, 255)))
 
+    def _pill_is_busy_for_menu(self) -> bool:
+        """X-622: the microphone is open, or a result is landing.
+
+        The live states say the first on their own. "processing" also paints
+        the launch's "Preparing microphone", so when the app can say whether
+        a take is in flight, that answer decides; without it (a bare Pill in a
+        test), processing counts as busy.
+        """
+        if self.state in LIVE_STATES:
+            return True
+        if not completion_rainbow_enabled(self.state):
+            return False
+        in_flight = self.callbacks.get("take_in_flight") if isinstance(self.callbacks, dict) else None
+        if callable(in_flight):
+            try:
+                return bool(in_flight())
+            except Exception:
+                return True
+        return True
+
     def _open_context_menu_from_event(self, event: tk.Event | None = None) -> str:
+        # X-622 (interaction grid D7): no Pill menu while the microphone is
+        # open or a result is landing. The menu activates and takes keyboard
+        # focus, so a take that ended with it open pasted into our own menu
+        # window. The press is refused here; its release gets the ACK (an ACK
+        # never plays on a press). A keyboard open has no release to wait for.
+        if self._pill_is_busy_for_menu():
+            if event is None:
+                self.acknowledge("pill")
+            else:
+                self._menu_press_refused = True
+            return "break"
+        self._menu_press_refused = False
         x = int(getattr(event, "x_root", self.root.winfo_rootx() + self.current_width // 2))
         y = int(getattr(event, "y_root", self.root.winfo_rooty()))
         self._open_context_menu(x, y)
+        return "break"
+
+    def _refused_menu_press_released(self, _event: tk.Event | None = None) -> str | None:
+        if not getattr(self, "_menu_press_refused", False):
+            return None
+        self._menu_press_refused = False
+        self.acknowledge("pill")
         return "break"
 
     def _context_menu_rows(self) -> list[tuple[str, str, str, Any]]:
@@ -13429,7 +14797,7 @@ class Overlay:
             "Resize steps": "How many cached frames are available for the pill open/close transition. 22 is the responsive default; valid range is 12-40.",
             "Translation source": "Auto follows the selected speech-recognition language. Choose a language here for pasted or manually entered text.",
             "Translation target": "The language Talk DAT! produces. Translation runs locally and is disabled until you turn it on.",
-            "Translation quality": "Balanced is the best normal-PC default. Larger TranslateGemma models improve difficult translations but need more RAM and disk space.",
+            "Translation quality": "Balanced is the best normal-PC default. Larger TranslateGemma models improve difficult translations but need more RAM and disk space. TranslateGemma is Google's model, under the Gemma Terms of Use (ai.google.dev/gemma/terms).",
             "Translation register": "Natural is the safest everyday default. Formal, informal, and literal are available for specific writing needs.",
             "Auto-translate every dictation": "After transcription and cleanup, translate locally before the normal paste step. This remains off by default.",
         }
@@ -16554,13 +17922,13 @@ class Overlay:
                     # The name lives UNDER the tile, in the page's own ink;
                     # it never sits on the photograph again.
                     gallery.create_text(
-                        tx + 2, ty + tile_h + pad_y, text=family, anchor="nw",
+                        tx + 2, ty + tile_h + pad_y, text=theme_display_name(family), anchor="nw",
                         fill=palette["text"] if (chosen or hovered) else palette["muted"],
                         font=gallery_name_font_bold if chosen else gallery_name_font,
                     )
                     if chosen:
                         gallery.create_text(
-                            tx + 2 + gallery_name_font_bold.measure(family) + ui_scale.px(8, self.config),
+                            tx + 2 + gallery_name_font_bold.measure(theme_display_name(family)) + ui_scale.px(8, self.config),
                             ty + tile_h + pad_y, text="current", anchor="nw",
                             fill=pal["accent"], font=gallery_group_font,
                         )
@@ -19928,24 +21296,26 @@ class Overlay:
         def clear_history() -> None:
             if not messagebox.askyesno(
                 "Clear text history?",
-                "Delete all local text history and live drafts? Protected voice recordings are kept. This cannot be undone.",
+                "Delete your saved dictation text: history, live drafts, the formatting journal, "
+                "the words kept with each recording, and the text Paste Last would paste? "
+                "Pinned entries and the recordings' audio stay. This cannot be undone.",
                 parent=window,
             ):
                 return
-            try:
-                clear_all_history()
-            except OSError:
-                pass
-            # X-544: the recovered draft is the same words in the same folder.
-            # The dialog above already promises "live drafts", plural.
-            for path in (full_history_path(), live_draft_path(), recovered_draft_path()):
-                try:
-                    if path.exists():
-                        path.write_text("", encoding="utf-8")
-                except OSError:
-                    pass
+            # Find-more P0-6: the same list the web shell clears (history.
+            # clear_saved_text, which includes X-544's recovered draft). This
+            # path swallowed every error and said "History cleared." anyway.
+            from .history import clear_saved_text
+
+            failed = clear_saved_text()
+            forget = self.callbacks.get("forget_last_take")
+            if callable(forget):
+                forget()
             load_text()
-            self.set_state("captured", "History cleared. Mic off.", "")
+            if failed:
+                self.set_state("error", "Some saved text could not be deleted.", ", ".join(failed))
+                return
+            self.set_state("captured", "Saved text cleared. Mic off.", "")
 
         def clear_protected() -> None:
             if not messagebox.askyesno(
@@ -21171,6 +22541,15 @@ class Overlay:
         self.show_learned_word(word, on_accept, asking=True)
 
     def show_learned_word(self, word: str, on_reject: Any, *, asking: bool = False) -> None:
+        """The learned word, as a segment of the Pill (X-742): "Added "X"" with
+        Undo, or "Add "X" to your words?" with Add.
+
+        It appears already done because the learning IS already done: the word
+        works on the very next dictation, and this is the undo, not the
+        consent form. The Pill end keeps its art and still starts a dictation;
+        the segment holds 6 s, longer under the pointer; Alt+D is its key.
+        Word notices queue (X-631): the first keeps its undo until it has gone.
+        """
         try:
             from .meeting_quiet import meeting_in_progress
 
@@ -21179,202 +22558,28 @@ class Overlay:
                 # The word was still learned; only the announcement waits.
                 return
         except Exception:
-            pass
-        """The tiny receipt above the pill: "Added 'X'", with one exit.
+            log.debug("meeting check failed", exc_info=True)
+        word = " ".join(str(word or "").split())
+        if not word:
+            return
 
-        It appears already-done because the learning IS already done -- the
-        word works on the very next dictation, and this is the undo, not the
-        consent form. Hover holds it open; "Don't save" draws a red strike
-        through the word, calls `on_reject`, and leaves. Five quiet seconds
-        and it fades on its own.
-        """
-        previous = getattr(self, "_learned_word_receipt", None)
-        if previous is not None:
-            previous_binding = getattr(self, "_learned_word_reject_binding", None)
-            if previous_binding:
-                with contextlib.suppress(Exception):
-                    self.root.unbind("<Alt-d>", previous_binding)
-            self._learned_word_reject_binding = None
-            self._learned_word_receipt = None
-            # A superseded receipt must leave before its replacement appears;
-            # fading both would briefly restore the duplicate notices this
-            # ownership rule exists to prevent.
-            with contextlib.suppress(Exception):
-                previous.destroy()
-
-        try:
-            pill_x = self.root.winfo_rootx()
-            pill_y = self.root.winfo_rooty()
-            pill_w = self.root.winfo_width()
-        except Exception:
-            pill_x, pill_y, pill_w = 200, 200, 240
-
-        theme = self._settings_theme_key()
-        palette = self._settings_palette(theme)
-        pop = self._new_toplevel(self.root, role=AUXILIARY_CHROME)
-        pop.overrideredirect(True)
-        pop.attributes("-topmost", True)
-        with contextlib.suppress(Exception):
-            pop.attributes("-alpha", 0.0)
-
-        body = tk.Frame(pop, bg=palette["panel"], bd=0, highlightthickness=1,
-                        highlightbackground=palette["muted"])
-        body.pack(fill="both", expand=True)
-        label_text = f"Add “{word}”?" if asking else f"Added “{word}”"
-        receipt_font = tkfont.Font(root=pop, family=BRAND_UI_FAMILY, size=type_scale.CAPTION)
-        receipt_rect = self._pill_monitor_work_area()
-        if receipt_rect is None:
-            with contextlib.suppress(Exception):
-                receipt_rect = self._logical_work_area()
-        available_width = (
-            max(ui_scale.px(140, self.config), receipt_rect[2] - receipt_rect[0] - ui_scale.px(156, self.config))
-            if receipt_rect is not None
-            else ui_scale.px(420, self.config)
-        )
-        canvas_width = min(
-            available_width,
-            max(ui_scale.px(210, self.config), receipt_font.measure(label_text) + ui_scale.px(12, self.config)),
-        )
-        canvas = tk.Canvas(body, bg=palette["panel"], bd=0, highlightthickness=0,
-                           width=canvas_width, height=ui_scale.px(30, self.config))
-        canvas.pack(side="left", padx=ui_scale.spacing((8, 4), self.config), pady=ui_scale.spacing(8, self.config))
-        text_id = canvas.create_text(4, ui_scale.px(15, self.config), anchor="w",
-                                     text=label_text, fill=palette["text"],
-                                     font=(BRAND_UI_FAMILY, type_scale.CAPTION),
-                                     width=max(1, canvas_width - ui_scale.px(12, self.config)),
-                                     justify="left")
-        text_bounds = canvas.bbox(text_id)
-        if text_bounds is not None:
-            needed_height = max(
-                ui_scale.px(30, self.config),
-                int(text_bounds[3] - text_bounds[1]) + ui_scale.px(10, self.config),
-            )
-            canvas.configure(height=needed_height)
-            canvas.coords(text_id, 4, needed_height // 2)
-        reject = FlatButton(
-            body,
-            text="Add" if asking else "Don't save",
-            bg=palette["panel"],
-            fg=palette["muted"],
-            activebackground=palette["surface"],
-            activeforeground=palette["text"],
-            font=(BRAND_UI_FAMILY, type_scale.CAPTION, "underline"),
-            cursor="hand2",
-            relief="flat",
-            bd=0,
-            padx=ui_scale.spacing(8, self.config),
-            pady=ui_scale.spacing(4, self.config),
-            takefocus=1,
-            highlightthickness=ui_scale.px(2, self.config),
-            highlightbackground=palette["panel"],
-            highlightcolor=palette["warm"],
-            underline=0,
-        )
-        reject.pack(side="right", padx=ui_scale.spacing((0, 8), self.config))
-
-        state = {"gone": False, "hover": False, "rejected": False}
-
-        def close() -> None:
-            if state["gone"]:
-                return
-            state["gone"] = True
-            self._request_popup_close(pop)
-
-        def strike_and_reject(_event: tk.Event | None = None) -> None:
+        def decide() -> None:
+            # X-626: Add hands the word back (the clipboard learner's accept
+            # expects it); Undo takes nothing. A failure is logged by the
+            # segment, never swallowed.
             if asking:
-                # Nothing was written, so there is nothing to strike out:
-                # the press IS the decision to add it.
-                with contextlib.suppress(Exception):
-                    on_reject(word)
-                close()
-                return
-            if state["gone"] or state["rejected"]:
-                return
-            state["rejected"] = True
-            with contextlib.suppress(Exception):
+                on_reject(word)
+            else:
                 on_reject()
-            bbox = canvas.bbox(text_id)
-            if not bbox:
-                close()
-                return
-            x0, y0, x1, y1 = bbox
-            mid = (y0 + y1) // 2
-            line = canvas.create_line(x0, mid, x0, mid, fill="#d8452c",
-                                      width=max(2, ui_scale.px(2, self.config)))
-            span = x1 - x0
-            steps = 12
 
-            if self._motion_is_reduced():
-                canvas.coords(line, x0, mid, x1, mid)
-                canvas.itemconfigure(text_id, fill=palette["muted"])
-                pop.after(450, close)
-                return
-
-            def grow(step: int = 1) -> None:
-                if state["gone"]:
-                    return
-                canvas.coords(line, x0, mid, x0 + span * step / steps, mid)
-                if step < steps:
-                    pop.after(16, lambda: grow(step + 1))
-                else:
-                    canvas.itemconfigure(text_id, fill=palette["muted"])
-                    pop.after(450, close)
-
-            grow()
-
-        reject.configure(command=strike_and_reject)
-        reject.bind("<Return>", lambda _event=None: (reject.invoke(), "break")[-1], add="+")
-        self._learned_word_receipt = pop
-        reject_binding = self.root.bind(
-            "<Alt-d>",
-            lambda _event=None: (reject.invoke(), "break")[-1],
-            add="+",
+        self.flag(
+            f'Add "{word}" to your words?' if asking else f'Added "{word}"',
+            tone="info" if asking else "done",
+            actions=(FlagAction("Add" if asking else "Undo", decide, "<Alt-d>", primary=asking),),
+            key="word",
+            hold_ms=island.WORD_HOLD_MS,
+            origin="person",
         )
-        self._learned_word_reject_binding = reject_binding
-
-        def release_reject_binding(event: tk.Event) -> None:
-            if event.widget is not pop:
-                return
-            state["gone"] = True
-            if self._learned_word_receipt is pop:
-                self._learned_word_receipt = None
-            if (
-                reject_binding
-                and self._learned_word_reject_binding == reject_binding
-            ):
-                with contextlib.suppress(Exception):
-                    self.root.unbind("<Alt-d>", reject_binding)
-                self._learned_word_reject_binding = None
-
-        pop.bind("<Destroy>", release_reject_binding, add="+")
-        pop.bind("<Enter>", lambda _e=None: state.__setitem__("hover", True))
-        pop.bind("<Leave>", lambda _e=None: state.__setitem__("hover", False))
-
-        def maybe_fade(deadline: int) -> None:
-            if state["gone"]:
-                return
-            if state["hover"]:
-                pop.after(500, lambda: maybe_fade(deadline))
-                return
-            if deadline <= 0:
-                close()
-                return
-            pop.after(250, lambda: maybe_fade(deadline - 250))
-
-        pop.update_idletasks()
-        width = pop.winfo_reqwidth()
-        height = pop.winfo_reqheight()
-        x = pill_x + (pill_w - width) // 2
-        y = pill_y - height - ui_scale.px(8, self.config)
-        if receipt_rect is not None:
-            left, top, right, bottom = receipt_rect
-            x = min(max(left + 8, x), max(left + 8, right - width - 8))
-            if y < top + 8:
-                y = pill_y + self.root.winfo_height() + ui_scale.px(8, self.config)
-            y = min(max(top + 8, y), max(top + 8, bottom - height - 8))
-        pop.geometry(f"+{x}+{y}")
-        self._schedule_popup_present(pop, target=0.96)
-        maybe_fade(5000)
 
     @_transactional_utility_builder
     def open_add_words(self) -> None:
@@ -22495,136 +23700,29 @@ class Overlay:
             log.debug("menu sidebar could not attach", exc_info=True)
 
     def show_update_popover(self, version: str, on_update) -> None:
-        """X-47 stage three: the tiny pop-over above the pill. One line, one
-        Update button, an x. Never steals focus, never stacks."""
-        try:
-            existing = getattr(self, "_update_popover", None)
-            if existing is not None and existing.winfo_exists():
-                return
-            pop = self._new_toplevel(self.root, role=AUXILIARY_CHROME)
-            self._update_popover = pop
-            pop.overrideredirect(True)
-            pop.attributes("-topmost", True)
-            with contextlib.suppress(Exception):
-                pop.attributes("-alpha", 0.0)
-            palette = self._settings_palette(self._settings_theme_key())
-            pop_bg = palette.get("panel", "#0d1c20")
-            frame = tk.Frame(pop, bg=pop_bg, bd=1, highlightthickness=1,
-                             highlightbackground=palette.get("stroke", "#1d3038"))
-            frame.pack(fill="both", expand=True)
-            tk.Label(
-                frame,
-                text=f"New update - v{version}",
-                bg=pop_bg, fg=palette.get("text", "#dbe3ea"), font=(BRAND_UI_FAMILY, type_scale.CAPTION),
-            ).pack(side="left", padx=ui_scale.spacing((12, 8), self.config), pady=ui_scale.spacing(8, self.config))
+        """X-47 stage three, as a segment of the Pill (X-742): "Talk DAT! X is
+        ready" with Install. Never steals focus, never stacks; Alt+U installs,
+        a click on the words puts it away, and it stays 20 s."""
+        queue_ = self._flag_queue_now()
+        showing = queue_.showing
+        if (showing is not None and showing.key == "update") or any(
+            item.key == "update" for item in queue_.waiting
+        ):
+            return
 
-            def go() -> None:
-                def launch_update() -> None:
-                    try:
-                        on_update()
-                    except Exception:
-                        log.debug("popover update launch failed", exc_info=True)
+        def install() -> None:
+            try:
+                on_update()
+            except Exception:
+                log.warning("the update could not start from the Pill", exc_info=True)
 
-                self._request_popup_close(pop, on_complete=launch_update)
-
-            focus_color = palette.get("warm", "#ffd27d")
-            update = FlatButton(
-                frame,
-                text="Update",
-                command=go,
-                bg=pop_bg,
-                fg=palette.get("accent", "#7ee2c3"),
-                activebackground=palette.get("surface", pop_bg),
-                activeforeground=palette.get("accent", "#7ee2c3"),
-                font=(BRAND_UI_FAMILY, type_scale.CAPTION, "bold"),
-                cursor="hand2",
-                relief="flat",
-                bd=0,
-                padx=ui_scale.spacing(8, self.config),
-                pady=ui_scale.spacing(8, self.config),
-                takefocus=1,
-                highlightthickness=ui_scale.px(2, self.config),
-                highlightbackground=pop_bg,
-                highlightcolor=focus_color,
-                underline=0,
-            )
-            update.pack(side="left", padx=ui_scale.spacing(4, self.config), pady=ui_scale.spacing(4, self.config))
-            update.bind("<Return>", lambda _e: (update.invoke(), "break")[-1], add="+")
-            close = FlatButton(
-                frame,
-                text="Dismiss update",
-                command=lambda: self._request_popup_close(pop),
-                bg=pop_bg,
-                fg=palette.get("muted", "#5f6f78"),
-                activebackground=palette.get("danger", "#8a3038"),
-                activeforeground=palette.get("on_danger", palette.get("text", "#ffffff")),
-                font=(BRAND_UI_FAMILY, type_scale.CAPTION, "bold"),
-                cursor="hand2",
-                relief="flat",
-                bd=0,
-                padx=ui_scale.spacing(8, self.config),
-                pady=ui_scale.spacing(4, self.config),
-                takefocus=1,
-                highlightthickness=ui_scale.px(2, self.config),
-                highlightbackground=pop_bg,
-                highlightcolor=focus_color,
-            )
-            self._set_button_icon(
-                close,
-                "close",
-                size=ui_scale.px(18, self.config),
-                primary=palette["muted"],
-                detail=palette["text"],
-                compound="none",
-            )
-            close.pack(side="left", padx=ui_scale.spacing((8, 12), self.config), pady=ui_scale.spacing(4, self.config))
-            close.bind("<Return>", lambda _e: (close.invoke(), "break")[-1], add="+")
-            # The toast deliberately does not steal focus from dictation. Give
-            # keyboard users an explicit accelerator from the focused Pill
-            # instead of force-focusing an unsolicited topmost window.
-            update_binding = self.root.bind(
-                "<Alt-u>",
-                lambda _event: (update.invoke(), "break")[-1],
-                add="+",
-            )
-
-            def release_update_binding(event: tk.Event) -> None:
-                if event.widget is not pop:
-                    return
-                with contextlib.suppress(Exception):
-                    if update_binding:
-                        self.root.unbind("<Alt-u>", update_binding)
-                self._update_popover = None
-
-            pop.bind("<Destroy>", release_update_binding, add="+")
-            self.root.update_idletasks()
-            popover_width = max(1, pop.winfo_reqwidth())
-            x = self.root.winfo_rootx() + (self.root.winfo_width() - popover_width) // 2
-            y = self.root.winfo_rooty() - 46
-            rect = self._pill_monitor_work_area()
-            if rect is not None:
-                left, top, right, _bottom = rect
-                x = max(left + 8, min(x, right - popover_width - 8))
-                y = max(top + 8, y)
-            pop.geometry(f"+{x}+{y}")
-            self._schedule_popup_present(pop)
-            pop.after(
-                20000,
-                lambda: pop.winfo_exists() and self._request_popup_close(pop),
-            )
-        except Exception:
-            # X-537, the third instance of today's class on this one path.
-            # Everything above builds the only prompt most people ever see
-            # about an update, and a failure anywhere in it left NO trace at
-            # default log level -- the pop-over simply never appeared and the
-            # person went on believing they were current.
-            #
-            # Found because the accessibility suite intermittently reports
-            # "real Tk button 'Update' was not constructed" while passing in
-            # isolation, and nothing in the log said why. A warning cannot
-            # make the pop-over appear, but it names the reason the next time
-            # instead of leaving the next reader where this one started.
-            log.warning("update popover failed to build", exc_info=True)
+        self.flag(
+            f"Talk DAT! {str(version).lstrip('v')} is ready",
+            actions=(FlagAction("Install", install, "<Alt-u>", primary=True),),
+            key="update",
+            hold_ms=island.UPDATE_HOLD_MS,
+            origin="system",
+        )
 
     def refresh_route_paint(self) -> None:
         """Mirror a route change into the Settings speech tab, if it is open."""
@@ -23699,8 +24797,15 @@ class Overlay:
 
     def show_ramble_indicator(self) -> None:
         """X-78: while a ramble runs there is a LOUD, unmissable marker -- a
-        fat rainbow bar with RAMBLE cut out of it. Topmost, draggable,
-        double-click hides it; it retires itself when the ramble ends."""
+        fat rainbow bar with RAMBLE cut out of it. Topmost, draggable; it
+        retires itself when the ramble ends.
+
+        X-632 (interaction grid D13, d14): a double-click used to hide it
+        while the ramble kept recording, and the bar is the only loud marker
+        of an hour-long hands-free take. A click on the bar now gets the ACK
+        and the bar stays. It also carries the one thing it was missing: a
+        Finish control that ends the ramble.
+        """
         try:
             previous = getattr(self, "_ramble_indicator", None)
             if previous is not None:
@@ -23719,18 +24824,26 @@ class Overlay:
             bar.attributes("-topmost", True)
             with contextlib.suppress(Exception):
                 bar.attributes("-alpha", 0.0)
-            width = ui_scale.px(232, self.config)
+            strip = ui_scale.px(232, self.config)
+            finish_width = ui_scale.px(76, self.config)
+            width = strip + finish_width
             height = ui_scale.px(46, self.config)
             canvas = tk.Canvas(bar, width=width, height=height, bd=0, highlightthickness=0)
             canvas.pack()
             hues = ("#ff5d5d", "#ff9a4d", "#ffe14d", "#5ddc84", "#4db8ff", "#b45dff")
-            band = width / len(hues)
+            band = strip / len(hues)
             for index, color in enumerate(hues):
                 canvas.create_rectangle(index * band, 0, (index + 1) * band, height, fill=color, outline="")
             # The cutout: lettering painted in near-black over the rainbow
             # reads as letters punched out of the bar.
-            canvas.create_text(width // 2, height // 2, text="R A M B L E",
+            canvas.create_text(strip // 2, height // 2, text="R A M B L E",
                                font=(BRAND_DISPLAY_FAMILY, type_scale.HEADING, "bold"), fill="#101115")
+            # X-632 (d14): the way out, on the bar itself.
+            canvas.create_rectangle(strip, 0, width, height, fill="#101115", outline="", tags="ramble_finish")
+            canvas.create_text(strip + finish_width // 2, height // 2, text="Finish", tags="ramble_finish",
+                               font=(BRAND_UI_FAMILY, type_scale.CAPTION, "bold"), fill="#f2f4f8")
+            canvas.tag_bind("ramble_finish", "<Enter>", lambda _e: canvas.configure(cursor="hand2"))
+            canvas.tag_bind("ramble_finish", "<Leave>", lambda _e: canvas.configure(cursor=""))
             border = max(2, ui_scale.px(2, self.config))
             canvas.create_rectangle(1, 1, width - 1, height - 1, outline="#101115", width=border)
 
@@ -23769,11 +24882,19 @@ class Overlay:
 
             drag = {"x": 0, "y": 0, "moved": False}
 
+            def on_finish(x: int) -> bool:
+                return x >= strip
+
             def press(event: tk.Event) -> None:
                 drag["x"], drag["y"], drag["moved"] = event.x, event.y, False
+                if on_finish(event.x):
+                    # Finish owns its press: it never starts a drag.
+                    return
                 self._begin_window_resize(bar, visual_proxy=False)
 
             def move(event: tk.Event) -> None:
+                if on_finish(drag["x"]):
+                    return
                 if not (event.state & 0x100):
                     self._finish_window_resize(bar)
                     return
@@ -23783,8 +24904,21 @@ class Overlay:
                     f"+{event.x_root - drag['x']}+{event.y_root - drag['y']}",
                 )
 
-            def release(_event: tk.Event) -> None:
+            def release(event: tk.Event) -> None:
+                if on_finish(drag["x"]):
+                    # A press that began on Finish acts at release, and only
+                    # if the release is still on it.
+                    if on_finish(event.x) and 0 <= event.y <= height:
+                        finish = self.callbacks.get("ramble_finish") or self.callbacks.get("hands_free")
+                        if callable(finish):
+                            finish()
+                    return
                 self._finish_window_resize(bar)
+                if not drag["moved"]:
+                    # A click, or a double-click, on the bar itself: there is
+                    # nothing to do here, so it gets the ACK and stays.
+                    self.acknowledge("ramble_bar", canvas=canvas)
+                    return
                 if drag["moved"]:
                     rect = self._window_monitor_work_area(bar) or fallback_rect
                     if rect is not None:
@@ -23805,7 +24939,6 @@ class Overlay:
             canvas.bind("<ButtonPress-1>", press)
             canvas.bind("<B1-Motion>", move)
             canvas.bind("<ButtonRelease-1>", release)
-            canvas.bind("<Double-Button-1>", lambda _e: self.hide_ramble_indicator())
             self._ramble_indicator = bar
 
             def forget_indicator(event: tk.Event) -> None:

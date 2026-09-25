@@ -52,11 +52,12 @@ class _Overlay:
         self.states: list[tuple[str, str, str]] = []
         self.toasts: list[str] = []
 
-    def set_state(self, state: str, message: str = "", detail: str = "") -> None:
+    def set_state(self, state: str, message: str = "", detail: str = "", **_kwargs) -> None:
         self.states.append((state, message, detail))
 
-    def show_toast(self, text: str) -> None:
-        self.toasts.append(text)
+    def flag(self, text: str, *, detail: str = "", **_kwargs) -> None:
+        # X-743: the rescue is said by the Pill itself (Overlay.flag).
+        self.toasts.append(f"{text}. {detail}".strip())
 
 
 class _Session:

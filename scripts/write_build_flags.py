@@ -57,6 +57,15 @@ def decide(env: dict[str, str] | None = None, root: Path = ROOT) -> tuple[bool, 
     return False, "a build from source (no release tooling in this checkout)"
 
 
+def _built_from(root: Path) -> dict[str, object]:
+    try:
+        from scripts.suite_report import tree_state
+    except ImportError:  # a source checkout without the release tooling
+        return {"commit": "", "dirty": True}
+    commit, dirty = tree_state(root)
+    return {"commit": commit, "dirty": dirty}
+
+
 def write(env: dict[str, str] | None = None, root: Path = ROOT) -> dict[str, object]:
     from knight_flow.official_build import render_build_flags
     from knight_flow.version import APP_VERSION
@@ -78,6 +87,10 @@ def write(env: dict[str, str] | None = None, root: Path = ROOT) -> dict[str, obj
         "api_base": api_base,
         "update_repository": repository,
         "written_at": int(time.time()),
+        # X-720: which code this build is. publish_release.py ships it only
+        # when this is the commit it publishes and nothing that ships was
+        # uncommitted when it was built.
+        **_built_from(root),
     }
     receipt_path = root / "build" / "talk-dat-build-flags.json"
     receipt_path.parent.mkdir(parents=True, exist_ok=True)

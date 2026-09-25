@@ -103,7 +103,7 @@ class StoreCopyNeverSelfUpdatesTests(unittest.TestCase):
         states = []
 
         class Overlay:
-            def set_state(self, *args):
+            def set_state(self, *args, **_kwargs):
                 states.append(args)
 
         app.overlay = Overlay()

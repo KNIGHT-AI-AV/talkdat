@@ -247,19 +247,29 @@ class ThePillShowsItTests(unittest.TestCase):
         forget_default_root()
 
     def drawn(self, overlay) -> Image.Image:
-        """The exact image the Pill hands to Tk for its next frame."""
+        """The exact image the Pill hands to the screen for its next frame.
+
+        X-641: on Windows that is the layered push (per-pixel alpha); a Tk
+        PhotoImage is the colour-key path's, and the Mac's."""
         import knight_flow.overlay as module
 
         real = module.ImageTk.PhotoImage
+        real_layered = overlay._present_layered
         seen: list[Image.Image] = []
 
         def spy(image=None, *args, **kwargs):
             seen.append(image)
             return real(image, *args, **kwargs)
 
+        def layered_spy(image, *args, **kwargs):
+            seen.append(image)
+            return real_layered(image, *args, **kwargs)
+
         overlay.idle_photo_cache.clear()
         overlay.idle_render_cache.clear()
-        with mock.patch.object(module.ImageTk, "PhotoImage", side_effect=spy):
+        with mock.patch.object(module.ImageTk, "PhotoImage", side_effect=spy), mock.patch.object(
+            overlay, "_present_layered", side_effect=layered_spy
+        ):
             overlay._draw_visual()
         self.assertTrue(seen, "the Pill drew nothing")
         return seen[-1]
@@ -306,6 +316,7 @@ class ThePillShowsItTests(unittest.TestCase):
                 self.assertEqual(overlay._state_feedback_strength(), 0.0)
 
     def test_an_error_says_what_happened_and_what_to_do(self) -> None:
+        """X-742: the Pill itself lengthens in its ember look with both lines."""
         overlay = self.overlay()
         overlay.set_state(
             "error",
@@ -313,12 +324,12 @@ class ThePillShowsItTests(unittest.TestCase):
             "Check the input device, or open Mic Doctor in Settings.",
         )
         pump(overlay.root, 0.2)
-        toast = overlay._toast_window
-        self.assertIsNotNone(toast, "an error raised no message at all")
-        texts = [child.cget("text") for child in _walk(toast) if child.winfo_class() == "Label"]
-        self.assertIn("No sound is reaching the microphone.", texts)
-        self.assertIn("Check the input device, or open Mic Doctor in Settings.", texts)
-        self.assertGreaterEqual(int(getattr(toast, "_talkdat_toast_hold_ms", 0)), 4000)
+        view = overlay._flag_view
+        self.assertIsNotNone(view, "an error raised no message at all")
+        self.assertEqual(view.message.title, "No sound is reaching the microphone.")
+        self.assertEqual(view.message.detail, "Check the input device, or open Mic Doctor in Settings.")
+        self.assertEqual(view.message.tone, "error")
+        self.assertGreaterEqual(int(view.message.reading_ms()), 4000)
 
     def test_a_hidden_pill_raises_no_error_box(self) -> None:
         overlay = self.overlay()
@@ -326,21 +337,17 @@ class ThePillShowsItTests(unittest.TestCase):
         pump(overlay.root, 0.1)
         overlay.set_state("error", "No sound is reaching the microphone.", "Check the input device.")
         pump(overlay.root, 0.2)
-        self.assertIsNone(overlay._toast_window)
+        self.assertIsNone(overlay._flag_view)
 
-    def test_the_toast_follows_the_theme(self) -> None:
-        for theme in ("Flow Light", "Flow Dark"):
+    def test_the_message_follows_the_theme(self) -> None:
+        for theme, mode in (("Flow Light", "light"), ("Flow Dark", "dark")):
             with self.subTest(theme=theme):
                 overlay = self.overlay(theme=theme)
-                palette = overlay._settings_palette(theme)
                 overlay.show_toast("Talk DAT! is up to date")
                 pump(overlay.root, 0.2)
-                toast = overlay._toast_window
-                self.assertIsNotNone(toast)
-                labels = [child for child in _walk(toast) if child.winfo_class() == "Label"]
-                self.assertTrue(labels)
-                self.assertEqual(labels[0].cget("bg").lower(), palette["surface"].lower())
-                self.assertEqual(labels[0].cget("fg").lower(), palette["text"].lower())
+                view = overlay._flag_view
+                self.assertIsNotNone(view)
+                self.assertEqual(view.theme, mode, "the lengthened Pill wears the other theme's veil")
 
 
 def _walk(widget):

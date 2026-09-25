@@ -152,15 +152,17 @@ class PopupActionAccessibilityTests(unittest.TestCase):
         self.assertIn("winfo_toplevel() is not pop", block)
 
     def test_update_toast_uses_buttons_without_stealing_focus(self) -> None:
+        # X-742: the update offer is a segment of the Pill; Install is its
+        # action (a 44 px press area inside the Pill's own no-activate window)
+        # and Alt+U its accelerator, bound on the Pill root only while shown.
         block = function_source("show_update_popover")
-
-        self.assertIn("update = FlatButton(", block)
-        self.assertIn("close = FlatButton(", block)
-        self.assertGreaterEqual(block.count("takefocus=1"), 2)
-        self.assertIn('self.root.bind(\n                "<Alt-u>"', block)
-        self.assertIn('self.root.unbind("<Alt-u>", update_binding)', block)
+        self.assertIn('FlagAction("Install", install, "<Alt-u>", primary=True)', block)
+        self.assertIn("hold_ms=island.UPDATE_HOLD_MS", block)
         self.assertNotIn("focus_force", block)
-        self.assertIn('activeforeground=palette.get("on_danger"', block)
+        bind = function_source("_flag_bind")
+        self.assertIn("self.root.bind(", bind)
+        self.assertIn('add="+"', bind)
+        self.assertIn("self.root.unbind(sequence, binding)", function_source("_flag_unbind"))
 
     def test_scratchpad_font_picker_is_searchable_and_keyboard_native(self) -> None:
         block = function_source("open_font_chooser")
@@ -173,13 +175,13 @@ class PopupActionAccessibilityTests(unittest.TestCase):
         self.assertIn("dismiss_font_if_focus_left", block)
 
     def test_learned_word_undo_is_a_button_with_a_non_focus_stealing_accelerator(self) -> None:
+        # X-742: Undo (or Add) is the segment's action and Alt+D its key; the
+        # Pill's window never takes the focus, so nothing calls focus_force.
         block = function_source("show_learned_word")
-
-        self.assertIn("reject = FlatButton(", block)
-        self.assertIn("takefocus=1", block)
-        self.assertIn("reject.configure(command=strike_and_reject)", block)
-        self.assertIn('self.root.bind(\n            "<Alt-d>"', block)
-        self.assertIn('self.root.unbind("<Alt-d>", reject_binding)', block)
+        self.assertIn('FlagAction("Add" if asking else "Undo", decide, "<Alt-d>", primary=asking)', block)
+        self.assertIn("hold_ms=island.WORD_HOLD_MS", block)
+        self.assertNotIn("focus_force", block)
+        self.assertIn("self._flag_contract()", function_source("_flag_choose"))
 
 
 class BorderMicroControlAccessibilityTests(unittest.TestCase):
@@ -268,15 +270,18 @@ class ResponsiveTransientSurfaceTests(unittest.TestCase):
         self.assertIn("self._window_monitor_work_area(bar)", block)
 
     def test_learned_word_receipt_measures_wraps_and_clamps(self) -> None:
-        block = function_source("show_learned_word")
-        self.assertIn("receipt_font.measure(label_text)", block)
-        self.assertIn("width=max(1, canvas_width", block)
-        self.assertIn("self._pill_monitor_work_area()", block)
+        # X-742: every message (a word notice included) is measured by the
+        # composer against the Pill's own monitor, and placed inside it.
+        block = function_source("_flag_build")
+        self.assertIn("work = self._flag_work_area()", block)
+        self.assertIn("work_width=work.w", block)
+        self.assertIn("island.pill_frame(", block)
+        self.assertIn("self._pill_monitor_work_area()", function_source("_flag_work_area"))
 
     def test_long_toasts_wrap_to_the_pill_monitor(self) -> None:
-        block = function_source("_show_toast_now")
-        self.assertIn("wraplength=wraplength", block)
-        self.assertIn("self._pill_monitor_work_area()", block)
+        self.assertIn("self.flag(", function_source("_show_toast_now"))
+        self.assertIn("pill_message.layout(", function_source("_flag_build"))
+        self.assertIn("self._pill_monitor_work_area()", function_source("_flag_work_area"))
 
 
 class WorkspaceMicroControlAccessibilityTests(unittest.TestCase):

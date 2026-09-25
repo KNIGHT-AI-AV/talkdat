@@ -75,7 +75,20 @@ class NoWindowsApiEscapesOntoMacTests(unittest.TestCase):
                 # calling an assertion helper like _require_windows(), which is
                 # the clearer form when several functions share the check.
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    head = ast.dump(ast.Module(body=node.body[:3], type_ignores=[]))
+                    body = node.body
+                    # A docstring is body[0] on almost every function in this
+                    # codebase; counting it toward "the first 3 statements"
+                    # pushed the real early-return check for
+                    # restore_clipboard_snapshot out of the window and reported
+                    # a guarded windll use as an offender.
+                    if (
+                        body
+                        and isinstance(body[0], ast.Expr)
+                        and isinstance(body[0].value, ast.Constant)
+                        and isinstance(body[0].value.value, str)
+                    ):
+                        body = body[1:]
+                    head = ast.dump(ast.Module(body=body[:3], type_ignores=[]))
                     early_return = ("platform" in head or "IS_MAC" in head) and "Return" in head
                     asserts_platform = "_require_windows" in head
                     if early_return or asserts_platform:

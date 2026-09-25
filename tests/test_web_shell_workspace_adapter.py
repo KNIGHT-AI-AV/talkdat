@@ -49,7 +49,8 @@ class WorkspaceAdapterTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'clipboard'):self.service.copy('my words')
     def test_recovery_shows_configured_retention_and_rejects_foreign_audio(self):
         self.app.config['dictation']['safety_recording_limit']=10
-        with patch('knight_flow.audio_spool.list_safety_sessions',return_value=[]) as sessions:self.service.sessions()
+        # Find-more P0-3: Recovery lists the newest N plus failed takes kept past them.
+        with patch('knight_flow.audio_spool.recovery_sessions',return_value=[]) as sessions:self.service.sessions()
         sessions.assert_called_once_with(10)
         with patch.object(self.service,'open_path') as opened:
             with self.assertRaises(ValueError):self.service.play_recording({'audio_path':str(self.root/'elsewhere.wav')})

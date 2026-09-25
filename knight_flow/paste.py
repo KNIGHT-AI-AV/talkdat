@@ -59,7 +59,7 @@ class _LazyPyAutoGui:
 pyautogui = _LazyPyAutoGui()
 import pyperclip
 
-from . import mac_support
+from . import mac_pasteboard, mac_support
 
 
 log = logging.getLogger(__name__)
@@ -323,14 +323,22 @@ def clipboard_text() -> str:
     return ""
 
 
-def clipboard_sequence_number() -> int:
-    """Current Windows clipboard generation, or zero when unavailable.
+def _mac_pasteboard_in_use() -> bool:
+    """Find-more P0-5: a Mac, using NSPasteboard directly (not the plain-clipboard switch)."""
+    return mac_support.IS_MAC and mac_pasteboard.native()
 
-    Zero is deliberately not a usable ownership token. The macOS branch needs
-    its own NSPasteboard ``changeCount`` implementation; falling back to a text
-    comparison there would recreate the same lost-copy race.
+
+def clipboard_sequence_number() -> int:
+    """Current clipboard generation, or zero when unavailable.
+
+    Zero is deliberately not a usable ownership token. On the Mac the
+    generation is NSPasteboard's ``changeCount`` (find-more P0-5): the text
+    comparison the Mac used before it recreated the lost-copy race, so a copy
+    the person made of the words just pasted was overwritten by the restore.
     """
 
+    if _mac_pasteboard_in_use():
+        return mac_pasteboard.change_count()
     if os.name != "nt":
         return 0
     try:
@@ -384,7 +392,14 @@ def _restore_windows_clipboard_text_if_owned(
 
     if clipboard_sequence_number() != owned_sequence:
         return False
-    if not user32.OpenClipboard(None):
+    # P0-4: the restore now follows the target's read, and the target may
+    # still hold the clipboard open for a moment after it; wait up to 0.5 s.
+    # The ownership proof below is repeated once the clipboard is open.
+    for _attempt in range(25):
+        if user32.OpenClipboard(None):
+            break
+        time.sleep(0.02)
+    else:
         return False
 
     allocation: int | None = None
@@ -495,11 +510,15 @@ def clipboard_contains_non_text_formats() -> bool:
     flattening an image or rich selection into plain text.
     """
 
+    if _mac_pasteboard_in_use():
+        # Find-more P0-5: answering "plain" for every Mac clipboard let the
+        # selection capture (Fix That, Command mode, the right-click tools)
+        # write its sentinel over a copied image or file and then put back "".
+        # The types are read without their data, so no app's promise is
+        # fired; an unreadable pasteboard is protected, as on Windows.
+        kinds = mac_pasteboard.item_types()
+        return kinds is None or not mac_pasteboard.is_plain_text(kinds)
     if sys.platform != "win32":
-        # No NSPasteboard probe yet. "Plain" is the honest answer here: a
-        # conservative True routed every macOS paste through per-character
-        # typing and refused every selection capture. Follow-up: NSPasteboard
-        # types, so the protection below can hold on macOS too.
         return False
     user32 = ctypes.windll.user32
     if not user32.OpenClipboard(None):
@@ -541,8 +560,14 @@ _SNAPSHOT_HANDLE_ONLY = {3, 14, 0x80, 0x82, 0x83, 0x8E}  # metafiles, owner disp
 _SNAPSHOT_MAX_BYTES = 64 * 1024 * 1024
 
 
-def snapshot_clipboard() -> list[tuple[int, bytes]] | None:
-    """Every memory-backed clipboard format, or None when it cannot be kept faithfully."""
+def snapshot_clipboard() -> list[tuple[int, bytes]] | mac_pasteboard.PasteboardSnapshot | None:
+    """Every memory-backed clipboard format, or None when it cannot be kept faithfully.
+
+    On the Mac (find-more P0-5): every type of every pasteboard item, as a
+    mac_pasteboard.PasteboardSnapshot, where the old code kept plain text only.
+    """
+    if _mac_pasteboard_in_use():
+        return mac_pasteboard.take_snapshot()
     if sys.platform != "win32":
         return None
     user32 = ctypes.windll.user32
@@ -609,6 +634,8 @@ def snapshot_clipboard() -> list[tuple[int, bytes]] | None:
 def restore_clipboard_snapshot(snapshot: list[tuple[int, bytes]], expected: str) -> bool:
     """Put a snapshot back, but only while Talk DAT! still owns the clipboard generation it wrote."""
     global _CLIPBOARD_OWNERSHIP
+    if _mac_pasteboard_in_use():
+        return _restore_mac_snapshot(snapshot, expected)
     if sys.platform != "win32" or not snapshot:
         return False
     with _EXTERNAL_DELIVERY_LOCK:
@@ -627,11 +654,11 @@ def restore_clipboard_snapshot(snapshot: list[tuple[int, bytes]], expected: str)
         kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
         kernel32.GlobalFree.argtypes = [ctypes.c_void_p]
         opened = False
-        for _attempt in range(5):
+        for _attempt in range(25):  # P0-4: the target may still hold it open after its read
             if user32.OpenClipboard(None):
                 opened = True
                 break
-            time.sleep(0.01)
+            time.sleep(0.02)
         if not opened:
             _CLIPBOARD_OWNERSHIP = None
             return False
@@ -671,6 +698,54 @@ def restore_clipboard_snapshot(snapshot: list[tuple[int, bytes]], expected: str)
                 user32.CloseClipboard()
             except Exception:
                 log.debug("clipboard snapshot restore could not close its handle", exc_info=True)
+
+
+def _restore_mac_snapshot(snapshot: object, expected: str) -> bool:
+    """Find-more P0-5: every item back, only while the Mac's changeCount is still ours.
+
+    The token is the changeCount our own write of `expected` left (or the one
+    the target's read left). Anything newer is somebody's copy, and theirs.
+    """
+    global _CLIPBOARD_OWNERSHIP
+    if not isinstance(snapshot, mac_pasteboard.PasteboardSnapshot):
+        return False
+    with _EXTERNAL_DELIVERY_LOCK:
+        ownership = _CLIPBOARD_OWNERSHIP
+        _CLIPBOARD_OWNERSHIP = None
+        if ownership is None or ownership[0] != expected or not ownership[1]:
+            return False
+        try:
+            return mac_pasteboard.restore_snapshot(snapshot, ownership[1])
+        except Exception:
+            log.debug("pasteboard snapshot restore failed safely", exc_info=True)
+            return False
+
+
+def _restore_mac_text_if_owned(expected: str, previous: str, ownership: tuple[str, int] | None) -> bool:
+    """Find-more P0-5: plain text back over our own generation, proven by changeCount.
+
+    Called with _EXTERNAL_DELIVERY_LOCK held. The old Mac restore compared text,
+    so a copy the person made of the same words was overwritten; the
+    changeCount tells their copy from ours. Plain text is only ever put back
+    over plain text: a copied image, file or formatting is either kept by the
+    snapshot or never written over (clipboard_contains_non_text_formats).
+    """
+    global _CLIPBOARD_OWNERSHIP
+    if ownership is None or ownership[0] != expected or not ownership[1]:
+        return False
+    # Find-more P1-4: Fix That and Command mode restore right after their paste
+    # returns; the target may not have read the Command+V yet.
+    settle = mac_pasteboard.settle_remaining()
+    if settle > 0:
+        time.sleep(settle)
+    try:
+        sequence = mac_pasteboard.restore_text(previous, ownership[1])
+    except Exception:
+        log.debug("pasteboard text restore failed safely", exc_info=True)
+        sequence = 0
+    # Never retry: retrying could overwrite the newer owner.
+    _CLIPBOARD_OWNERSHIP = (previous, sequence) if sequence else None
+    return bool(sequence)
 
 
 def _mark_open_clipboard_private(*, transient: bool) -> None:
@@ -774,6 +849,21 @@ def _copy_text_windows(text: str, *, transient: bool) -> bool:
         user32.CloseClipboard()
 
 
+def _copy_text_mac(text: str, *, transient: bool) -> bool:
+    """Find-more P0-5: X-604's promise on the Mac, through NSPasteboard.
+
+    Every copy is current-host-only, so Universal Clipboard never offers
+    Talk DAT!'s words to the person's other devices; a TRANSIENT copy (the
+    pasteboard borrowed for a paste, a probe sentinel, a restore) is marked
+    org.nspasteboard.TransientType, and a password take's ConcealedType, so
+    Maccy, Raycast, Paste and the rest do not keep it. pyperclip, used before,
+    wrote neither. False on any failure; the caller then uses pyperclip.
+    """
+    if not mac_pasteboard.native():
+        return False
+    return mac_pasteboard.write_text(text, transient=transient)
+
+
 def copy_text(text: str, *, transient: bool = False) -> bool:
     global _CLIPBOARD_OWNERSHIP
     with _EXTERNAL_DELIVERY_LOCK:
@@ -781,7 +871,8 @@ def copy_text(text: str, *, transient: bool = False) -> bool:
             try:
                 written = False
                 try:
-                    written = _copy_text_windows(text, transient=transient)
+                    written = (_copy_text_mac(text, transient=transient) if mac_support.IS_MAC
+                               else _copy_text_windows(text, transient=transient))
                 except Exception:
                     log.debug("private clipboard write failed; using the plain one", exc_info=True)
                 if not written:
@@ -794,10 +885,10 @@ def copy_text(text: str, *, transient: bool = False) -> bool:
                 _CLIPBOARD_OWNERSHIP = None
                 if sys.platform == "win32":
                     return False
-                # No clipboard generation counter here (macOS: an NSPasteboard
-                # changeCount token is the follow-up). Verify the write the way
-                # this did before ownership tokens existed -- read it back --
-                # and claim no ownership, since none can be proven. A False here
+                # No clipboard generation counter could be read (a Mac whose
+                # changeCount did not answer). Verify the write the way this
+                # did before ownership tokens existed -- read it back -- and
+                # claim no ownership, since none can be proven. A False here
                 # made every macOS paste and selection capture fail.
                 time.sleep(0.025)
                 return clipboard_text() == text
@@ -819,16 +910,91 @@ def copy_text(text: str, *, transient: bool = False) -> bool:
         return False
 
 
+def _borrow_clipboard(text: str) -> object | None:
+    """P0-4 (commandment 85): offer the dictation so its read can be seen.
+
+    Returns the owner when the offer is on the clipboard, or None, and the
+    caller then copies the ordinary way. One flow for both platforms:
+      Windows -> clipboard_owner.BorrowedClipboard (X-665, delayed rendering);
+                 the offer carries X-604's local-only formats like any
+                 borrowed copy.
+      Mac     -> mac_pasteboard.BorrowedPasteboard (find-more P0-5, X-780): a
+                 data-provider promise with the TransientType mark that stays
+                 on this Mac like any borrowed copy.
+    """
+    global _CLIPBOARD_OWNERSHIP
+    if mac_support.IS_MAC:
+        mac_owner = mac_pasteboard.borrow(text)
+        with _EXTERNAL_DELIVERY_LOCK:
+            _CLIPBOARD_OWNERSHIP = (text, mac_owner.token) if mac_owner is not None else None
+        return mac_owner
+    from .clipboard_owner import borrowed_clipboard
+
+    owner = borrowed_clipboard()
+    if owner is None:
+        return None
+    with _EXTERNAL_DELIVERY_LOCK:
+        try:
+            sequence = owner.offer(text, lambda: _mark_open_clipboard_private(transient=True))
+        except Exception:
+            log.debug("delayed clipboard offer failed; copying the ordinary way", exc_info=True)
+            sequence = 0
+        _CLIPBOARD_OWNERSHIP = (text, sequence) if sequence else None
+    return owner if sequence else None
+
+
+def _after_the_target_reads(owner: object, text: str, chord_at: float, target_pid: int,
+                            marks: dict[str, float]) -> bool:
+    """P0-4: wait for the target to read the borrowed clipboard. True to restore.
+
+    The old restore ran 0.2 s after the chord, so an app that handled Ctrl+V
+    later pasted the person's previous clipboard. Now:
+      read  -> the target has the dictation; restore READ_GRACE_S after the read.
+      early -> someone else read first (a clipboard manager, or a read before
+               the chord), so the target's read will be silent: the old fixed
+               delay, no worse than before.
+      lost  -> another app replaced the clipboard; it is theirs, restore nothing.
+      none  -> nobody read within the ceiling: the dictation stays, the person's
+               old clipboard is not put back over a paste that may still come.
+    """
+    global _CLIPBOARD_OWNERSHIP
+    outcome = owner.wait_for_read(chord_at, target_pid)
+    marks["read"] = time.perf_counter()
+    log.info("paste restore: target %s after %.0f ms", outcome, (marks["read"] - chord_at) * 1000.0)
+    if outcome == "early":
+        time.sleep(max(0.0, 0.2 - (time.perf_counter() - chord_at)))
+    elif outcome == "read":
+        if mac_support.IS_MAC:
+            time.sleep(mac_pasteboard.READ_GRACE_S)
+        else:
+            from .clipboard_owner import READ_GRACE_S
+
+            time.sleep(READ_GRACE_S)
+    else:
+        with _EXTERNAL_DELIVERY_LOCK:
+            _CLIPBOARD_OWNERSHIP = None
+        return False
+    # Rendering can move the clipboard's sequence number; the generation this
+    # process owns is the one the render left behind.
+    with _EXTERNAL_DELIVERY_LOCK:
+        if _CLIPBOARD_OWNERSHIP is not None and _CLIPBOARD_OWNERSHIP[0] == text and owner.rendered_sequence:
+            _CLIPBOARD_OWNERSHIP = (text, owner.rendered_sequence)
+    return True
+
+
 def restore_clipboard_if_unchanged(expected: str, previous: str) -> bool:
     """Restore only while Talk DAT! still owns one exact clipboard generation."""
 
     global _CLIPBOARD_OWNERSHIP
     with _EXTERNAL_DELIVERY_LOCK:
         ownership = _CLIPBOARD_OWNERSHIP
+        if _mac_pasteboard_in_use():
+            return _restore_mac_text_if_owned(expected, previous, ownership)
         if ownership is None and sys.platform != "win32":
-            # No clipboard generation counter here (macOS), so no ownership
-            # token was ever claimed. The pre-token contract decides: the
-            # value is still ours to put back while the text is unchanged.
+            # No clipboard generation counter here (neither Windows nor a Mac
+            # using its pasteboard), so no ownership token was ever claimed.
+            # The pre-token contract decides: the value is still ours to put
+            # back while the text is unchanged.
             if clipboard_text() != expected:
                 return False
             return copy_text(previous)
@@ -980,6 +1146,44 @@ def physical_modifiers_down() -> tuple[int, ...]:
     except Exception:
         log.debug("could not read the modifier keys; treating them as released", exc_info=True)
         return ()
+
+
+def wait_for_keys_released(timeout_ms: int = MODIFIER_RELEASE_TIMEOUT_MS) -> bool:
+    """Find-more P1-5: wait until no key or button is physically held.
+
+    A shortcut fires on key-down, and letting go of it is input: it moves the
+    session input tick (foreground_input_generation) that delayed deliveries
+    use to see whether the person has moved on. Read before the release, the
+    tick always changed and Paste Last only copied. settle_modifiers is not
+    enough here, because the letter key of the chord is not a modifier.
+    Returns True when everything is up; never raises and never waits longer
+    than `timeout_ms`.
+    """
+    if mac_support.IS_MAC:  # find-more P1-4: the Mac reads the same way (X-667 on main)
+        return mac_support.wait_for_keys_released(timeout_ms)
+    if os.name != "nt":
+        return True
+    try:
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.GetAsyncKeyState.argtypes = (ctypes.c_int,)
+        user32.GetAsyncKeyState.restype = ctypes.c_short
+    except Exception:
+        log.debug("key state unavailable; Paste Last does not wait for the keys", exc_info=True)
+        return True
+
+    def held() -> bool:
+        try:
+            return any(user32.GetAsyncKeyState(code) & 0x8000 for code in range(0x01, 0xFF))
+        except Exception:
+            log.debug("key state read failed; treating the keys as up", exc_info=True)
+            return False
+
+    deadline = time.monotonic() + max(0, int(timeout_ms)) / 1000
+    while held():
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.02)
+    return True
 
 
 def settle_modifiers(timeout_ms: int = MODIFIER_RELEASE_TIMEOUT_MS) -> bool:
@@ -1245,8 +1449,14 @@ def foreground_focus_window_id() -> int:
     A top-level browser or Word window can contain many independent editors.
     Delayed voice transforms must bind to the focused control that owned the
     original selection, not merely to the outer application window.
+
+    On the Mac (find-more P1-4) it is the focused accessibility element's
+    identity. The 0 this returned there made Fix That and Command mode
+    copy-only on every Mac.
     """
 
+    if mac_support.IS_MAC:
+        return mac_support.focused_element_id()
     if os.name != "nt":
         return 0
 
@@ -1297,8 +1507,13 @@ def foreground_edit_target_signature() -> tuple[int, ...]:
     Requiring the caret owner and rectangle closes the common same-renderer
     wrong-field path; when an application does not expose this information the
     caller must fail closed to copy/manual paste.
+
+    On the Mac (find-more P1-4): the frontmost app's pid, the focused
+    accessibility element and its frame (mac_support.edit_target_signature).
     """
 
+    if mac_support.IS_MAC:
+        return mac_support.focused_element_signature()
     if os.name != "nt":
         return ()
 
@@ -1358,8 +1573,14 @@ def foreground_input_generation() -> int:
     A speculative correction captures it after the original paste and refuses
     to edit if it changes, closing the same-window/different-field hole that a
     top-level window handle alone cannot detect.
+
+    On the Mac (find-more P1-4): a generation that moves on each new key-down
+    or click (mac_support.input_generation). The 0 this returned there made
+    Paste Last stop on every Mac ("the target changed").
     """
 
+    if mac_support.IS_MAC:
+        return mac_support.input_generation()
     if os.name != "nt":
         return 0
 
@@ -1455,7 +1676,28 @@ def replace_typed_text(backspaces: int, replacement: str, *, interval_ms: int = 
         return False
 
 
+def _concealed_on_request(
+    function: Callable[..., PasteReceipt],
+) -> Callable[..., PasteReceipt]:
+    """Find-more P0-5: ``concealed=True`` makes every pasteboard write of this delivery a secret.
+
+    A password take is typed, but when typing is refused before the first key
+    the words fall back to the pasteboard. On the Mac that write, and any
+    borrow, then carries org.nspasteboard.ConcealedType beside TransientType,
+    so password-aware clipboard managers never show or keep it. The keyword
+    is taken here, so the delivery body itself is unchanged.
+    """
+
+    @wraps(function)
+    def delivered(*args: object, concealed: bool = False, **kwargs: object) -> PasteReceipt:
+        with mac_pasteboard.concealed_writes(concealed):
+            return function(*args, **kwargs)
+
+    return delivered
+
+
 @_serialized_external_delivery
+@_concealed_on_request
 def paste_text_with_receipt(
     text: str,
     *,
@@ -1480,7 +1722,10 @@ def paste_text_with_receipt(
         text
         and restore_clipboard
         and requested_mode in {"auto", "clipboard", "shift_insert"}
-        and clipboard_contains_non_text_formats()
+        # Find-more P0-5: on the Mac every restoring paste takes the snapshot,
+        # plain text included: it is what carries the changeCount proof, and an
+        # empty pasteboard comes back empty instead of as "".
+        and (_mac_pasteboard_in_use() or clipboard_contains_non_text_formats())
     )
 
     rich_snapshot: list[tuple[int, bytes]] | None = None
@@ -1568,8 +1813,14 @@ def paste_text_with_receipt(
     # arrives with their modifiers added to it and does nothing.
     settle_modifiers()
     # Borrowed for the paste: transient unless the person keeps it there.
-    copied = bool(text and _delivery_is_allowed(can_deliver)
-                  and copy_text(text, transient=bool(restore_clipboard)))
+    # P0-4: when the old clipboard comes back afterwards, the borrow is a
+    # delayed-render offer, so the restore can wait for the target's read.
+    borrowed = (_borrow_clipboard(text) if text and restore_clipboard and _delivery_is_allowed(can_deliver)
+                else None)
+    chord_at = 0.0
+    target_pid = 0
+    copied = borrowed is not None or bool(text and _delivery_is_allowed(can_deliver)
+                                          and copy_text(text, transient=bool(restore_clipboard)))
     marks["copied"] = time.perf_counter()
     if copied:
         time.sleep(max(0, int(clipboard_paste_delay_ms)) / 1000)
@@ -1579,6 +1830,14 @@ def paste_text_with_receipt(
             if not _delivery_is_allowed(can_deliver):
                 return cancelled_receipt()
             try:
+                if borrowed is not None:
+                    from .clipboard_owner import process_of_window
+
+                    # 0 off Windows: the Mac's data provider is not told who
+                    # reads, so no target pid; a read before this moment is
+                    # still "early".
+                    target_pid = process_of_window(foreground_window_id())
+                    chord_at = time.perf_counter()
                 if clipboard_method == "shift_insert":
                     # Apple keyboards have no Insert key. If pyautogui maps it to
                     # something inert the chord "succeeds" and the receipt claims
@@ -1675,14 +1934,23 @@ def paste_text_with_receipt(
     finally:
         cancelled = bool(attempts and attempts[-1] == "cancelled")
         commit_unknown = bool(attempts and attempts[-1] == "clipboard_commit_unknown")
-        if copied and not commit_unknown and (restore_clipboard or cancelled):
-            if restore_clipboard and not cancelled:
+        restore_now = bool(copied and not commit_unknown and (restore_clipboard or cancelled))
+        if restore_now and restore_clipboard and not cancelled:
+            if borrowed is not None and chord_at:
+                restore_now = _after_the_target_reads(borrowed, text, chord_at, target_pid, marks)
+            else:
                 time.sleep(0.2)
+        if restore_now:
             marks["restore"] = time.perf_counter()
             if rich_snapshot is not None:
                 restore_clipboard_snapshot(rich_snapshot, text)
             else:
                 restore_clipboard_if_unchanged(text, previous)
+        elif borrowed is not None:
+            # The dictation stays on the clipboard (commit unknown, or no read
+            # before the ceiling): make it real data, not a promise that needs
+            # this process alive to keep.
+            borrowed.keep()
         marks["end"] = time.perf_counter()
         _log_slow_paste(marks, attempts)
 
@@ -1743,6 +2011,13 @@ def copy_selected_text(timeout: float = 0.18) -> tuple[str, str]:
             pyautogui.hotkey(EDIT_MODIFIER, "c")
             selection_sequence = clipboard_sequence_number()
             time.sleep(timeout)
+            if _mac_pasteboard_in_use():
+                # Find-more P0-5: the Mac's generation is now changeCount, and
+                # the app writes the selection when it gets to Command+C, after
+                # the chord returns. Read before the wait, the generation was
+                # still the sentinel's, the selection was never owned, and the
+                # person's clipboard was never given back after Fix That.
+                selection_sequence = clipboard_sequence_number()
             selected = clipboard_text()
         except Exception:
             log.warning("selected-text capture failed; refusing clipboard fallback", exc_info=True)

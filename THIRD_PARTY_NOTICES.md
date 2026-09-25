@@ -29,7 +29,11 @@ is the human summary.
 | Microsoft WebView2 SDK (inside pywebview) | WebView2 SDK license (BSD-style) | Redistributable. |
 | Microsoft Visual C++ runtime | Visual C++ Redistributable license | Redistributable. |
 | Python, Tcl/Tk, OpenSSL, SQLite, zlib, libffi | PSF-2.0, TCL, Apache-2.0, public domain, Zlib, MIT | Bundled with the Python runtime. |
-| Everything else (numpy, scipy, scikit-learn, onnxruntime, ctranslate2, faster-whisper, onnx-asr, pillow, cryptography, requests, huggingface_hub, tokenizers, pywebview, pythonnet, sounddevice, pyautogui, and others) | MIT, BSD, Apache-2.0, PSF and similar permissive licenses | Apache-2.0 components' NOTICE files are reproduced in `THIRD_PARTY_LICENSES.txt`. |
+| PortAudio (inside sounddevice and PyAudioWPatch) and PyAudio | MIT | Texts in `THIRD_PARTY_LICENSES.txt`. The ASIO builds of PortAudio, which contain Steinberg's ASIO SDK, are left out of the app. |
+| Silero VAD model (`silero_vad_v6.onnx`, inside faster-whisper) | MIT, Copyright (c) 2020-present Silero Team | The one model file in the binaries. Unmodified. |
+| PyInstaller bootloader and run-time hooks (inside every executable) | GPL-2.0-or-later with the Bootloader Exception; run-time hooks Apache-2.0 | The exception permits shipping the bootloader inside other programs without GPL restrictions. |
+| .NET Standard facade assemblies (inside pythonnet) | MIT, .NET Foundation | Redistributed unmodified. |
+| Everything else (numpy, scipy, scikit-learn, onnxruntime, ctranslate2, faster-whisper, onnx-asr, pillow, cryptography, requests, huggingface_hub, tokenizers, pywebview, pythonnet, sounddevice, pyautogui, and others) | MIT, BSD, Apache-2.0, PSF and similar permissive licenses | Apache-2.0 components' NOTICE files are reproduced in `THIRD_PARTY_LICENSES.txt`. A wheel that ships no license file of its own (ctranslate2, proxy_tools, flatbuffers, tokenizers) gets its project's text from `knight_flow/assets/licenses/third_party/`. |
 
 pyautogui's optional helpers `mouseinfo` (GPL-3.0-or-later) and `pymsgbox`
 are deliberately excluded from every build; the app uses pyautogui only to
@@ -99,10 +103,11 @@ The complete exported text is also embedded as a UTF-8 attachment.
 
 ## Local Speech Models
 
-Model weights are not stored in this repository or embedded in any installer.
-When a user chooses Local / On-Device, Talk DAT! downloads the selected model
-into that user's private models directory (`%APPDATA%\TalkDat\models` on
-Windows).
+Speech model weights are not stored in this repository or embedded in any
+installer. The one model file the binaries do carry is the small Silero VAD
+voice-activity model inside faster-whisper (MIT, Silero Team). When a user
+chooses Local / On-Device, Talk DAT! downloads the selected speech model into
+that user's private models directory (`%APPDATA%\TalkDat\models` on Windows).
 
 The default model is NVIDIA Parakeet TDT 0.6B v3:
 
@@ -110,8 +115,10 @@ The default model is NVIDIA Parakeet TDT 0.6B v3:
   Commons Attribution 4.0 International License
   (https://creativecommons.org/licenses/by/4.0/).
 - Source: https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
-- ONNX conversion used by the `onnx-asr` runtime, by istupakov:
-  https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx
+- Changes: the app downloads an ONNX conversion of NVIDIA's model, with int8
+  quantized weights, made by istupakov for the `onnx-asr` runtime:
+  https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx. Talk DAT! does
+  not change the files further.
 - Provided as is, without warranties.
 
 Other downloadable models show their family and license in the Local Models

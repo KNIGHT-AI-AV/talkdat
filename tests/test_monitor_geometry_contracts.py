@@ -91,9 +91,10 @@ class MonitorGeometrySourceContracts(unittest.TestCase):
 
     def test_transients_query_the_host_or_pill_monitor_and_keep_signed_coordinates(self) -> None:
         expected = {
-            "_show_toast_now": "self._pill_monitor_work_area()",
+            # X-742: every Pill message is placed by _flag_build on the
+            # monitor _flag_work_area names: the Pill's own.
+            "_flag_work_area": "self._pill_monitor_work_area()",
             "open_more_menu": "self._window_monitor_work_area(window)",
-            "show_learned_word": "self._pill_monitor_work_area()",
             "_open_help_note": "self._window_monitor_work_area(window)",
             "show_ramble_indicator": "list_monitors()",
         }

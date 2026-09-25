@@ -27,15 +27,22 @@ NVIDIA cuDNN (cudnn64_9.dll, inside CTranslate2 in the Windows binaries) is
 licensed under NVIDIA's cuDNN license terms, not the Apache License, and may
 be used only as part of Talk DAT!; see "NVIDIA components" in EULA.md.
 
-Models are not included. At the user's request the application downloads
-them from their publishers:
+One small model ships inside the binaries: the Silero VAD voice-activity
+model that faster-whisper carries (faster_whisper/assets/silero_vad_v6.onnx),
+Copyright (c) 2020-present Silero Team, MIT License, unmodified.
+
+The speech models are not included. At the user's request the application
+downloads them from their publishers:
 
   Parakeet TDT 0.6B v3 (the default speech model) by NVIDIA Corporation,
   licensed under the Creative Commons Attribution 4.0 International License
   (https://creativecommons.org/licenses/by/4.0/). Source:
-  https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3. ONNX conversion by
-  istupakov (https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx).
-  Provided as is, without warranties.
+  https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3. Changes: the files the
+  app downloads are an ONNX conversion of NVIDIA's model, with int8 quantized
+  weights, made by istupakov
+  (https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) and fetched
+  from that page; Talk DAT! does not change them further. Provided as is,
+  without warranties.
 
   Other NVIDIA Parakeet, Canary and Nemotron speech models: CC BY 4.0, by
   NVIDIA Corporation; see each model card for its exact terms.

@@ -223,7 +223,7 @@ class WakeRuntime:
             )
         elif listener.phase == "listening":
             app.overlay.set_state(
-                "idle", message, "Pause or Panic Stop ends wake listening."
+                "idle", message, "Pause or Panic Stop ends wake listening.", say=True
             )
 
     def _wake(self, listener, generation):

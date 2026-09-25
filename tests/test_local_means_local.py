@@ -117,10 +117,9 @@ class AutoIsCloudFirstTests(unittest.TestCase):
         the sentence a person actually reads is the toast, which is what
         X-59.B asked for and what the outage test asserts end to end."""
         self.assertIn("self._auto_local_sticky = True", self.app)
-        self.assertIn(
-            "Cloud was unavailable. This dictation ran on {platform_copy.THIS_COMPUTER} instead.",
-            self.app,
-        )
+        # X-743: said by the Pill itself, the fact as its title, the place as its detail.
+        self.assertIn('"Your speech provider did not answer",', self.app)
+        self.assertIn('detail=f"This dictation ran on {platform_copy.THIS_COMPUTER} instead.",', self.app)
 
     def test_stuck_flights_go_straight_local(self) -> None:
         sticky = block(self.app, r"_auto_local_sticky.*?sticky_model = local_fallback\.rescue_model")
@@ -197,9 +196,8 @@ class TheConstantBadgeIsRetiredTests(unittest.TestCase):
     def test_the_rescue_still_says_it_out_loud(self) -> None:
         """The promise that has to survive the badge."""
         app = APP.read_text(encoding="utf-8")
-        self.assertIn(
-            "Cloud was unavailable. This dictation ran on {platform_copy.THIS_COMPUTER} instead.", app
-        )
+        self.assertIn('"Your speech provider did not answer",', app)
+        self.assertIn('detail=f"This dictation ran on {platform_copy.THIS_COMPUTER} instead.",', app)
         self.assertIn("Transcribing on {platform_copy.THIS_COMPUTER} instead.", app)
 
 

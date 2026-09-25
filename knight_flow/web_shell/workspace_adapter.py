@@ -169,10 +169,11 @@ class Workspaces:
         raise ValueError('That vocabulary action is unavailable.')
 
     def sessions(self):
-        from knight_flow.audio_spool import list_safety_sessions
+        # Find-more P0-3: a failed take kept past the newest few is listed too.
+        from knight_flow.audio_spool import recovery_sessions
         try:limit=max(5,int(self.config.get('dictation',{}).get('safety_recording_limit',5)))
         except (ValueError,TypeError):limit=5
-        return list_safety_sessions(min(limit,1000))
+        return recovery_sessions(min(limit,1000))
 
     def recover(self, identifier):
         if self.busy():raise ValueError('Finish the current dictation before recovering a recording.')
@@ -243,11 +244,15 @@ class Workspaces:
             if value is not True:raise ValueError('Confirm what you want to clear first.')
             if self.busy():raise ValueError('Finish the current dictation before clearing saved material.')
             if action=='clear_text':
-                history.JsonlHistoryStore().clear()
-                if history_db_path().exists():history.SqliteHistoryStore().clear()
-                for path in (full_history_path(),live_draft_path(),recovered_draft_path()):
-                    if path.exists():path.write_text('',encoding='utf-8')
-                return {'message':'Text history and live drafts cleared. Pins, notes and recordings are kept.'}
+                # Find-more P0-6: one list of every text store (history.clear_saved_text),
+                # including the formatting journal and the words kept with each
+                # recording, plus Paste Last's source, which kept the cleared words.
+                failed=history.clear_saved_text()
+                forget=getattr(self.app,'forget_last_take',None)
+                if callable(forget):forget()
+                if failed:
+                    raise ValueError('Some saved text could not be deleted: '+', '.join(failed)+'. Close any program using those files and try again.')
+                return {'message':'Saved text cleared: history, drafts, the formatting journal and the words kept with recordings. Pins, notes and the recordings themselves are kept.'}
             if action=='clear_audio':
                 root=audio_spool_dir()
                 for pattern in ('*.wav','*.json'):

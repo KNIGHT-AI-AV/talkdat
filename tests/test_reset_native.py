@@ -58,7 +58,8 @@ def native_reset_probe(connection,evidence,html):
                 until("Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Close Talk DAT')")
                 assert window.evaluate_js("document.querySelector('.reset-workspace').textContent.includes('items cleared')")
                 window.evaluate_js("window.TalkDat.navigate('appearance');true")
-                until("document.getElementById('notice').textContent.includes('Close Talk DAT')")
+                # X-744: an error is read to screen readers from #alert (role=alert).
+                until("document.getElementById('alert').textContent.includes('Close Talk DAT')")
                 assert window.evaluate_js("document.querySelector('main h1').textContent==='Clear local data'")
                 assert window.evaluate_js("document.documentElement.scrollWidth<=window.innerWidth+1")
                 click("Close Talk DAT")

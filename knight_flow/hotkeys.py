@@ -89,6 +89,11 @@ TAP_ACTIONS = [
 ]
 HOLD_ACTIONS = ["command_mode", "push_to_talk", "fix_that"]
 WATCHDOG_INTERVAL_SECONDS = 0.025
+MODIFIER_KEYS = frozenset({"ctrl", "cmd", "alt", "shift"})
+# X-624: how long a hold stays "young" -- long enough to catch a Windows
+# shortcut typed through the talk chord, short enough that a key pressed
+# mid-dictation never throws a real take away.
+YOUNG_HOLD_SECONDS = 0.6
 
 ACTION_TITLES = {
     "push_to_talk": "Hold to talk",
@@ -405,6 +410,10 @@ class HotkeyController:
         self.active_hold: str | None = None
         self.pending_hold: str | None = None
         self.pending_timer: threading.Timer | None = None
+        # X-624: when the active hold began, and the holds a foreign key
+        # aborted, which stay refused until their chord is let go.
+        self._hold_started_at: float | None = None
+        self._spoiled_holds: set[str] = set()
         self.lock = threading.RLock()
         self._dispatch_queue: "queue.SimpleQueue[tuple[str, Callback]] | None" = None
         self.keyboard_listener: keyboard.Listener | None = None
@@ -424,6 +433,7 @@ class HotkeyController:
             if not active or not was_recording:
                 self.pressed.clear()
                 self.latched.clear()
+                self._spoiled_holds.clear()
 
     def start(self) -> None:
         mac_support.prepare_input_bridge()
@@ -612,6 +622,8 @@ class HotkeyController:
                 self.hold_debounce_ms = hold_debounce_ms
             self.latched.clear()
             self.active_hold = None
+            self._hold_started_at = None
+            self._spoiled_holds.clear()
             self._cancel_pending()
         if stop_action:
             self._trigger(stop_action)
@@ -630,6 +642,8 @@ class HotkeyController:
             self.latched.clear()
             self.active_hold = None
             self.pending_hold = None
+            self._hold_started_at = None
+            self._spoiled_holds.clear()
 
     def _matches(self, action: str) -> bool:
         return any(chord.issubset(self.pressed) for chord in self.hotkeys.get(action, []))
@@ -715,10 +729,58 @@ class HotkeyController:
             if not name:
                 return
             with self.lock:
+                # X-624b: only a key that newly goes down can be a shortcut.
+                # Auto-repeat of a key held since before the chord (W in a
+                # game, held while starting to talk) must not abort the take.
+                fresh = name not in self.pressed
                 self.pressed.add(name)
                 self._evaluate_press()
+                if fresh:
+                    self._foreign_key_aborts_young_hold(name)
         except Exception:
             log.exception("key press handling failed")
+
+    def _foreign_key_aborts_young_hold(self, key: str) -> None:
+        """X-624 (interaction grid D4, D17): a key that joins the chord was a
+        Windows shortcut, not a dictation.
+
+        Ctrl+Win+Left/Right (switch desktop), Ctrl+Win+D, F4, V, Enter, O and
+        C all pass through the talk chord: the hold started 35 ms in, and any
+        voice caught pasted into the app on the new desktop. Fix That's
+        Ctrl+Alt+F has the same shape for AltGr and editor shortcuts.
+
+        A non-modifier key that no configured chord layers on top of the held
+        chord (Space for hands-free and Esc for Panic are layered on purpose),
+        going down while the hold is pending or in its first 600 ms, cancels
+        the pending start or sends <action>_abort. The hold then stays refused
+        until its chord is let go, so modifier auto-repeat cannot reopen it.
+        Called under self.lock, after _evaluate_press.
+        """
+        if key in MODIFIER_KEYS:
+            return
+        action = self.active_hold or self.pending_hold
+        if not action:
+            return
+        held = [chord for chord in self.hotkeys.get(action, []) if chord.issubset(self.pressed)]
+        if not held or any(key in chord for chord in held):
+            return
+        for chord in held:
+            for chords in self.hotkeys.values():
+                if any(chord <= other and key in other for other in chords):
+                    return
+        if not self.active_hold:
+            log.info("hotkey %s: %s joined before the hold began; not starting", action, key)
+            self._cancel_pending()
+            self._spoiled_holds.add(action)
+            return
+        started = self._hold_started_at
+        if started is None or time.monotonic() - started > YOUNG_HOLD_SECONDS:
+            return
+        log.info("hotkey %s: %s joined a young hold; aborting it quietly", action, key)
+        self.active_hold = None
+        self._hold_started_at = None
+        self._spoiled_holds.add(action)
+        self._trigger(f"{action}_abort")
 
     def _on_key_release(self, key: keyboard.Key | keyboard.KeyCode) -> None:
         try:
@@ -753,6 +815,22 @@ class HotkeyController:
                 self._trigger('panic')
             return
         tap_action = self._best_tap_action()
+        if (
+            tap_action == "hands_free"
+            and self.active_hold == "push_to_talk"
+            and callable(self.callbacks.get("hands_free_latch"))
+        ):
+            # X-627 (interaction grid D6): hold Ctrl+Win, add Space, and the
+            # take goes hands-free -- the layering chord_conflicts promises.
+            # It used to send push_to_talk_stop and then hands_free, so the
+            # hold's take stopped and the toggle stopped it again: the words
+            # pasted mid-thought. The hold is handed over, never stopped.
+            self._cancel_pending()
+            self.active_hold = None
+            self._hold_started_at = None
+            self.latched.add(tap_action)
+            self._trigger("hands_free_latch")
+            return
         if tap_action:
             self._cancel_pending()
             stop_action: str | None = None
@@ -769,6 +847,8 @@ class HotkeyController:
             return
 
         for action in HOLD_ACTIONS:
+            if action in self._spoiled_holds:
+                continue
             if self._matches(action):
                 self._schedule_hold(action)
                 return
@@ -777,6 +857,10 @@ class HotkeyController:
         for action in list(self.latched):
             if not self._matches(action):
                 self.latched.discard(action)
+
+        for action in list(self._spoiled_holds):
+            if not self._matches(action):
+                self._spoiled_holds.discard(action)
 
         if self.pending_hold and not self._matches(self.pending_hold):
             self._cancel_pending()
@@ -808,6 +892,7 @@ class HotkeyController:
                 if tap_action != "cancel" and self._matches(tap_action):
                     return
             self.active_hold = action
+            self._hold_started_at = time.monotonic()
             self._trigger(action)
 
     def _cancel_pending(self) -> None:
@@ -865,6 +950,11 @@ class HotkeyController:
         while not self.watchdog_stop.wait(WATCHDOG_INTERVAL_SECONDS):
             stop_action: str | None = None
             with self.lock:
+                # X-624: a refused hold is released by letting its chord go;
+                # a lost key-up must not leave it refused for good.
+                for action in list(self._spoiled_holds):
+                    if not self._physically_matches(action):
+                        self._spoiled_holds.discard(action)
                 if not self.active_hold and not self.pending_hold:
                     continue
 

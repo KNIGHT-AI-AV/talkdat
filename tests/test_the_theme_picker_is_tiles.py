@@ -54,8 +54,8 @@ class TheTilesTests(unittest.TestCase):
         self.assertIn("rounded_rectangle", tile)
 
     def test_the_name_lives_under_the_tile_in_the_pages_ink(self) -> None:
-        self.assertIn("text=family, anchor=\"nw\"", self.draw)
-        self.assertIn("ty + tile_h + pad_y, text=family", self.draw)
+        self.assertIn("text=theme_display_name(family), anchor=\"nw\"", self.draw)
+        self.assertIn("ty + tile_h + pad_y, text=theme_display_name(family)", self.draw)
         # Never the chip-on-photograph of X-337/X-352.
         self.assertNotIn("gallery_name_font.measure(option) + chip_pad_x", OVERLAY)
 

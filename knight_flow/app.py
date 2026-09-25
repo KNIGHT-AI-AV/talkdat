@@ -257,6 +257,16 @@ def trim_full_history(path: Path, config: dict[str, Any]) -> None:
 # microphone closed. Mapped to the processing state only once the stop
 # has been requested (the release), never during the hold.
 ENGINE_WORK_STATUSES = frozenset({"transcribing", "loading_model", "downloading_model"})
+# X-628: the ways a take ends without the person ending it.
+AUTO_STOP_STATUSES = frozenset({"time_limit", "no_speech_timeout", "silence_timeout"})
+# X-630: how long Quit, Restart, Pause and the update install wait for a take
+# in flight to land before going ahead anyway.
+LANDING_WAIT_SECONDS = 10.0
+# X-633: at most one "why not" toast in this long.
+REFUSAL_TOAST_SECONDS = 3.0
+# Where Resume dictation lives: the tray icon's menu on Windows (X-633), the
+# menu bar icon's on the Mac, whose Pill menu has no resume row (mac-port).
+RESUME_SURFACE_NAME = "the menu bar icon" if mac_support.IS_MAC else "the tray icon"
 LIVE_SESSION_CONTROLS = frozenset({"hold", "command_hold", "hands_free"})
 
 
@@ -358,9 +368,12 @@ class TalkDatApp:
         self._last_hands_free_toggle_at = 0.0
         self._previous_version = str(self.config.get("updates", {}).get("current_version", ""))
         self._recovered_draft: Path | None = None
+        recovery_started = time.time()
         recovered_sessions = recover_interrupted_sessions(
             limit=config_int(self.config.get("dictation", {}).get("safety_recording_limit"), 5)
         )
+        if recovered_sessions:
+            self._announce_interrupted_takes(recovery_started)
         if recovered_sessions:
             log.warning("recovered %s interrupted protected voice session(s)", recovered_sessions)
             # X-544: the audio is only half of what the crash interrupted. The
@@ -388,6 +401,10 @@ class TalkDatApp:
 
         callbacks = {
             "hands_free": self.toggle_hands_free,
+            # X-621: the Pill's own click, told apart from the hotkey's.
+            "pill_hands_free": lambda: self.toggle_hands_free(source="pill"),
+            # X-622: whether a take is open or landing (the Pill's menu waits).
+            "take_in_flight": lambda: self.session is not None or self.session_token is not None,
             "cancel": self.cancel,
             "panic": self.panic_stop,
             "polish": lambda: self.run_transform("polish"),
@@ -417,6 +434,7 @@ class TalkDatApp:
             "record_pronunciation": self.record_pronunciation,
             "last_text": lambda: self.last_transcript or self.read_last_history_text(),
             "last_raw_text": lambda: str(getattr(self, "last_raw_transcript", "") or ""),
+            "forget_last_take": self.forget_last_take,
             "format_both": self.format_both_finishes,
             "pause": self.toggle_pause,
             "restart": self.restart,
@@ -427,6 +445,11 @@ class TalkDatApp:
             "push_menu_order": self.push_menu_order,
             "push_to_talk": self.start_push_to_talk,
             "push_to_talk_stop": self.stop_session,
+            # X-627: hold, then Space, hands the open take to hands-free.
+            "hands_free_latch": self.latch_hands_free,
+            # X-635: press-and-hold on the Pill (its press is push_to_talk).
+            "pill_hold_release": self.pill_hold_release,
+            "pill_hold_cancel": self.cancel_pill_hold,
             "command_mode": self.start_command_mode,
             "fix_that": self.start_fix_that,
             # X-134 (catalog audit): fix_that is a HOLD action, so releasing
@@ -435,7 +458,13 @@ class TalkDatApp:
             # end the capture; the fixthat session mode routes the transcript
             # into apply_fix_that.
             "fix_that_stop": self.stop_session,
+            # X-624: a key that joins a young hold was a Windows shortcut.
+            "push_to_talk_abort": self.abort_young_hold,
+            "command_mode_abort": self.abort_young_hold,
+            "fix_that_abort": self.abort_young_hold,
             "ramble": self.start_ramble,
+            # X-632: the ramble bar's Finish control.
+            "ramble_finish": self.finish_ramble_take,
             "captions_toggle": self.toggle_captions,
             "captions_stream": self.start_captions_stream,
             "captions_stop": self.stop_captions_stream,
@@ -451,7 +480,9 @@ class TalkDatApp:
             "choose_finish": self.choose_finish,
             "onboarding_save": self.save_onboarding_settings,
             "quit": self.quit,
-            "show": self.show_overlay,
+            # X-634: the tray's "Open Talk DAT!", which a left-click on the
+            # icon also runs. It re-showed only the Pill; it opens Talk DAT!.
+            "show": self.open_from_tray,
             "hide": self.hide_overlay,
             "settings": self.open_settings,
             "status": self.open_status,
@@ -502,7 +533,7 @@ class TalkDatApp:
                 self.config.get("hotkeys", {}),
                 str(self.config.get("dictation", {}).get("trigger_style", "both")),
             ),
-            callbacks,
+            self._hotkey_callbacks(callbacks),
             hold_debounce_ms=int(self.config.get("dictation", {}).get("hold_debounce_ms", 140)),
         )
         self.web_shell = None
@@ -516,6 +547,16 @@ class TalkDatApp:
                 callbacks["web_finish_choice"] = self.web_shell.offer_finish_choice
         except Exception as error:
             log.warning("Web shell unavailable; using the existing windows (%s)", type(error).__name__)
+
+    def _hotkey_callbacks(self, callbacks: dict[str, Any]) -> dict[str, Any]:
+        """What the keyboard runs, where it must differ from the tray and Pill.
+
+        X-623 (interaction grid D1): Esc is a global key, and it (or any chord
+        holding it) fires in every app, so the Cancel shortcut meets presses
+        meant for someone else's dialog. It gets the careful cancel; the
+        tray's "Cancel what's recording" stays the full cancel.
+        """
+        return {**callbacks, "cancel": self.cancel_from_key}
 
     def run(self) -> None:
         log.info("Talk DAT! starting")
@@ -644,6 +685,7 @@ class TalkDatApp:
             except Exception:
                 log.debug("dock pin unavailable", exc_info=True)
         self.overlay.root.after(1500, self.maybe_show_whats_new)
+        self.overlay.root.after(1800, self._say_launch_notices)
         self.overlay.root.after(2000, self._clipboard_learn_tick)
         self.control_server = ControlServer(
             self.config,
@@ -801,37 +843,58 @@ class TalkDatApp:
             runtime = self._wake_runtime = WakeRuntime(self)
         runtime.refresh(retry=True)
 
-    def toggle_pause(self) -> None:
+    def toggle_pause(self, *, after_landing: bool = False) -> None:
         if threading.get_ident() != getattr(
             getattr(self, "overlay", None), "_ui_thread_id", threading.get_ident()
         ):
-            self._cross_thread_calls.put(lambda: self.toggle_pause())
+            self._cross_thread_calls.put(lambda: self.toggle_pause(after_landing=after_landing))
+            return
+        # X-630: Pause used to cancel the take in flight; it lands first.
+        if (
+            not self.paused
+            and not after_landing
+            and self._finish_take_then(lambda: self.toggle_pause(after_landing=True), "pause")
+        ):
             return
         self.paused = not self.paused
         self.refresh_wake_word()
         if self.paused:
             self.cancel()
-            self.overlay.set_state("idle", "Talk DAT! paused. Triggers are off.", f"Resume from {mac_support.MENU_SURFACE_NAME}: Resume dictation.")
+            self.overlay.set_state(
+                "idle",
+                "Talk DAT! paused. Triggers are off.",
+                f"Resume from {RESUME_SURFACE_NAME}: Resume dictation.",
+                say=True,
+            )
         else:
             self.overlay.set_state(
                 "idle",
                 f"Talk DAT! resumed. Hold {self._chord('push_to_talk', ('ctrl', 'cmd'))} to talk.",
                 "",
+                say=True,
             )
+        # X-633: the Pill looks paused while it is (gray at 60%).
+        with contextlib.suppress(Exception):
+            self.overlay.set_paused(self.paused)
         try:
             self.tray.set_paused(self.paused)
         except Exception:
             pass
 
-    def restart(self, *, settings_confirmed: bool = False) -> None:
+    def restart(self, *, settings_confirmed: bool = False, after_landing: bool = False) -> None:
         if threading.get_ident() != getattr(
             getattr(self, "overlay", None), "_ui_thread_id", threading.get_ident()
         ):
             self._cross_thread_calls.put(
-                lambda: self.restart(settings_confirmed=settings_confirmed)
+                lambda: self.restart(settings_confirmed=settings_confirmed, after_landing=after_landing)
             )
             return
         if getattr(self, "_reset_in_progress", False) and not getattr(self, "_reset_finished", False):
+            return
+        # X-630: a restart lets the take in flight land first.
+        if not after_landing and self._finish_take_then(
+            lambda: self.restart(settings_confirmed=settings_confirmed, after_landing=True), "restart"
+        ):
             return
         shell = getattr(self, "web_shell", None)
         if (
@@ -898,6 +961,44 @@ class TalkDatApp:
         else:
             self.check_updates(silent=False)
 
+    @staticmethod
+    def _announce_interrupted_takes(since: float) -> None:
+        """Find-more P0-3: say once that a take cut short by a crash is waiting.
+
+        The launch recovered it and only wrote log lines, so nobody learned the
+        words were in Recovery. Said on Home and the Pill (launch_notices), and
+        only when there is audio to recover.
+        """
+        from .audio_spool import recoverable_interrupted_since
+        from .launch_notices import notice
+
+        if recoverable_interrupted_since(since):
+            notice(
+                "recovery",
+                "A dictation was interrupted when Talk DAT! last closed. Its recording is kept in Recovery.",
+                "recovery",
+                message="A dictation was interrupted. Its recording is kept in Recovery.",
+            )
+
+    def _say_launch_notices(self) -> None:
+        """Find-more P0-3 and P0-7: say once, on the Pill, what the launch found.
+
+        Home carries the same lines for the whole session; this is for the
+        person who never opens it. A dictation already under way wins: its
+        own words matter more than this.
+        """
+        from .launch_notices import pending
+
+        notices = pending()
+        if not notices:
+            return
+        with self.lock:
+            busy = self.session is not None or self.session_token is not None
+        if busy:
+            return
+        first = notices[0]
+        self.overlay.set_state("error", first.get("message") or first["text"], "Home has the details.")
+
     def maybe_show_whats_new(self) -> None:
         previous = self._previous_version
         if not previous or previous == APP_VERSION:
@@ -944,7 +1045,7 @@ class TalkDatApp:
             return
         try:
             pin_text(text)
-            self.overlay.set_state("captured", "Pinned last transcript.", preview(text, 112))
+            self.overlay.set_state("captured", "Pinned last transcript.", preview(text, 112), say=True)
         except OSError as exc:
             log.warning("pin failed: %s", exc)
             self.overlay.set_state("error", "Could not pin the last transcript.", "Nothing was changed. Try again in a moment.")
@@ -957,7 +1058,7 @@ class TalkDatApp:
             self.meeting.stop()
             return
         if self._scribe_busy() or self.session is not None or self.session_token is not None or microphone_registry().is_active():
-            self.overlay.set_state('idle', 'Finish the current recording before starting meeting notes.')
+            self.overlay.set_state('idle', 'Finish the current recording before starting meeting notes.', say=True)
             return
 
         def deliver(state, message, detail=''):
@@ -1165,6 +1266,7 @@ class TalkDatApp:
                     "captured",
                     f"Signed in on {platform_copy.THIS_COMPUTER}.",
                     state.detail,
+                    say=True,
                 ))
             except Exception as exc:
                 log.exception("handoff exchange failed")
@@ -1436,7 +1538,11 @@ class TalkDatApp:
         if not pair or already_known(pair[1], self.config) or tombstoned(pair[1], self.config):
             return
 
-        def accept() -> None:
+        # X-626 (interaction grid d1): the pop-over's Add calls on_reject(word),
+        # with the word, as the clipboard learner's accept expects. This one
+        # took no argument, so Add raised a TypeError the pop-over swallowed:
+        # nothing was saved and the pop-over closed as if it had worked.
+        def accept(_word: str = "") -> None:
             if remember_correction(pair[0], pair[1], self.config):
                 self.save_settings()
 
@@ -1579,7 +1685,9 @@ class TalkDatApp:
                     or (getattr(self, 'meeting', None) is not None and self.meeting.running)
                     or (getattr(self, '_microphone_check', None) is not None and not self._microphone_check.finished.is_set())
                     or getattr(getattr(self, '_pronunciation_practice', None), 'active', False)):
-                self.overlay.set_state('idle', 'Finish the current recording or microphone check before starting Scribe.')
+                self.overlay.set_state(
+                    'idle', 'Finish the current recording or microphone check before starting Scribe.', say=True
+                )
                 return
             if not self._has_a_writing_model():
                 self.overlay.set_state('error', 'Scribe needs a writing model.', 'Choose a local model or your own provider key in Writing > Formatting.')
@@ -1704,6 +1812,28 @@ class TalkDatApp:
 
         self.overlay.open_ramble_chooser(begin)
 
+    def finish_ramble_take(self) -> None:
+        """X-632 (interaction grid d14): Finish on the ramble bar ends the ramble.
+
+        Only a ramble that is still recording is stopped; a Finish pressed
+        as the take ends by itself must not start a dictation, which the
+        plain hands-free toggle would.
+        """
+        if threading.get_ident() != getattr(
+            getattr(self, "overlay", None), "_ui_thread_id", threading.get_ident()
+        ):
+            self._cross_thread_calls.put(lambda: self.finish_ramble_take())
+            return
+        with self.lock:
+            rambling = (
+                self.session is not None
+                and self.session_mode == "ramble"
+                and not bool(getattr(self, "_released_processing", False))
+            )
+        if rambling:
+            log.info("ramble finished from its bar")
+            self.stop_session()
+
     def finish_ramble(self, raw_text: str) -> None:
         self.overlay.root.after(0, self.overlay.hide_ramble_indicator)
         """The delivery half: full pipeline, then a real document."""
@@ -1719,7 +1849,7 @@ class TalkDatApp:
                 self.last_transcript = processed.text
 
                 def announce() -> None:
-                    self.overlay.set_state("captured", f"Ramble saved: {path.name}", str(path.parent))
+                    self.overlay.set_state("captured", f"Ramble saved: {path.name}", str(path.parent), say=True)
                     try:
                         import os
 
@@ -1751,18 +1881,33 @@ class TalkDatApp:
             "processing", "Building your document.", ""))
         threading.Thread(target=worker, name="TalkDatRamble", daemon=True).start()
 
-    def toggle_hands_free(self) -> None:
+    def toggle_hands_free(self, source: str = "") -> None:
         if threading.get_ident() != getattr(
             getattr(self, "overlay", None), "_ui_thread_id", threading.get_ident()
         ):
-            self._cross_thread_calls.put(lambda: self.toggle_hands_free())
+            self._cross_thread_calls.put(lambda: self.toggle_hands_free(source))
             return
         runtime = getattr(self, "_wake_runtime", None)
         if runtime is not None and runtime.cancel_handoff():
             self.overlay.set_state(
-                "idle", "Dictation cancelled before opening its microphone."
+                "idle", "Dictation cancelled before opening its microphone.", say=True
             )
             return
+        if source == "pill":
+            # X-621 (interaction grid D2): once the finisher had released the
+            # session, a Pill click was a redo press -- press_intent cancelled
+            # the take that was landing and opened a new one. On the Pill a
+            # press while processing means "is it working?", so it gets the
+            # ACK and the result lands. Redo stays on the hotkeys.
+            with self.lock:
+                landing = self.session_token is not None and (
+                    self.session is None or bool(getattr(self, "_released_processing", False))
+                )
+            if landing:
+                log.info("pill click while processing: acknowledged, the result delivers")
+                with contextlib.suppress(Exception):
+                    self.overlay.acknowledge("pill")
+                return
         # X-115 trigger feel: two toggles inside a quarter second are one
         # decision plus chatter, never two decisions -- the same law the
         # trigger key already follows (BOUNCE_MS). Without this, an impatient
@@ -1786,6 +1931,97 @@ class TalkDatApp:
                 "dictation", "Hands-free: toggle to stop.", control="hands_free"
             )
 
+    def _session_heard_voice(self, session: Any) -> bool:
+        """X-635: words, a voice or any real signal reached this take.
+
+        The positive twin of _session_heard_nothing: any doubt (a read that
+        fails) answers True, so a take with speech in it is never left open
+        as if nothing had been said.
+        """
+        try:
+            if str(getattr(session, "current_text", lambda: "")() or "").strip():
+                return True
+            audio = self.session_audio(session)
+            if audio is None:
+                return False
+            pcm16, _sample_rate, _channels, heard_voice = audio
+            return bool(heard_voice) or likely_has_input_signal(pcm16)
+        except Exception:
+            log.debug("voice check failed; treating the take as spoken", exc_info=True)
+            return True
+
+    def pill_hold_release(self) -> None:
+        """X-635 (interaction grid D5): the end of a press-and-hold on the Pill.
+
+        With words heard it stops and delivers, like releasing the hold keys.
+        With nothing heard it was a slow click: the take stays open as a
+        hands-free one, and the next click stops it.
+        """
+        if threading.get_ident() != getattr(
+            getattr(self, "overlay", None), "_ui_thread_id", threading.get_ident()
+        ):
+            self._cross_thread_calls.put(lambda: self.pill_hold_release())
+            return
+        with self.lock:
+            session = self.session
+            holding = (
+                session is not None
+                and self.session_control == "hold"
+                and not bool(getattr(self, "_released_processing", False))
+            )
+        if session is None:
+            # The hold never opened a microphone (refused, or a start still
+            # waiting on the wake-word handoff): nothing may open after it.
+            runtime = getattr(self, "_wake_runtime", None)
+            if runtime is not None:
+                runtime.cancel_handoff()
+            return
+        if not holding:
+            return
+        if self._session_heard_voice(session):
+            self.stop_session()
+            return
+        with self.lock:
+            self.session_control = "hands_free"
+            self._last_hands_free_toggle_at = time.monotonic()
+        log.info("pill hold released with nothing said: the take stays open hands-free")
+        self.overlay.set_state("listening", "Hands-free: toggle to stop.")
+
+    def cancel_pill_hold(self) -> None:
+        """X-635: sliding off the Pill during its hold cancels that take,
+        quietly and only while it is still recording (as X-624's abort)."""
+        self.abort_young_hold()
+
+    def latch_hands_free(self) -> None:
+        """X-627 (interaction grid D6): hold, then Space, keeps talking hands-free.
+
+        The hotkeys hand a live hold over instead of stopping it. The open
+        take becomes a hands-free one: letting go of the keys no longer ends
+        it, and the next toggle (the chord or a Pill click) does. With no hold
+        take open (the start was refused, or it already ended), Space is the
+        ordinary toggle.
+        """
+        if threading.get_ident() != getattr(
+            getattr(self, "overlay", None), "_ui_thread_id", threading.get_ident()
+        ):
+            self._cross_thread_calls.put(lambda: self.latch_hands_free())
+            return
+        with self.lock:
+            latchable = (
+                self.session is not None
+                and self.session_control == "hold"
+                and not bool(getattr(self, "_released_processing", False))
+            )
+            if latchable:
+                self.session_control = "hands_free"
+                # One decision: a toggle a beat later is the stop, not chatter.
+                self._last_hands_free_toggle_at = time.monotonic()
+        if not latchable:
+            self.toggle_hands_free()
+            return
+        log.info("hold latched to hands-free")
+        self.overlay.set_state("listening", "Hands-free: toggle to stop.")
+
     def stop_hands_free_if_active(self, source: str) -> bool:
         with self.lock:
             should_stop = self.session is not None and self.session_control == "hands_free"
@@ -1794,6 +2030,25 @@ class TalkDatApp:
         log.info("%s requested while hands_free active; stopping session", source)
         self.stop_session()
         return True
+
+    def _say_why_not(self, message: str) -> None:
+        """X-633 (interaction grid d2, d3): a refused start says why.
+
+        A paused Pill, and starts refused by a meeting, Scribe, the mic check
+        or pronunciation practice, only repainted the idle Pill with a status
+        line nobody sees: a click or a hotkey did nothing and said nothing.
+        The reason now rises above the Pill as a toast, at most one every
+        REFUSAL_TOAST_SECONDS, so a person pressing again and again is not
+        buried in copies of it.
+        """
+        self.overlay.set_state("idle", message, "")
+        now = time.monotonic()
+        last = getattr(self, "_last_refusal_toast_at", None)
+        if last is not None and now - last < REFUSAL_TOAST_SECONDS:
+            return
+        self._last_refusal_toast_at = now
+        with contextlib.suppress(Exception):
+            self.overlay.flag(message, key="refusal", origin="person")
 
     def start_session(self, mode: str, message: str, *, control: str = "hold") -> None:
         if threading.get_ident() != getattr(
@@ -1817,9 +2072,7 @@ class TalkDatApp:
         if self._scribe_busy() or (
             getattr(self, "meeting", None) is not None and self.meeting.running
         ):
-            self.overlay.set_state(
-                "idle", "Finish or pause the meeting recording before dictating."
-            )
+            self._say_why_not("Finish or pause the meeting recording before dictating.")
             return
         # X-161, reported: "upon clicking, the interface occasionally fails to
         # transition to gray, instead experiencing latency before improperly
@@ -1838,7 +2091,7 @@ class TalkDatApp:
         # stall, and flashing gray before saying "paused" would be a lie.
         if self.paused:
             log.info("session start ignored: paused")
-            self.overlay.set_state("idle", f"Talk DAT! is paused. Resume from {mac_support.MENU_SURFACE_NAME}: Resume dictation.", "")
+            self._say_why_not(f"Talk DAT! is paused. Resume from {RESUME_SURFACE_NAME}: Resume dictation.")
             return
         # X-106: a trigger press while the previous dictation is still being
         # transcribed is a decision, not noise. Decode it BEFORE the
@@ -1902,19 +2155,15 @@ class TalkDatApp:
         with self.lock:
             check = getattr(self, "_microphone_check", None)
             if check is not None and not check.finished.is_set():
-                self.overlay.set_state(
-                    "idle", "Finish or stop the microphone check before dictating."
-                )
+                self._say_why_not("Finish or stop the microphone check before dictating.")
                 return
             if getattr(getattr(self, "_pronunciation_practice", None), "active", False):
-                self.overlay.set_state(
-                    "idle", "Finish or cancel pronunciation practice before dictating."
-                )
+                self._say_why_not("Finish or cancel pronunciation practice before dictating.")
                 return
             if self.session is not None or self.session_token is not None:
                 log.info("session start ignored: already active")
                 self.overlay.set_state(
-                    "processing", "Still processing the previous dictation."
+                    "processing", "Still processing the previous dictation.", say=True
                 )
                 return
 
@@ -2010,12 +2259,18 @@ class TalkDatApp:
             token = object()
             self.session_token = token
             self._session_profile = (token, profile)
+            # X-623: what this flight is, for Esc once it is processing
+            # (session_mode reads "processing" by then).
+            self._flight_mode = (token, mode)
             # X-604: the kind of field this take is going into (password,
             # terminal, single line), read off this thread while the person's
             # focus is still on it. Nothing here waits for the answer.
             from .field_context import FieldProbe
 
             self._session_field = (token, FieldProbe.start())
+            # X-628: the window this take started in. A take that ends by a
+            # timeout pastes only if that window still has the focus.
+            self._flight_window = (token, foreground_window_id())
             progressive_formatter = getattr(self, "_progressive_formatter", None)
             if progressive_formatter is not None:
                 progressive_formatter.reset()
@@ -2107,6 +2362,9 @@ class TalkDatApp:
             self.session = session
             self.safety_capture = capture
             self.safety_capture_token = token
+            # Find-more P0-2: the capture carries the take's field read, so
+            # every way this take can end keeps nothing from a password field.
+            capture.field_probe = self._session_field[1]
             # X-50b: the dead-mic ding must also cover the mic that never
             # OPENS (PaErrorCode -9999 in the field): zero audio callbacks
             # means the frame counter never runs, so a one-shot timer asks
@@ -2252,7 +2510,7 @@ class TalkDatApp:
         runtime = getattr(self, "_wake_runtime", None)
         if runtime is not None and runtime.cancel_handoff():
             self.overlay.set_state(
-                "idle", "Dictation cancelled before opening its microphone."
+                "idle", "Dictation cancelled before opening its microphone.", say=True
             )
             return
         with self.lock:
@@ -2266,7 +2524,7 @@ class TalkDatApp:
         if self._session_heard_nothing(session):
             log.info("empty-capture fast abort: no voice, no signal, no text")
             self.cancel()
-            self.overlay.set_state("idle", "Nothing heard. Mic closed.", "")
+            self.overlay.set_state("idle", "Nothing heard. Mic closed.", "", say=True)
             return
         self.overlay.set_state("processing", "Finalizing. Mic closing.")
         log.info("session stop requested")
@@ -2289,6 +2547,75 @@ class TalkDatApp:
         # word is still being recorded. Adding a second delay here would stack
         # on that and give two knobs for one behaviour.
         session.stop()
+
+    def abort_young_hold(self) -> None:
+        """X-624 (interaction grid D4): the hold was a Windows shortcut.
+
+        Ctrl+Win+Right and its family pass through the talk chord; the
+        controller saw a foreign key join the hold in its first 600 ms. The
+        take that hold opened is cancelled quietly: no paste, no toast. Only
+        a hold take that is still recording is touched -- the same press may
+        have stopped a hands-free take (stop_hands_free_if_active), and that
+        one is landing and must land.
+        """
+        if threading.get_ident() != getattr(
+            getattr(self, "overlay", None), "_ui_thread_id", threading.get_ident()
+        ):
+            self._cross_thread_calls.put(lambda: self.abort_young_hold())
+            return
+        with self.lock:
+            session = self.session
+            control = str(getattr(self, "session_control", "") or "")
+            released = bool(getattr(self, "_released_processing", False))
+        if session is None:
+            runtime = getattr(self, "_wake_runtime", None)
+            if runtime is not None:
+                runtime.cancel_handoff()
+            return
+        if released or control not in {"hold", "command_hold"}:
+            return
+        log.info("a key joined a young hold: that was a shortcut, the take is cancelled")
+        self.cancel()
+
+    def cancel_from_key(self) -> None:
+        """X-623 (interaction grid D1): Esc cancels a take, never finished words.
+
+        Esc is global: pressed to leave an autocomplete or a dialog in the
+        second after the person stopped talking, it used to kill the delivery
+        of a take that was already processing, so the words never pasted.
+        Now: with the microphone open, Esc cancels as before. Once the take
+        is processing, its words are kept instead of typed -- copied to the
+        clipboard and saved in History -- with one line, "Kept, not pasted."
+        Idle, it only stops a wake-word start that has not opened the mic.
+        """
+        if threading.get_ident() != getattr(
+            getattr(self, "overlay", None), "_ui_thread_id", threading.get_ident()
+        ):
+            self._cross_thread_calls.put(lambda: self.cancel_from_key())
+            return
+        with self.lock:
+            session = self.session
+            token = self.session_token
+            released = bool(getattr(self, "_released_processing", False))
+            flight = getattr(self, "_flight_mode", None)
+        mic_open = session is not None and not released
+        if mic_open:
+            self.cancel()
+            return
+        if token is None:
+            runtime = getattr(self, "_wake_runtime", None)
+            if runtime is not None:
+                runtime.cancel_handoff()
+            return
+        mode = flight[1] if flight is not None and flight[0] is token else ""
+        if mode != "dictation":
+            # A command, Fix That or ramble finishing is not words waiting to
+            # be typed; Esc keeps its full cancel there.
+            self.cancel()
+            return
+        log.info("Esc while processing: the result will be kept, not pasted")
+        with self.lock:
+            self._withheld_delivery_token = token
 
     def cancel(self) -> None:
         if threading.get_ident() != getattr(
@@ -2414,8 +2741,14 @@ class TalkDatApp:
             and getattr(self, "session_control", "idle") in LIVE_SESSION_CONTROLS
         )
 
-    def on_session_status(self, token: object, mode: str, status: str, control: str) -> None:
+    def on_session_status(self, token: object, mode: str, status: str, control: str,
+                          *, first_frame: bool = False) -> None:
         if not self.is_current(token):
+            return
+        if status in AUTO_STOP_STATUSES:
+            with self.lock:
+                self._auto_stopped_token = token
+        if status == "listening" and not first_frame and self._wait_for_first_frame(token, mode, control):
             return
         if status in ENGINE_WORK_STATUSES and self._mic_is_still_open():
             # X-415, his rule: the rainbow means "we are no longer listening,
@@ -2440,7 +2773,9 @@ class TalkDatApp:
             state = "command" if mode == "command" else "listening"
             if mode == "command":
                 message = "Command: release keys to stop."
-            elif control == "hands_free":
+            elif control == "hands_free" or getattr(self, "session_control", "") == "hands_free":
+                # X-627: a latched hold was created as "hold"; the take's
+                # current control is what the person is in now.
                 message = "Hands-free: toggle to stop."
             else:
                 message = "Hold mode: release to stop."
@@ -2454,16 +2789,16 @@ class TalkDatApp:
             # that shows during a dictation that triggers the download, when
             # the pill is the only thing on screen and there is no Settings
             # panel to look at instead.
-            self.overlay.set_state("processing", self._local_download_message())
+            self.overlay.set_state("processing", self._local_download_message(), say=True)
         elif status == "loading_model":
-            self.overlay.set_state("processing", "Loading local model.")
+            self.overlay.set_state("processing", "Loading local model.", say=True)
         elif status == "time_limit":
-            self.overlay.set_state("processing", "Time limit reached. Finalizing.")
+            self.overlay.set_state("processing", "Time limit reached. Finalizing.", say=True)
         elif status == "no_speech_timeout":
-            self.overlay.set_state("processing", self._no_speech_message())
+            self.overlay.set_state("processing", self._no_speech_message(), say=True)
             log.info("credit guard: no speech timeout")
         elif status == "silence_timeout":
-            self.overlay.set_state("processing", "Silence timeout. Closing mic to protect credits.")
+            self.overlay.set_state("processing", "No speech for a while. Closing the mic.", say=True)
             log.info("credit guard: silence timeout")
         else:
             self.overlay.set_state("starting", "Starting voice session.")
@@ -2500,10 +2835,11 @@ class TalkDatApp:
         with speech playing aloud returned a peak amplitude of exactly 0.
 
         A working microphone in a silent room still delivers a noise floor, so
-        all-zero samples mean no signal reached us at all.
+        all-zero samples mean no signal reached us at all. (X-721: the plain
+        line no longer talks about credits.)
         """
         if not mac_support.IS_MAC:
-            return "No speech heard. Closing mic to protect credits."
+            return "No speech heard. Closing the mic."
         capture = self.safety_capture
         recorded = getattr(capture, "captured_audio", None)
         pcm = recorded() if callable(recorded) else b""
@@ -2514,7 +2850,54 @@ class TalkDatApp:
             return "The microphone sent no signal. Check Privacy & Security > Microphone."
         if mac_support.microphone_permission() == "denied":
             return "Microphone access is off. Turn Talk DAT! on in Privacy & Security."
-        return "No speech heard. Closing mic to protect credits."
+        return "No speech heard. Closing the mic."
+
+    #: Find-more P1-2: the longest the "listening" chime waits for the first
+    #: audio frame before it plays anyway (the dead-mic check says the rest).
+    FIRST_FRAME_WAIT_MS = 1000
+
+    def _wait_for_first_frame(self, token: object, mode: str, control: str) -> bool:
+        """Find-more P1-2: hold the chime until the microphone delivers audio.
+
+        Sessions report "listening" when the input stream OPENS, and the app
+        chimed and showed listening right then; the first frame can come much
+        later (a Bluetooth headset switching to its call profile, a USB mic
+        waking), so the person started talking on the chime and lost their
+        first words. True means "wait": the first frame (on_session_audio), or
+        FIRST_FRAME_WAIT_MS at the latest, announces listening instead.
+        """
+        with self.lock:
+            # An app assembled without start_session (the session tests) has
+            # no first-frame tracking at all, and keeps the old behaviour.
+            if token is not self.session_token or not hasattr(self, "_session_audio_seen"):
+                return False
+            if getattr(self, "_session_sound_token", None) is token:
+                return False
+            self._listening_pending = (token, mode, control, time.monotonic())
+
+        def fallback() -> None:
+            self._announce_listening(token, "no audio within the wait")
+
+        with contextlib.suppress(Exception):
+            wait_ms = self.FIRST_FRAME_WAIT_MS
+            main_thread.post(lambda: self.overlay.root.after(wait_ms, fallback))
+        return True
+
+    def _announce_listening(self, token: object, reason: str) -> None:
+        with self.lock:
+            pending = getattr(self, "_listening_pending", None)
+            if pending is None or pending[0] is not token:
+                return
+            self._listening_pending = None
+        _token, mode, control, asked_at = pending
+        # Measured so the log shows how long real microphones take to start.
+        waited_ms = (time.monotonic() - asked_at) * 1000.0
+        if not self._mic_is_still_open():
+            # Released already: the Pill is processing, not listening.
+            log.info("microphone: released %.0f ms after the stream opened; listening not shown", waited_ms)
+            return
+        log.info("microphone: listening shown %.0f ms after the stream opened (%s)", waited_ms, reason)
+        self.on_session_status(token, mode, "listening", control, first_frame=True)
 
     def _field_probe(self, token: object) -> Any:
         saved = getattr(self, "_session_field", None)
@@ -2528,6 +2911,50 @@ class TalkDatApp:
         """
         probe = self._field_probe(token)
         return probe is not None and probe.secure_or_pending()
+
+    def _mark_password_capture(self, token: object) -> None:
+        """Find-more P0-2: tell the spool this take is a password, once known.
+
+        If the app dies mid-take, the next launch finds the mark and deletes
+        the recording instead of offering it in Recovery.
+        """
+        from .field_context import PASSWORD
+
+        probe = self._field_probe(token)
+        if probe is None or probe.pending or probe.result(0) != PASSWORD:
+            return
+        with self.lock:
+            capture = self.safety_capture if token is self.safety_capture_token else None
+        if capture is None or getattr(capture, "_password_marked", False):
+            return
+        capture._password_marked = True
+        with contextlib.suppress(Exception):
+            capture.update(password_field=True)
+
+    def _take_heard_voice(self, session: Any, capture: Any) -> bool:
+        """Find-more P0-3: the same test the capture retry uses to decide to run."""
+        with contextlib.suppress(Exception):
+            if capture is not None and capture.snapshot().get("heard_voice"):
+                return True
+        audio = self.session_audio(session)
+        return audio is not None and (audio[3] or likely_has_input_signal(audio[0]))
+
+    def _keeps_words(self) -> bool:
+        """Find-more P0-6: Settings says History off "keeps no record".
+
+        Protected recordings stay on with History off (Recover re-transcribes
+        the audio), but their metadata used to hold the raw and final text of
+        every take whatever this switch said. With it off they keep audio only.
+        """
+        config = getattr(self, "config", None) or {}
+        return config.get("privacy", {}).get("save_history", True) is not False
+
+    @staticmethod
+    def _capture_is_password(capture: Any) -> bool:
+        from .field_context import PASSWORD
+
+        probe = getattr(capture, "field_probe", None)
+        return probe is not None and probe.result() == PASSWORD
 
     def prepare_stable_dictation(self, token: object, text: str, config: dict[str, Any]) -> None:
         from .field_context import CONSOLE
@@ -2548,6 +2975,7 @@ class TalkDatApp:
         if self._secure_take(token):
             # X-604: a password field. No preview, no caption, no crash draft.
             self.overlay.set_state(state, "Password field: your words are not shown.", "")
+            self._mark_password_capture(token)
             return
         self.write_live_draft(mode, text, is_final)
         # X-32: the caption strip eats the same partial stream the pill
@@ -2603,6 +3031,15 @@ class TalkDatApp:
         # session, and the session keeps running in case the device wakes.
         if token is self.session_token:
             self._session_audio_seen = True
+            if getattr(self, "_session_sound_token", None) is not token and bytes(data).strip(b"\x00"):
+                # P1-2: real audio is here (a device still waking delivers
+                # exact digital silence first); a held chime may play now.
+                # Not from this audio callback thread: the Tk thread plays it.
+                with self.lock:
+                    self._session_sound_token = token
+                    pending = getattr(self, "_listening_pending", None)
+                if pending is not None and pending[0] is token:
+                    main_thread.post(lambda: self._announce_listening(token, "first frame"))
             if heard_voice:
                 self._dead_mic_ms = 0
                 self._dead_mic_token = token
@@ -2650,6 +3087,7 @@ class TalkDatApp:
             "processing",
             f"{provider_label(provider_id)} interrupted. Recovering captured audio.",
             preview(error, 112),
+            say=True,
         )
         log.error("STT error provider=%s: %s", provider_id, error)
 
@@ -2698,15 +3136,20 @@ class TalkDatApp:
         # It now rides the paste: armed here, played by
         # play_landing_sound() the moment delivery succeeds.
         self._landing_sound_pending = True
+        # Find-more P0-2: a password take (or one whose field read has not
+        # answered yet) writes no words to the spool or the crash draft, and
+        # the retry below saves no second copy of its audio. The capture
+        # itself is deleted when it is finalized (finalize_safety_capture).
+        secure = self._secure_take(token)
         try:
             if capture is not None:
                 capture.update(
                     status="processing",
-                    raw_transcript=raw_text.strip(),
+                    raw_transcript=raw_text.strip() if not secure and self._keeps_words() else "",
                     error=error_message,
                 )
                 capture.flush()
-            self._session_audio_already_saved = bool(capture and capture.audio_bytes > 0)
+            self._session_audio_already_saved = bool(capture and capture.audio_bytes > 0) or secure
             raw_text = self.recover_transcript_if_needed(session, mode, raw_text.strip())
             # Recovery can make a second provider/local-model request. Cancel or
             # Redo may install a new listening flight while that work is still
@@ -2724,9 +3167,11 @@ class TalkDatApp:
                 )
                 log.info("session done: stale result discarded after transcript recovery")
                 return
-            if capture is not None:
+            secure = self._secure_take(token)
+            if capture is not None and not secure and self._keeps_words():
                 capture.update(raw_transcript=raw_text, status="processing")
-            self.write_live_draft(mode, raw_text, True)
+            if not secure:
+                self.write_live_draft(mode, raw_text, True)
             if error_message and not raw_text:
                 self.finalize_safety_capture(
                     capture,
@@ -2737,12 +3182,21 @@ class TalkDatApp:
                 self.overlay.set_state(
                     "error",
                     f"{provider_label(provider_id)} error: {preview(error_message, 82)}",
+                    "Password field: nothing was kept." if secure else
                     "Captured audio was saved locally. Check the provider and retry from History.",
                 )
                 log.info("session done: provider error after recovery")
                 return
             if not raw_text:
                 silent = mac_support.IS_MAC and self._session_was_digitally_silent(session)
+                # Find-more P0-3: 17 takes in his log since 09-15 heard a voice,
+                # retried, got no words, and still said "No speech captured".
+                # A heard voice with no text is a failed take, and its audio is
+                # kept for Recovery (audio_spool keeps it past rotation).
+                heard = self._take_heard_voice(session, capture)
+                if heard and capture is not None:
+                    with contextlib.suppress(Exception):
+                        capture.update(heard_voice=True)
                 self.finalize_safety_capture(
                     capture,
                     status="no_transcript",
@@ -2762,9 +3216,20 @@ class TalkDatApp:
                         "The microphone sent no signal at all.",
                         "Turn Talk DAT! on under Privacy & Security > Microphone, then try again.",
                     )
+                    log.info("session done: no speech captured silent=True")
+                    return
+                if not heard:
+                    self.overlay.set_state("idle", "No speech captured. Ready again.", "", say=True)
+                    log.info("session done: no speech captured")
+                    return
+                if capture is not None and self._capture_is_password(capture):
+                    detail = "Password field: nothing was kept."
+                elif capture is not None and getattr(capture, "audio_bytes", 0) > 0:
+                    detail = "Your recording is kept in Recovery."
                 else:
-                    self.overlay.set_state("idle", "No speech captured. Ready again.", "")
-                log.info("session done: no speech captured silent=%s", silent)
+                    detail = "Try again."
+                self.overlay.set_state("error", "Heard you, but got no words.", detail)
+                log.info("session done: a voice was heard but no transcript came back")
                 return
 
             if mode == "ramble":
@@ -2848,6 +3313,7 @@ class TalkDatApp:
                 self.overlay.set_state(
                     "error",
                     f"Could not finish dictation: {preview(str(exc), 82)}",
+                    "Password field: nothing was kept." if secure else
                     "Your recording was kept. Open History to recover the words.",
                 )
         finally:
@@ -2926,6 +3392,7 @@ class TalkDatApp:
             "Retrying once from the local safety buffer after an interrupted stream."
             if transport_degraded
             else "Retrying once from the local safety buffer.",
+            say=True,
         )
         # X-72 failure doctrine (his words, replacing the retry-twice
         # design): the FIRST cloud failure never touches the local model --
@@ -2964,7 +3431,7 @@ class TalkDatApp:
                 threading.Thread(target=_beep, name="cloud-fail-beep", daemon=True).start()
                 self.overlay.set_state(
                     "error",
-                    "Cloud dropped this one.",
+                    "Your speech provider dropped this one.",
                     f"Say it again. After three misses, {platform_copy.THIS_COMPUTER} takes over automatically.",
                 )
                 log.info(
@@ -3004,8 +3471,11 @@ class TalkDatApp:
             # -- a transient state line is not enough when the words still
             # arrive and nothing looks wrong.
             try:
-                self.overlay.show_toast(
-                    f"Cloud was unavailable. This dictation ran on {platform_copy.THIS_COMPUTER} instead."
+                self.overlay.flag(
+                    "Your speech provider did not answer",
+                    detail=f"This dictation ran on {platform_copy.THIS_COMPUTER} instead.",
+                    tone="warn",
+                    key="rescue",
                 )
             except Exception:
                 log.debug("fallback toast failed", exc_info=True)
@@ -3028,7 +3498,7 @@ class TalkDatApp:
             )
             return raw_text
         log.info("capture retry recovered transcript chars=%s", len(recovered))
-        self.overlay.set_state("processing", "Recovered captured audio.", preview(recovered, 112))
+        self.overlay.set_state("processing", "Recovered captured audio.", preview(recovered, 112), say=True)
         return recovered
 
     def session_transport_degraded(self, session: Any) -> bool:
@@ -3085,6 +3555,18 @@ class TalkDatApp:
     ) -> None:
         if capture is None:
             return
+        if self._capture_is_password(capture):
+            # Find-more P0-2: the Pill says "Nothing was kept" for a password
+            # take, and until now the spool kept its audio and its words and
+            # Recovery listed them. Every ending of a take comes through here.
+            try:
+                capture.discard()
+                log.info("protected voice session discarded: password field (status=%s)", status)
+            except Exception:
+                log.exception("could not discard the password take's recording")
+            return
+        if not self._keeps_words():
+            raw_transcript = final_text = ""
         try:
             capture.finalize(
                 status=status,
@@ -3310,9 +3792,28 @@ class TalkDatApp:
                 format_ms,
                 int(round((time.perf_counter() - post_stt_started) * 1000.0)),
             )
-            self.overlay.set_state("idle", "Nothing to paste. Ready again.", "")
+            self.overlay.set_state("idle", "Nothing to paste. Ready again.", "", say=True)
             return {"text": "", "delivery": {"success": False, "method": "empty"}}
 
+        # X-623: Esc pressed while this take was processing. Its words are
+        # kept (clipboard and History), never typed.
+        esc_withheld = explicit_flight and getattr(self, "_withheld_delivery_token", None) is delivery_token
+        # X-628 (interaction grid D8): a take the app ended by itself (time
+        # limit, no speech, silence) pasted into whatever had the focus when
+        # it landed -- 15 or 45 seconds on, often another app. It pastes only
+        # into the window it started in; anywhere else its words are kept.
+        # A stop the person made pastes where they are, as always.
+        moved_away = explicit_flight and self._auto_stopped_elsewhere(delivery_token)
+        withheld = esc_withheld or moved_away
+        if withheld and secure_take:
+            # A password is never copied or kept, so there is nothing to keep.
+            if flight_is_current():
+                self.overlay.set_state(
+                    "idle",
+                    "Esc: nothing was typed." if esc_withheld else "Nothing was typed: you moved to another window.",
+                    "",
+                )
+            return cancelled_result("withheld_by_esc" if esc_withheld else "withheld_moved_away")
         delivery: dict[str, object]
         paste_started = time.perf_counter()
         paste_input_generation = 0
@@ -3405,7 +3906,7 @@ class TalkDatApp:
             caret_reader = getattr(self, "_caret_context_reader", None)
             caret_started = time.perf_counter()
             caret = None
-            if (callable(caret_reader) and not secure_take
+            if (callable(caret_reader) and not secure_take and not withheld
                     and effective_config.get("cleanup", {}).get("smart_format", True)
                     and self.config.get("dictation", {}).get("paste_mode", "auto") != "copy_only"):
                 try:
@@ -3444,10 +3945,15 @@ class TalkDatApp:
 
             paste_options["keep_final_period"] = ends_with_spoken_mark(raw_text)
             if secure_take:
+                # Find-more P0-5: if typing is refused and the words fall back
+                # to the pasteboard, the Mac marks them ConcealedType.
+                paste_options["concealed"] = True
                 # A password never touches the clipboard, where clipboard
                 # history, the cloud clipboard and clipboard managers keep
                 # copies: it is typed, with no leading space.
                 paste_options.update(paste_mode="type", smart_leading_space=False, restore_clipboard=False)
+            if withheld:
+                paste_options.update(paste_mode="copy_only", send_enter=False, smart_leading_space=False)
             if explicit_flight:
                 # This predicate is checked inside the paste implementation
                 # immediately before Ctrl+V, Shift+Insert, Enter, and every
@@ -3633,7 +4139,7 @@ class TalkDatApp:
         if getattr(processed, "held_enter", False) and delivery.get("success"):
             from .platform_copy import ENTER_KEY
 
-            self.overlay.set_state("captured", f"Typed into the terminal. Press {ENTER_KEY} to run it.", "")
+            self.overlay.set_state("captured", f"Typed into the terminal. Press {ENTER_KEY} to run it.", "", say=True)
             return result
         # X-465: a local-only install has no cloud to quietly rescue a
         # formatter that could not run, so the reason is said out loud once.
@@ -3654,8 +4160,17 @@ class TalkDatApp:
             )
         elif guided_sink_still_owned:
             self.overlay.set_state("captured", "Setup test complete. Mic off.", preview(processed.text, 112))
+        elif withheld and receipt is not None and (receipt.success or recovery_copy):
+            with self.lock:
+                if getattr(self, "_withheld_delivery_token", None) is delivery_token:
+                    self._withheld_delivery_token = None
+            kept = self.config.get("privacy", {}).get("save_history", True)
+            headline = "Kept, not pasted." if esc_withheld else "Kept, not pasted: you moved to another window."
+            where = "It is on the clipboard and in History." if kept else "It is on the clipboard."
+            self.overlay.set_state("captured", headline, preview(processed.text, 112))
+            self.overlay.flag(headline.rstrip("."), detail=where, tone="warn", key="state", origin="person")
         elif receipt is None:
-            self.overlay.set_state("captured", "Captured locally. Auto paste is off.", preview(processed.text, 112))
+            self.overlay.set_state("captured", "Captured locally. Auto paste is off.", preview(processed.text, 112), say="warn")
         elif receipt.success:
             self.overlay.set_state("captured", f"{receipt.visible_label()}. Mic off.", preview(processed.text, 112))
         elif receipt.method == "protected_rich_clipboard":
@@ -3663,6 +4178,7 @@ class TalkDatApp:
                 "captured",
                 "Rich clipboard preserved. Transcript kept in History for Paste Last.",
                 preview(processed.text, 112),
+                say="warn",
             )
         else:
             state = "captured" if recovery_copy else "error"
@@ -3679,6 +4195,18 @@ class TalkDatApp:
                 else "Click where the text should go, then use Paste last transcript in the Pill menu.",
             )
         return result
+
+    def _auto_stopped_elsewhere(self, token: object) -> bool:
+        """X-628: this take ended by a timeout and its window lost the focus.
+
+        An unknown start window (0) proves nothing, so it pastes as before.
+        """
+        with self.lock:
+            auto_stopped = getattr(self, "_auto_stopped_token", None) is token
+            started = getattr(self, "_flight_window", None)
+        if not auto_stopped or started is None or started[0] is not token or not started[1]:
+            return False
+        return foreground_window_id() != started[1]
 
     def handle_command(
         self,
@@ -3826,7 +4354,8 @@ class TalkDatApp:
                         message = (
                             f"{transform_id} is kept in History, but the clipboard copy failed."
                         )
-                    self.overlay.set_state("captured", message, preview(output, 112))
+                    self.overlay.set_state("captured", message, preview(output, 112),
+                                           say="done" if receipt.success else "warn")
                 return
 
             if not (
@@ -3941,7 +4470,7 @@ class TalkDatApp:
                         "created_at": time.time(),
                     }
                 )
-                self.overlay.set_state("captured", message, preview(output, 112))
+                self.overlay.set_state("captured", message, preview(output, 112), say=True)
         except Exception:
             if selected:
                 restore_clipboard_if_unchanged(selected, previous_clipboard)
@@ -4127,9 +4656,10 @@ class TalkDatApp:
                 "captured",
                 "Auto-translate ON.",
                 f"Dictation now arrives in {target.label} (from {source.label}).",
+                say=True,
             )
         else:
-            self.overlay.set_state("captured", "Auto-translate OFF.", "Dictation arrives as spoken.")
+            self.overlay.set_state("captured", "Auto-translate OFF.", "Dictation arrives as spoken.", say=True)
 
     def translate_last(self) -> None:
         claim = self._reserve_deferred_delivery()
@@ -4328,6 +4858,14 @@ class TalkDatApp:
         if claim is None:
             return
         target_window = foreground_window_id()
+        # Find-more P1-5: the shortcut fires on key-down, and letting go of it
+        # moves the input tick, so a tick read here used to change before the
+        # paste and Paste Last only copied (7 requests in his log since 09-05,
+        # no outcome line). Read it once the keys are up.
+        from .paste import wait_for_keys_released
+
+        if not wait_for_keys_released():
+            log.info("paste_last: keys still held; reading the target anyway")
         input_generation = foreground_input_generation()
 
         def target_is_current() -> bool:
@@ -4383,6 +4921,12 @@ class TalkDatApp:
                 else:
                     message = "Could not paste or copy. The last transcript is still in History."
                     state = "error"
+                # P1-5: the outcome was only ever on the Pill.
+                log.info(
+                    "paste_last: %s method=%s copied=%s attempts=%s",
+                    "pasted" if receipt.success else "not pasted", receipt.method, copied,
+                    ",".join(receipt.attempts),
+                )
                 self.overlay.set_state(state, message, preview(text, 112))
         finally:
             self._release_deferred_delivery(claim)
@@ -4394,7 +4938,9 @@ class TalkDatApp:
             self.overlay.set_state("error", "No previous transcript to copy.", "Dictate something first.")
             return
         if copy_text(self.last_transcript):
-            self.overlay.set_state("captured", "Copied last transcript to the clipboard.", preview(self.last_transcript, 112))
+            self.overlay.set_state(
+                "captured", "Copied last transcript to the clipboard.", preview(self.last_transcript, 112), say=True
+            )
         else:
             self.overlay.set_state(
                 "error",
@@ -4407,7 +4953,7 @@ class TalkDatApp:
             self.overlay.set_state("error", "No cleanup diff yet.", "Dictate something first.")
             return
         copy_text(self.last_diff)
-        self.overlay.set_state("captured", "Copied last cleanup diff.", preview(self.last_diff, 112))
+        self.overlay.set_state("captured", "Copied last cleanup diff.", preview(self.last_diff, 112), say=True)
 
     def open_scratchpad(self) -> None:
         self.overlay.open_scratchpad()
@@ -4505,7 +5051,8 @@ class TalkDatApp:
                     if self._license_activation_cancel.is_set():
                         with self.license_activation_lock:
                             self.license_activation_snapshot = {"state": "idle", "detail": "Sign-in cancelled."}
-                        self.overlay.show_toast("Sign-in cancelled. Press Sign in whenever you're ready.")
+                        # X-742: the Account page, where the person pressed
+                        # Sign in, already says so; nothing over the Pill.
                         return
                     try:
                         state = self.license_manager.exchange_activation(user_code=user_code, device_code=device_code)
@@ -4560,9 +5107,11 @@ class TalkDatApp:
         self._provider_before_local_switch = str(self.config.get("stt", {}).get("provider", ""))
         self.config.setdefault("stt", {})["provider"] = "local"
         log.warning("cloud route failed %d times in %ds; session switched to the local model", len(recent), 600)
-        self.overlay.show_toast(
-            "Switched to your local model, the cloud connection is having issues. "
-            "Your provider choice is unchanged in Settings; restarting returns to it."
+        self.overlay.flag(
+            f"Using {platform_copy.THIS_COMPUTER} for now",
+            detail="Your speech provider keeps failing. Your setting is unchanged, and a restart goes back to it.",
+            tone="warn",
+            key="provider",
         )
 
     def _maybe_return_to_cloud(self) -> None:
@@ -4596,9 +5145,7 @@ class TalkDatApp:
         self._switched_to_local_for_session = False
         self._provider_before_local_switch = ""
         log.info("cloud connection recovered; session switched back to %s", provider)
-        self.overlay.show_toast(
-            f"Cloud connection restored, switched back to {provider_label(provider)}."
-        )
+        self.overlay.flag(f"Back on {provider_label(provider)}", tone="done", key="provider")
 
     # ------------------------------------------------------------- X-432
     # Sign in without leaving the app. His order: "full login and account
@@ -4636,7 +5183,7 @@ class TalkDatApp:
                         "device_code": device_code,
                         "expires_at": time.time() + max(60, int(sent.get("expiresInSeconds") or 600)),
                     }
-                self.overlay.show_toast("Check your email for the six-digit code.")
+                # X-742: the Account page opens the code box itself.
             except LicenseError as exc:
                 with self.license_activation_lock:
                     self.license_activation_snapshot = {"state": "error", "detail": str(exc)}
@@ -4698,7 +5245,10 @@ class TalkDatApp:
         threading.Thread(target=worker, name="TalkDatEmailVerify", daemon=True).start()
 
     def recent_audio_sessions(self) -> list[dict[str, Any]]:
-        return list_safety_sessions(5)
+        # Find-more P0-3: plus any failed take kept past the newest five.
+        from .audio_spool import recovery_sessions
+
+        return recovery_sessions(5)
 
     def recover_audio_session(self, session_id: str) -> None:
         session_id = str(session_id or "").strip()
@@ -4753,11 +5303,12 @@ class TalkDatApp:
                             )
                             copied = receipt.success
                 current = self._deferred_delivery_is_current(claim)
+                keep_words = self._keeps_words()  # find-more P0-6: History off keeps audio only
                 update_safety_session(
                     session_id,
                     status="recovered",
-                    raw_transcript=raw_text,
-                    final_text=final_text,
+                    raw_transcript=raw_text if keep_words else "",
+                    final_text=final_text if keep_words else "",
                     error="",
                     delivery={
                         "success": copied,
@@ -4876,7 +5427,8 @@ class TalkDatApp:
                 self.overlay.set_state(
                     "captured",
                     "Updates for this copy come from the Microsoft Store.",
-                    "The Store page is opening; updates install from there.",
+                    "The Microsoft Store page is opening; updates install from there.",
+                    say=True,
                 )
             return
         with self.update_lock:
@@ -4889,7 +5441,7 @@ class TalkDatApp:
             self.update_in_progress = True
 
         if not silent and report is None:
-            self.overlay.set_state("processing", "Checking GitHub releases for updates.")
+            self.overlay.set_state("processing", "Checking GitHub releases for updates.", say=True)
 
         def finish(message: str, detail: str = "", *, state: str = "captured") -> None:
             if report is not None:
@@ -4924,7 +5476,9 @@ class TalkDatApp:
                     # check must stay silent.
                     if not silent:
                         with contextlib.suppress(Exception):
-                            self.overlay.show_toast(f"Talk DAT! is up to date  -  v{APP_VERSION}")
+                            self.overlay.flag(
+                                "You're up to date", detail=f"Talk DAT! {APP_VERSION}", tone="done", origin="person"
+                            )
                     finish(f"Talk DAT! is up to date. v{APP_VERSION}")
                     return
 
@@ -5151,6 +5705,29 @@ class TalkDatApp:
     def show_overlay(self) -> None:
         self.overlay.show()
 
+    def open_from_tray(self) -> None:
+        """X-634 (interaction grid d4): a left-click on the tray icon opens Talk DAT!.
+
+        The click runs the menu's default item, "Open Talk DAT!", which only
+        re-showed the Pill (already on screen), so the click looked dead. It
+        still brings back a minimized utility window first; with nothing to
+        bring back, it opens Home (the Tk window when there is no renderer).
+        """
+        if threading.get_ident() != getattr(
+            getattr(self, "overlay", None), "_ui_thread_id", threading.get_ident()
+        ):
+            self._cross_thread_calls.put(lambda: self.open_from_tray())
+            return
+        if self.overlay.reveal_now():
+            return
+        # X-634b: never open a window over a take in flight; it would take
+        # the focus the words are about to be typed into.
+        with getattr(self, "lock", None) or contextlib.nullcontext():
+            busy = getattr(self, "session", None) is not None or getattr(self, "session_token", None) is not None
+        if busy:
+            return
+        self.overlay.open_home()
+
     def hide_overlay(self) -> None:
         self.overlay.hide()
 
@@ -5336,7 +5913,7 @@ class TalkDatApp:
                 else f"No provider key saved yet, so this still runs on {platform_copy.THIS_COMPUTER}. "
                      "Add a key under Settings, Speech."
             )
-        self.overlay.set_state("captured", f"Route: {title}", detail)
+        self.overlay.set_state("captured", f"Route: {title}", detail, say=True)
         return True
 
     def push_menu_order(self, order: list[str]) -> None:
@@ -5499,7 +6076,7 @@ class TalkDatApp:
         cleanup["intensity_default_migrated"] = True
         self.save_settings()
         label = "Executive" if key == "executive" else "Chill"
-        self.overlay.set_state("captured", f"{label} is your default finish.", "Flip it any time from the pill menu.")
+        self.overlay.set_state("captured", f"{label} is your default finish.", "Flip it any time from the pill menu.", say=True)
         return f"{label} is your default finish. You can switch any time from the Pill menu."
 
     def save_settings(self, *, persist: bool = True) -> None:
@@ -5674,7 +6251,7 @@ class TalkDatApp:
                 with self.lock:
                     session_active = self.session is not None
                 if not session_active and status != "model_ready":
-                    self.overlay.set_state("processing", message, "Microphone off. Local model setup runs once.")
+                    self.overlay.set_state("processing", message, "Microphone off. Local model setup runs once.", say=True)
 
             self.overlay.root.after(0, update)
 
@@ -5700,11 +6277,13 @@ class TalkDatApp:
                 if error:
                     self.overlay.set_state("error", f"Local model setup failed: {preview(error, 100)}", "Open Local Models to retry.")
                 else:
-                    self.overlay.set_state("captured", f"{model.label} is ready.", "Private on-device speech is ready.")
+                    self.overlay.set_state("captured", f"{model.label} is ready.", "Private on-device speech is ready.", say=True)
 
             self.overlay.root.after(0, finish)
 
-        self.overlay.set_state("processing", f"Preparing {model.label}.", "Microphone off. Downloading once for private speech.")
+        self.overlay.set_state(
+            "processing", f"Preparing {model.label}.", "Microphone off. Downloading once for private speech.", say=True
+        )
         threading.Thread(target=worker, name=f"TalkDatPrefetch-{model.id}", daemon=True).start()
 
     def panic_stop(self) -> None:
@@ -5795,6 +6374,7 @@ class TalkDatApp:
                             "captured",
                             "Panic Stop completed for dictation and registered mic tests.",
                             "Other capture tools keep their own visible stop control.",
+                            say=True,
                         )
                         return
                     if time.monotonic() >= deadline:
@@ -5894,6 +6474,14 @@ class TalkDatApp:
             snapshot["finishing_message"] = str(verdict.get("message", ""))
         except Exception:
             log.debug("could not read finishing status", exc_info=True)
+        # X-742: the last 20 messages the Pill said, so nothing essential
+        # exists only in a message that has already gone.
+        try:
+            recent = getattr(self.overlay, "recent_messages", None)
+            snapshot["recent_messages"] = list(recent()) if callable(recent) else []
+        except Exception:
+            log.debug("could not read the recent messages", exc_info=True)
+            snapshot["recent_messages"] = []
         # The stale-serve above depends on this being stamped on every
         # successful pass; a snapshot that was never taken cannot go stale.
         self._last_status_snapshot = snapshot
@@ -5942,6 +6530,18 @@ class TalkDatApp:
     def release_activation_guards(self) -> None:
         self.output_mute_guard.stop(fade_ms=int(self.config.get("dictation", {}).get("mute_fade_in_ms", 240)))
         self.overlay.set_session_visible(False)
+
+    def forget_last_take(self) -> None:
+        """Find-more P0-6: "Clear text history" also empties Paste Last's source.
+
+        Paste Last read `last_transcript` first, so after a clear it still
+        pasted the words the person had just deleted, until a restart.
+        """
+        self.last_transcript = ""
+        self.last_original = ""
+        self.last_diff = ""
+        self.last_raw_transcript = ""
+        self._last_take_unsure = None
 
     def clear_live_draft(self) -> None:
         """Empty the crash-recovery draft. Cheap no-op when already empty."""
@@ -6164,15 +6764,73 @@ class TalkDatApp:
         self._meeting_quit_deadline = None
         return True
 
-    def quit(self, *, settings_confirmed: bool = False) -> None:
+    def _finish_take_then(self, action: Callable[[], None], what: str) -> bool:
+        """X-630 (interaction grid D10, safety net 5): let the take land first.
+
+        Quit, Restart, Pause and the update install's quit all cancelled a
+        live or processing take. The audio was kept in History, but nothing
+        pasted and nothing said so. Now a take in flight finishes first: a
+        live one is stopped (so it delivers), then the action waits for the
+        result to land, up to LANDING_WAIT_SECONDS, with the Pill in
+        processing. Returns True when the action was deferred.
+
+        One pending action per kind: a second Pause while waiting pauses
+        once, and Pause then Quit does both, in that order.
+        """
+        # getattr throughout: exit paths are also driven on bare app doubles.
+        with getattr(self, "lock", None) or contextlib.nullcontext():
+            session = getattr(self, "session", None)
+            token = getattr(self, "session_token", None)
+            released = bool(getattr(self, "_released_processing", False))
+        if session is None and token is None:
+            return False
+        pending = getattr(self, "_after_landing", None)
+        if pending is None:
+            pending = self._after_landing = {}
+        pending[what] = action
+        if getattr(self, "_landing_deadline", None) is not None:
+            return True
+        self._landing_deadline = time.monotonic() + LANDING_WAIT_SECONDS
+        log.info("%s waits for the take in flight to land", what)
+        if session is not None and not released:
+            self.stop_session()
+        with contextlib.suppress(Exception):
+            self.overlay.flag("Finishing this take first.", origin="person")
+
+        def poll() -> None:
+            with self.lock:
+                busy = self.session is not None or self.session_token is not None
+            deadline = getattr(self, "_landing_deadline", None)
+            if busy and deadline is not None and time.monotonic() < deadline:
+                self.overlay.root.after(100, poll)
+                return
+            if busy:
+                log.warning("the take did not land within %.0fs; going ahead", LANDING_WAIT_SECONDS)
+            self._landing_deadline = None
+            actions = list(self._after_landing.values())
+            self._after_landing.clear()
+            for run in actions:
+                try:
+                    run()
+                except Exception:
+                    log.exception("action after landing failed")
+
+        self.overlay.root.after(100, poll)
+        return True
+
+    def quit(self, *, settings_confirmed: bool = False, after_landing: bool = False) -> None:
         if threading.get_ident() != getattr(
             getattr(self, "overlay", None), "_ui_thread_id", threading.get_ident()
         ):
             self._cross_thread_calls.put(
-                lambda: self.quit(settings_confirmed=settings_confirmed)
+                lambda: self.quit(settings_confirmed=settings_confirmed, after_landing=after_landing)
             )
             return
         if getattr(self, "_reset_in_progress", False) and not getattr(self, "_reset_finished", False):
+            return
+        if not after_landing and self._finish_take_then(
+            lambda: self.quit(settings_confirmed=settings_confirmed, after_landing=True), "quit"
+        ):
             return
         shell = getattr(self, "web_shell", None)
         if (

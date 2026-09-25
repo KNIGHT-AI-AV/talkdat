@@ -224,6 +224,9 @@ $AnalysisToc = Join-Path $BuildDir "Talk Dat!\Analysis-00.toc"
 Invoke-Checked "third-party licenses" { & $Python (Join-Path $Root "scripts\collect_licenses.py") --bundle "$AppDir" --analysis "$AnalysisToc" --spec "$SpecPath" --output "$ThirdPartyLicenses" --strict }
 Copy-Item -LiteralPath (Join-Path $Root "LICENSE") -Destination (Join-Path $AppDir "LICENSE.txt") -Force
 Copy-Item -LiteralPath (Join-Path $Root "NOTICE") -Destination (Join-Path $AppDir "NOTICE.txt") -Force
+# X-763: read the BUILT folder, not the config: every required licence text
+# must be in what ships (scripts\check_shipped_licences.py says what that is).
+Invoke-Checked "shipped licences" { & $Python (Join-Path $Root "scripts\check_shipped_licences.py") "$AppDir" }
 
 $PackagedOnboardingCandidates = @(
     (Join-Path $AppDir "_internal\knight_flow\assets\onboarding"),

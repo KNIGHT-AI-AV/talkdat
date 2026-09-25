@@ -103,7 +103,7 @@ window.TalkDatWorkspaces = (() => {
       const button=el("button",{text:label});
       button.addEventListener("click",async()=>{
         if(action.startsWith("clear_")){pendingClear=action;confirmTitle.textContent=label+"?";
-          confirmText.textContent=action==='clear_text'?"Delete local text history and live drafts. Pinned entries, notes and protected recordings stay. This cannot be undone.":"Delete all locally protected voice recordings. Saved text, pins and notes stay. This cannot be undone.";
+          confirmText.textContent=action==='clear_text'?"Delete your saved dictation text: history, live drafts, the formatting journal, the words kept with each recording, and the text Paste Last would paste. Pinned entries, notes and the recordings' audio stay. This cannot be undone.":"Delete all locally protected voice recordings. Saved text, pins and notes stay. This cannot be undone.";
           confirm.textContent=label;confirmation.showModal();return;}
         if(action==='copy_results'){try{notice((await call(action,{query:state.query})).message);}catch(error){notice(error.message,true);}return;}
         await utility(action);

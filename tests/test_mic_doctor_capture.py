@@ -19,7 +19,7 @@ class MicDoctorCaptureTests(unittest.TestCase):
         self.app.config={'audio':{'input_device':'7: Chosen microphone'}}
         self.app.lock=threading.RLock();self.app.session=None;self.app.session_token=None
         self.app._cross_thread_calls=self.ui;self.app.cancel=lambda:None
-        self.app.overlay=SimpleNamespace(_ui_thread_id=threading.get_ident(),set_state=lambda *args:None,
+        self.app.overlay=SimpleNamespace(_ui_thread_id=threading.get_ident(),set_state=lambda *args, **kwargs:None,
             root=SimpleNamespace(after=lambda delay,fn:(self.tk_threads.append(threading.get_ident()),self.ui.put(fn))))
         def record(*args,**kw):
             self.captures.append(kw);self.started.set()

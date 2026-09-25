@@ -67,13 +67,14 @@ class AnOfferIsAQuestionNotADecisionTests(unittest.TestCase):
 
     def test_the_pop_over_asks_rather_than_announces(self) -> None:
         self.assertIn("def offer_learned_word(self, word: str, on_accept: Any) -> None:", OVERLAY)
-        self.assertIn('label_text = f"Add “{word}”?" if asking else f"Added “{word}”"', OVERLAY)
-        self.assertIn('text="Add" if asking else "Don\'t save",', OVERLAY)
-        # Pressing it in asking mode adds the word instead of striking it out.
-        button = OVERLAY[OVERLAY.index("def strike_and_reject("):]
-        button = button[: button.index("\n        reject.configure")]
-        self.assertIn("if asking:", button)
-        self.assertIn("on_reject(word)", button)
+        # X-742: the notice is a segment of the Pill that asks in words.
+        self.assertIn("f'Add \"{word}\" to your words?' if asking else f'Added \"{word}\"'", OVERLAY)
+        self.assertIn('FlagAction("Add" if asking else "Undo", decide, "<Alt-d>", primary=asking)', OVERLAY)
+        # Pressing it in asking mode adds the word instead of undoing it.
+        decide = OVERLAY[OVERLAY.index("        def decide() -> None:"):]
+        decide = decide[: decide.index("        self.flag(")]
+        self.assertIn("if asking:", decide)
+        self.assertIn("on_reject(word)", decide)
 
 
 if __name__ == "__main__":

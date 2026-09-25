@@ -28,7 +28,7 @@ class RambleActions:
             # This draft never changes Paste Last or another recording's Pill.
             with app.lock:
                 if app.session_token is None:
-                    app.overlay.set_state('captured','Ramble is ready to review.','Open Writing > Ramble to edit and save your document.')
+                    app.overlay.set_state('captured','Ramble is ready to review.','Open Writing > Ramble to edit and save your document.',say=True)
 
         app._cross_thread_calls.put(complete)
         return True

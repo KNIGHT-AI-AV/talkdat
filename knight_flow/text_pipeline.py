@@ -286,7 +286,11 @@ def replace_phrase(text: str, source: str, target: str) -> str:
     if not source:
         return text
     pattern = re.compile(rf"(?<!\w){re.escape(source)}(?!\w)", re.IGNORECASE)
-    return pattern.sub(target, text)
+    # P0-1: `target` is the person's own text (a dictionary "Replace with" or
+    # a snippet, clipboard included). As a string template `re` reads its
+    # backslashes as escapes: `C:\Users` raised on every take and `C:\new`
+    # pasted a newline. A function's return value is used as written.
+    return pattern.sub(lambda _match: target, text)
 
 
 def apply_dictionary(text: str, config: dict[str, Any]) -> str:

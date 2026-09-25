@@ -53,8 +53,13 @@ def save_settings_config(config):
         if not transaction.available and any(_group_secret(refs) for _,refs in _secret_groups(config)):
             raise ValueError('Protected key storage is unavailable. Your changes were not saved.')
         try:
-            save_config(config, credential_backend=transaction)
+            saved = save_config(config, credential_backend=transaction)
         except BaseException:
             if not transaction.rollback():
                 raise ValueError('The save failed and a provider key could not be restored. Re-enter that key before using the provider.') from None
             raise
+        if saved is False:
+            # P0-7: config.json could not be opened at launch, so this session
+            # holds the defaults and save_config refuses to write them over it.
+            raise ValueError('Your settings file could not be opened when Talk DAT! started, so changes are not saved. '
+                             'Restart Talk DAT! to try again.')

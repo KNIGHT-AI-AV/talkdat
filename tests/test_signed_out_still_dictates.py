@@ -65,7 +65,7 @@ class _Overlay:
         self.states: list[tuple[str, str, str]] = []
         self.root = types.SimpleNamespace(after=lambda *_a, **_k: None)
 
-    def set_state(self, state: str, message: str = "", detail: str = "") -> None:
+    def set_state(self, state: str, message: str = "", detail: str = "", **_kwargs) -> None:
         self.states.append((state, message, detail))
 
     def set_level(self, level: float) -> None:  # pragma: no cover - noise
