@@ -256,13 +256,14 @@ class ThePillShowsItTests(unittest.TestCase):
         real = module.ImageTk.PhotoImage
         real_layered = overlay._present_layered
         seen: list[Image.Image] = []
+        caps: list[Image.Image] = []
 
         def spy(image=None, *args, **kwargs):
             seen.append(image)
             return real(image, *args, **kwargs)
 
         def layered_spy(image, *args, **kwargs):
-            seen.append(image)
+            caps.append(image)
             return real_layered(image, *args, **kwargs)
 
         overlay.idle_photo_cache.clear()
@@ -271,8 +272,11 @@ class ThePillShowsItTests(unittest.TestCase):
             overlay, "_present_layered", side_effect=layered_spy
         ):
             overlay._draw_visual()
-        self.assertTrue(seen, "the Pill drew nothing")
-        return seen[-1]
+        self.assertTrue(caps or seen, "the Pill drew nothing")
+        # On the Mac, presenting a lengthened error also makes a PhotoImage
+        # for its dark text panel. Measure the cap sent to the presenter;
+        # the last PhotoImage includes that panel and dilutes the color test.
+        return caps[-1] if caps else seen[-1]
 
     def test_idle_is_the_plain_artwork(self) -> None:
         overlay = self.overlay()

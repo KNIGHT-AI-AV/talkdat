@@ -3,6 +3,15 @@
 All notable product changes to Talk DAT! are recorded here. The project uses beta
 versions while broader field verification remains in progress.
 
+## 0.4.169-beta
+
+The default theme has a clearer name, and the Store notes cover every update you missed.
+
+- The default theme is now called Deep Teal. Your saved colours stay the same.
+- Microsoft Store update notes include changes since the version last published there.
+- The Store listing links to the Talk DAT! FAQ and declares that the app has no outside purchases.
+- Fixed checks that could block the public source export on licence texts and tests for files it does not include.
+
 ## 0.4.168-beta
 
 The Pill tells you things itself, looks sharper, and keeps your words safer.

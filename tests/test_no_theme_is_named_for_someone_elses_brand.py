@@ -48,6 +48,9 @@ class TheNamesPeopleSeeTests(unittest.TestCase):
     def test_the_renames(self) -> None:
         self.assertEqual(theme_display_name("Night City Neon Dark"), "Yellow Neon Dark")
         self.assertEqual(theme_display_name("Champagne Glass Light"), "Pale Gold Glass Light")
+        # X-726: the default theme no longer shares a name with Wispr's "Flow".
+        self.assertEqual(theme_display_name("Flow Dark"), "Deep Teal Dark")
+        self.assertEqual(theme_display_name("Flow"), "Deep Teal")
         self.assertEqual(theme_display_name("Roman Clay Dark"), "Roman Clay Dark")
 
     def test_display_names_are_unique_and_round_trip(self) -> None:

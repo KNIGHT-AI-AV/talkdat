@@ -103,6 +103,9 @@ SETTINGS_THEME_GROUPS = (
 SETTINGS_THEME_DISPLAY_NAMES = {
     "Night City Neon": "Yellow Neon",
     "Champagne Glass": "Pale Gold Glass",
+    # X-726, his call 2026-09-25: Wispr markets its product as "Flow", so the
+    # default theme is shown by its colour. The key stays "Flow" everywhere.
+    "Flow": "Deep Teal",
 }
 
 

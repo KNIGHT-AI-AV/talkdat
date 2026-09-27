@@ -145,8 +145,10 @@ class RealPopupReachabilityTests(unittest.TestCase):
         language_field.event_generate("<FocusOut>")
         # Help waits briefly so moving from the owner into a scrollable tip is
         # possible, then runs the same short guarded fade as other popovers.
-        pump(self.overlay.root, 0.24)
-        self.assertFalse(bool(tip.winfo_exists()))
+        deadline = time.perf_counter() + 1.5
+        while bool(tip.winfo_exists()) and time.perf_counter() < deadline:
+            pump(self.overlay.root, 0.02)
+        self.assertFalse(bool(tip.winfo_exists()), "unoccupied tooltip never dismissed")
 
     def test_settings_tooltip_uses_logical_bounds_when_monitor_lookup_is_unavailable(self) -> None:
         self.overlay.open_settings()

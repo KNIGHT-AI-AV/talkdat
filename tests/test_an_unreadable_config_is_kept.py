@@ -26,7 +26,7 @@ from knight_flow import launch_notices
 from knight_flow.activation_metrics import stamp_first_run
 from knight_flow.config import load_config, save_config
 
-DAMAGED = b'{"dictionary": {"words": ["Mayowa", "Knight"],}, "metrics": {"internal": true},}'
+DAMAGED = b'{"dictionary": {"words": ["Alex", "Knight"],}, "metrics": {"internal": true},}'
 
 
 def _sharing_violation() -> OSError:
@@ -66,7 +66,7 @@ class AnUnreadableConfigIsKept(unittest.TestCase):
         self.assertEqual(kept[0].read_bytes(), DAMAGED, "its bytes must be exactly as they were")
         # This session runs on the defaults, which may now be saved: the
         # original is safe beside them.
-        self.assertNotIn("Mayowa", config.get("dictionary", {}).get("words", []))
+        self.assertNotIn("Alex", config.get("dictionary", {}).get("words", []))
         self.assertTrue(self.path.is_file())
         notices = launch_notices.pending()
         self.assertEqual([item["key"] for item in notices], ["config"])
@@ -81,12 +81,12 @@ class AnUnreadableConfigIsKept(unittest.TestCase):
         self.assertEqual([p.read_bytes() for p in self._kept()], [raw])
 
     def test_a_file_that_is_not_an_object_is_kept(self) -> None:
-        self.path.write_bytes(b'["Mayowa"]')
+        self.path.write_bytes(b'["Alex"]')
         load_config(self.home)
-        self.assertEqual([p.read_bytes() for p in self._kept()], [b'["Mayowa"]'])
+        self.assertEqual([p.read_bytes() for p in self._kept()], [b'["Alex"]'])
 
     def test_a_file_that_cannot_be_opened_is_never_written(self) -> None:
-        self.path.write_text(json.dumps({"dictionary": {"words": ["Mayowa"]}}), encoding="utf-8")
+        self.path.write_text(json.dumps({"dictionary": {"words": ["Alex"]}}), encoding="utf-8")
         before = self.path.read_bytes()
         real_read_bytes = Path.read_bytes
 
@@ -105,7 +105,7 @@ class AnUnreadableConfigIsKept(unittest.TestCase):
         self.assertIn("restart", launch_notices.pending()[0]["text"].lower())
 
     def test_a_passing_sharing_violation_is_retried(self) -> None:
-        self.path.write_text(json.dumps({"dictionary": {"words": ["Mayowa"]}}), encoding="utf-8")
+        self.path.write_text(json.dumps({"dictionary": {"words": ["Alex"]}}), encoding="utf-8")
         real_read_bytes = Path.read_bytes
         failures = {"left": 2}
 
@@ -118,14 +118,14 @@ class AnUnreadableConfigIsKept(unittest.TestCase):
         with patch.object(Path, "read_bytes", briefly_locked), patch.object(config_module.time, "sleep"):
             config = load_config(self.home)
         self.assertEqual(failures["left"], 0, "positive control: the read really failed twice")
-        self.assertIn("Mayowa", config["dictionary"]["words"])
+        self.assertIn("Alex", config["dictionary"]["words"])
         self.assertEqual(launch_notices.pending(), [])
         self.assertIs(save_config(config), True)
 
     def test_a_good_file_says_nothing_and_keeps_nothing_aside(self) -> None:
-        self.path.write_text(json.dumps({"dictionary": {"words": ["Mayowa"]}}), encoding="utf-8")
+        self.path.write_text(json.dumps({"dictionary": {"words": ["Alex"]}}), encoding="utf-8")
         config = load_config(self.home)
-        self.assertIn("Mayowa", config["dictionary"]["words"])
+        self.assertIn("Alex", config["dictionary"]["words"])
         self.assertEqual(self._kept(), [])
         self.assertEqual(launch_notices.pending(), [])
 

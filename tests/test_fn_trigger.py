@@ -67,20 +67,22 @@ class TheFnPollerBehavesLikeWisprTests(unittest.TestCase):
 
     def _run(self, script) -> list[str]:
         events: list[str] = []
+        state = {"down": False, "started": threading.Event(), "stopped": threading.Event()}
         controller = HotkeyController(
             {"push_to_talk": [["fn"]]},
-            {"push_to_talk": lambda: events.append("start"),
-             "push_to_talk_stop": lambda: events.append("stop")},
+            {"push_to_talk": lambda: (events.append("start"), state["started"].set()),
+             "push_to_talk_stop": lambda: (events.append("stop"), state["stopped"].set())},
         )
-        state = {"down": False}
         with mock.patch("knight_flow.mac_support.physical_key_down",
                         lambda name: state["down"] if name == "fn" else False):
             controller.watchdog_stop.clear()
             thread = threading.Thread(target=controller._fn_loop, daemon=True)
             thread.start()
-            script(state)
-            controller.watchdog_stop.set()
-            thread.join(1)
+            try:
+                script(state)
+            finally:
+                controller.watchdog_stop.set()
+                thread.join(1)
         return events
 
     def test_a_tap_stays_the_systems(self) -> None:
@@ -95,9 +97,11 @@ class TheFnPollerBehavesLikeWisprTests(unittest.TestCase):
     def test_a_hold_starts_and_release_stops(self) -> None:
         def script(state):
             state["down"] = True
-            time.sleep(0.4)
+            # Aqua may coalesce the poll and debounce timers in a test job.
+            # Wait for the real callback, then prove release sends its pair.
+            self.assertTrue(state["started"].wait(2), "holding Fn never started dictation")
             state["down"] = False
-            time.sleep(0.25)
+            self.assertTrue(state["stopped"].wait(2), "releasing Fn never stopped dictation")
 
         self.assertEqual(self._run(script), ["start", "stop"])
 
