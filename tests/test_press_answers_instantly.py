@@ -48,6 +48,23 @@ def _line_of_first(predicate) -> int | None:
     return None
 
 
+def _standby_call_source() -> str:
+    """Locate the actual call across formatting and queued-paint guards."""
+    source = APP.read_text(encoding="utf-8")
+    calls = [
+        node for node in ast.walk(_start_session())
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "set_state"
+        and node.args
+        and isinstance(node.args[0], ast.Constant)
+        and node.args[0].value == "starting"
+    ]
+    if not calls:
+        raise AssertionError("start_session does not answer with standby")
+    return ast.get_source_segment(source, min(calls, key=lambda node: node.lineno)) or ""
+
+
 class ThePressAnswersBeforeItWorksTests(unittest.TestCase):
     def test_the_standby_gray_comes_after_the_last_refusal_gate(self) -> None:
         """X-166: it must NOT be the first line of the function.
@@ -64,7 +81,7 @@ class ThePressAnswersBeforeItWorksTests(unittest.TestCase):
         """
         source = ast.get_source_segment(APP.read_text(encoding="utf-8"), _start_session()) or ""
         gate = source.index("session start ignored: already recording")
-        grey = source.index('set_state("starting"')
+        grey = source.index(_standby_call_source())
         self.assertLess(
             gate, grey,
             "the standby grey is set before the repeat-press gate, so holding "
@@ -77,7 +94,7 @@ class ThePressAnswersBeforeItWorksTests(unittest.TestCase):
         Session creation is the expensive step and must never precede the grey.
         """
         source = ast.get_source_segment(APP.read_text(encoding="utf-8"), _start_session()) or ""
-        grey = source.index('set_state("starting"')
+        grey = source.index(_standby_call_source())
         self.assertLess(
             grey, source.index("create_stt_session"),
             "the microphone session is built before the pill answers the click",
@@ -111,7 +128,7 @@ class ThePressAnswersBeforeItWorksTests(unittest.TestCase):
         """
         source = ast.get_source_segment(APP.read_text(encoding="utf-8"), _start_session()) or ""
         paused_at = source.index("if self.paused")
-        gray_at = source.index('set_state("starting"')
+        gray_at = source.index(_standby_call_source())
         self.assertLess(paused_at, gray_at, "the paused check must precede the standby gray")
 
 

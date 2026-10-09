@@ -270,12 +270,12 @@ class SmartFormattingSetup:
             result["message"] = "Your chosen provider formats your writing, so there is nothing to download here."
         else:
             names = self._engine_models()
-            if names is not None and all(_installed(tag, names) for tag in models):
-                state = "ready"
-                result["message"] = f"Formatting uses the writing model on {platform_copy.THIS_COMPUTER}."
-            elif job is not None and job["state"] == "failed":
+            if job is not None and job["state"] == "failed":
                 state = "failed"
                 result["message"] = job.get("message", "") or "Setup did not finish. Choose Retry to try again."
+            elif names is not None and all(_installed(tag, names) for tag in models):
+                state = "ready"
+                result["message"] = f"Formatting uses the writing model on {platform_copy.THIS_COMPUTER}."
             elif not engine and not engine_installer_available():
                 state = "needs_engine"
                 result["message"] = (
@@ -420,9 +420,14 @@ class SmartFormattingSetup:
             deadline = time.monotonic() + WARM_WAIT_S
             while llm.local_formatter_preparing(self.config) and time.monotonic() < deadline:
                 self.sleep(0.25)
+            if llm.local_formatter_preparing(self.config):
+                return self._fail("The writing model is still getting ready. Your text uses built-in rules. Choose Retry after it finishes.")
             api_base, target = llm.local_finish_target(self.config, executive=False)
-            if llm.local_finish_speed(api_base, target) is None:
-                llm.warm_local_finish(api_base, target)
+            speed = llm.local_finish_speed(api_base, target)
+            if speed is None:
+                speed = llm.warm_local_finish(api_base, target)
+            if speed is None:
+                return self._fail("The writing model downloaded but could not get ready. Your text uses built-in rules. Choose Retry to try again.")
             self._ready_probe = None
             self._set(state="done", stage="", percent=100, message="Smart formatting is ready.")
         except Exception as exc:  # a button's worker must never die silently

@@ -529,6 +529,7 @@ class MacEngineFixture(unittest.TestCase):
         self.opened: list[str] = []
         self.watch: SmartFormattingSetup | None = None
         self.during_install: list[dict] = []
+        self.warm_result = 32.0
         patches = {
             "knight_flow.mac_support.IS_MAC": True,
             "knight_flow.mac_support._MEMORY_GB": self.memory_gb,
@@ -543,7 +544,7 @@ class MacEngineFixture(unittest.TestCase):
             "knight_flow.llm.local_formatter_preparing": lambda cfg: False,
             "knight_flow.llm.local_finish_target": lambda cfg, executive: ("http://localhost:11434", LOCAL_FORMATTER_MODEL),
             "knight_flow.llm.local_finish_speed": lambda base, model: None,
-            "knight_flow.llm.warm_local_finish": lambda base, model: self.calls.append(("warm", model)),
+            "knight_flow.llm.warm_local_finish": self.warm,
             "urllib.request.urlopen": no_network,
             "webbrowser.open": lambda url: self.opened.append(url) or True,
         }
@@ -566,6 +567,10 @@ class MacEngineFixture(unittest.TestCase):
 
     def windows_installer(self):
         raise AssertionError("a Mac ran the Windows installer")
+
+    def warm(self, base, model):
+        self.calls.append(("warm", model))
+        return self.warm_result
 
     def run_engine(self, api_base="http://localhost:11434"):
         self.calls.append(("start_engine",))
@@ -618,6 +623,15 @@ class SetUpRunsTheMacInstallerTests(MacEngineFixture):
         job.start()
         self.assertEqual([c[0] for c in self.calls], ["install_mac", "start_engine", "pull", "prepare", "warm"])
         self.assertEqual(job.snapshot()["state"], "ready")
+
+    def test_a_model_that_does_not_warm_remains_failed_with_retry(self):
+        self.warm_result = None
+        job = self.setup()
+        job.start()
+        state = job.snapshot()
+        self.assertEqual(state["state"], "failed")
+        self.assertTrue(state["can_start"])
+        self.assertIn("could not get ready", state["message"])
 
     def test_install_progress_reaches_the_card_and_settings(self):
         self.setup().start()

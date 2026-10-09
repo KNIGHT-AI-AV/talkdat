@@ -59,6 +59,7 @@ def native_stats_probe(connection,evidence,html):
                 window.evaluate_js("window.TalkDat.navigate('stats');true")
                 until("document.querySelector('.activity-metric strong')?.textContent==='3,703'")
                 window.evaluate_js("document.querySelector('.activity-estimates summary').click();true")
+                until("document.querySelector('.activity-estimates')?.open && document.querySelector('.activity-estimates').textContent.includes('not a bill')")
                 evidence.send({'retained':retained,'final':window.evaluate_js("document.querySelector('.activity-metric strong').textContent"),
                     'days':window.evaluate_js("document.querySelectorAll('.activity-week li').length"),
                     # innerText needs a real layout pass, which a hidden/

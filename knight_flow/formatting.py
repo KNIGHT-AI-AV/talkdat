@@ -1535,15 +1535,30 @@ def resolve_value_corrections(text: str) -> str:
         prose = _SAME_KIND_CORRECTION_RE.sub(replace, prose)
         return _DAY_TIME_CORRECTION_RE.sub(day_time, prose)
 
-    from .literal_text import map_prose
+    from .literal_text import protect_literals, restore_literals
 
+    # Code and identifiers stay opaque. Complete ordinary quotations are a
+    # record of the words too, including corrections within the quotation.
+    # Protect literals before splitting quotes, so a path inside a quotation
+    # cannot break its boundary and code containing quotes stays intact.
+    text, literals = protect_literals(text)
+    quoted = re.compile(
+        r'''("[^"\n]*"|“[^”\n]*”|«[^»\n]*»|'''
+        # A contraction's apostrophe belongs inside the quoted words rather
+        # than ending their span. A closing quote cannot continue a word.
+        r'''(?<!\w)'(?:[^'\n]|(?<=\w)'(?=\w))+'(?!\w)|'''
+        r'''‘(?:[^’\n]|(?<=\w)’(?=\w))+’(?!\w))'''
+    )
     previous = None
     for _ in range(8):
         if previous == text:
             break
         previous = text
-        text = map_prose(text, correct)
-    return text
+        parts = quoted.split(text)
+        for index in range(0, len(parts), 2):
+            parts[index] = correct(parts[index])
+        text = "".join(parts)
+    return restore_literals(text, literals)
 
 
 def heuristic_format(text: str) -> str:
@@ -2084,7 +2099,7 @@ def _anchor_components(anchor: str) -> list[str]:
     return [value]
 
 
-def _meaning_anchors(text: str) -> Counter[str]:
+def _ordered_meaning_anchors(text: str) -> list[str]:
     # Canonicalise spoken forms before extracting anchors, so "twelve fifteen
     # p.m." and "12:15 PM" anchor identically. Without this, a correct
     # inverse-text-normalized output holds digit anchors the spoken source
@@ -2106,7 +2121,18 @@ def _meaning_anchors(text: str) -> Counter[str]:
     anchors: list[str] = []
     for match in _ANCHOR_RE.finditer(canonical):
         anchors.extend(_anchor_components(match.group(0)))
-    return Counter(anchors)
+    return anchors
+
+
+def _meaning_anchors(text: str) -> Counter[str]:
+    return Counter(_ordered_meaning_anchors(text))
+
+
+def _numeric_order_changed(source: str, candidate: str) -> bool:
+    """Keep value order across spoken-number conversion and list rendering."""
+    source_values = [value for value in _ordered_meaning_anchors(source) if value.isdigit()]
+    candidate_values = [value for value in _ordered_meaning_anchors(candidate) if value.isdigit()]
+    return source_values != candidate_values and Counter(source_values) == Counter(candidate_values)
 
 
 _NEGATION_FORMS = frozenset({
@@ -2729,10 +2755,17 @@ _DOUBLED_WORD_RE = re.compile(r"\b([A-Za-z']+)(?:[,\s-]+\1\b)+", re.IGNORECASE)
 def _repetition_dropped(source: str, candidate: str) -> bool:
     """A repeat the rules deliberately kept ("had had", "very, very", "no no
     no", "bye bye") that the finish collapsed or reworded ("extremely")."""
-    kept = {match.group(1).lower() for match in _DOUBLED_WORD_RE.finditer(_remove_immediate_repeats(source))}
-    kept -= _NUMBER_WORDS
-    return any(not re.search(rf"\b{re.escape(word)}(?:[,\s-]+{re.escape(word)}\b)", candidate, re.I)
-               for word in kept)
+    def repeats(text: str) -> Counter:
+        counts = Counter()
+        for match in _DOUBLED_WORD_RE.finditer(text):
+            word = match[1].casefold()
+            if word not in _NUMBER_WORDS:
+                counts[word] += len(re.findall(r"\b[A-Za-z']+\b", match[0]))
+        return counts
+
+    # Keeping two words of a three-word emphasis is still a deletion.
+    # Counts also retain two separate repeated runs, not just their existence.
+    return bool(repeats(_remove_immediate_repeats(source)) - repeats(candidate))
 
 
 def _command_words_dropped(source: str, candidate: str) -> bool:
@@ -3011,12 +3044,24 @@ def _digits_rewritten(source: str, candidate: str, *, correcting: bool) -> bool:
     value; it never adds precision."""
     plain_source = _without_structural_list_numbers(source)
     plain_candidate = _without_structural_list_numbers(candidate)
-    if not correcting and Counter(_DIGIT_RUN_RE.findall(plain_source)) - Counter(_DIGIT_RUN_RE.findall(plain_candidate)):
+    source_digits = _DIGIT_RUN_RE.findall(plain_source)
+    candidate_digits = _DIGIT_RUN_RE.findall(plain_candidate)
+    if not correcting and Counter(source_digits) - Counter(candidate_digits):
         return True
-    for match in re.finditer(r"(?<![\d.:])(\d{1,2}):00\b|(?<![\d.])(\d+)\.0+\b", plain_candidate):
+    # Preserving the bag of values does not preserve their roles: swapping
+    # "$42.50, not $43.50" reverses the instruction without losing a digit.
+    # Both finishes preserve the speaker's order; structural list counters
+    # were removed above. Settled corrections may still remove old values.
+    if source_digits != candidate_digits and Counter(source_digits) == Counter(candidate_digits):
+        return True
+    return _number_precision_added(plain_source, plain_candidate)
+
+
+def _number_precision_added(source: str, candidate: str) -> bool:
+    for match in re.finditer(r"(?<![\d.:])(\d{1,2}):00\b|(?<![\d.])(\d+)\.0+\b", candidate):
         whole = match.group(1) or match.group(2)
         written = match.group(0)
-        if written not in plain_source and re.search(rf"(?<![\d.:]){whole}(?![\d]|[.:]\d)", plain_source):
+        if written not in source and re.search(rf"(?<![\d.:]){whole}(?![\d]|[.:]\d)", source):
             return True
     return False
 
@@ -3370,6 +3415,15 @@ def formatter_rejection_reason(
     # answered with an essay on what the phrase usually means.
     if len(output_words) > len(source_words) * 1.6 + 8:
         return "expanded"
+    # Both local and opted-in provider routes must keep numeric roles and
+    # written precision. Raw provider speech may legitimately become digits
+    # or grouped numbers, so compare canonical order rather than raw digits.
+    if (preserve_meaning or rewrite_mode or transcript is not None) and (
+        _written_number_changed(source, candidate)
+        or _numeric_order_changed(source, candidate)
+        or _number_precision_added(source, candidate)
+    ):
+        return "number_changed"
     if not rewrite_mode and _continuation_dropped(source, candidate):
         return "continuation_dropped"
     if rewrite_mode:
@@ -3591,6 +3645,12 @@ def _finish_sentence(sentence: str, terminal: str | None = None) -> str:
     if _existing == "...":
         return body + "..."
     mark = terminal if terminal else _terminal_for(sentence)
+    # A completed quoted sentence already owns its full stop/question mark.
+    # Preserve that literal punctuation rather than adding a second full stop.
+    # Explicit layout marks and the enclosing sentence's question stay separate.
+    if terminal is None and mark == "." and body[-1] in '\"\u201d\u2019\u00bb\'':
+        if body.rstrip('\"\u201d\u2019\u00bb\'').endswith((".", "?", "!")):
+            return body
     return body + mark
 
 
@@ -3822,9 +3882,9 @@ def smart_format(text: str, config: dict[str, Any], *, local_only: bool = False)
             if not output:
                 # X-465: no cloud is going to rescue this, so the reason has
                 # to reach the person instead of the log alone.
-                from .llm import local_finish_refusal
+                from .llm import last_local_finish_reason, local_finish_refusal
 
-                note_local_finish_refusal(local_finish_refusal(config))
+                note_local_finish_refusal(last_local_finish_reason() or local_finish_refusal(config))
         else:
             tone_instruction = f" Use a {tone} tone." if tone else ""
             system_prompt = FORMAT_SYSTEM_PROMPT + (EXECUTIVE_ADDENDUM if executive else "")
@@ -3875,9 +3935,12 @@ def smart_format(text: str, config: dict[str, Any], *, local_only: bool = False)
                     rewrite_mode=False, censor_profanity=censor, transcript=said,
                 ):
                     _format_receipt.route = "local_model_chill_after_rejection"
+                    _format_receipt.rejection = first_reason
+                    note_local_finish_refusal("polish_safety_fallback")
                     return _refine_formatted_output(retry.strip())
             _format_receipt.rejection = first_reason
             _format_receipt.route = "rules_after_rejection"
+            note_local_finish_refusal("model_safety_fallback")
         else:
             _format_receipt.route = "rules_after_unavailable_model"
     return draft

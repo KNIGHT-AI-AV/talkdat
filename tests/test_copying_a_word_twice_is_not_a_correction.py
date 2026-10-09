@@ -43,11 +43,18 @@ class APlainWordIsNeverStoredOnRepetitionTests(unittest.TestCase):
         self.assertNotIn("learn", verdicts, verdicts)
 
     def test_a_shape_nobody_types_by_accident_still_learns_at_once(self) -> None:
-        """The case the feature was built for, unchanged."""
+        """The existing automatic option still works when explicitly selected."""
         for token in ("SAHVVV", "B2B", "build@knightaiav.com", "iPhone"):
             with self.subTest(token=token):
                 self.assertTrue(looks_learnable(token))
-                self.assertEqual(note_fix_evidence(token, fresh(), 1000.0), "learn")
+                config = fresh()
+                config["dictionary"]["auto_learn_mode"] = "auto-on-second"
+                self.assertEqual(note_fix_evidence(token, config, 1000.0), "learn")
+
+    def test_unspecified_mode_asks_before_saving_even_a_distinctive_spelling(self) -> None:
+        config = fresh()
+        self.assertEqual(note_fix_evidence("SAHVVV", config, 1000.0), "offer")
+        self.assertFalse(config["dictionary"].get("terms"))
 
 
 class AnOfferIsAQuestionNotADecisionTests(unittest.TestCase):

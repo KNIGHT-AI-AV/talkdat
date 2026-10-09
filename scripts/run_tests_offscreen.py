@@ -77,7 +77,10 @@ def main() -> int:
         print(f"could not create the desktop: {ctypes.get_last_error()}", file=sys.stderr)
         return 3
 
-    argv = sys.argv[1:] or ["discover", "-s", "tests"]
+    # Keep names/results in the live log: a bounded resource window can end
+    # before unittest prints its final failure details. Discovery and the
+    # exact-commit full-suite report are unchanged.
+    argv = sys.argv[1:] or ["discover", "-s", "tests", "-v"]
     log = Path(tempfile.gettempdir()) / f"talkdat-offscreen-{os.getpid()}.log"
     # cmd does the redirection, because a process on another desktop has no
     # console of ours to inherit. The whole command is wrapped in one more pair

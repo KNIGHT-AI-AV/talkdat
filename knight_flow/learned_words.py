@@ -13,11 +13,10 @@ for. Internal capitals, digits mixed into letters, vowel-less runs, dotted
 handles -- the shapes autocorrect and recognizers get wrong are the shapes
 ordinary English never takes.
 
-Everything here is reversible by design. The word is added first and the tiny
-pop-over above the pill says so; "Don't save" strikes it through and removes
-it. Adding-then-asking beats asking-then-adding because the person is mid-task
--- the correction should already be working on their very next dictation, and
-undo is for the rare miss.
+New and unspecified learning choices offer the spelling before saving it.
+Nothing is added until the person accepts. The existing automatic mode is an
+explicit option, and "Don't save" removes its learned entry. Forgetting a word
+also keeps it from being offered again. All evidence and spellings stay local.
 
 Pure functions only. The clipboard poll and the pop-over live in app and
 overlay; nothing here touches Tk or the OS.
@@ -238,8 +237,8 @@ def auto_learn_mode(config: dict) -> str:
     dictionary = config.get("dictionary", {}) if isinstance(config, dict) else {}
     if not bool(dictionary.get("auto_learn", True)):
         return "off"
-    mode = str(dictionary.get("auto_learn_mode", "auto-on-second"))
-    return mode if mode in AUTO_LEARN_MODES else "auto-on-second"
+    mode = str(dictionary.get("auto_learn_mode", "offer"))
+    return mode if mode in AUTO_LEARN_MODES else "offer"
 
 
 def tombstoned(token: str, config: dict) -> bool:

@@ -272,8 +272,12 @@ def ps_quote(value: str) -> str:
 
 
 def run_powershell(script: str) -> None:
+    # A terminating error comes back as its own message. Without the catch,
+    # PowerShell prints its whole error record (script position, a caret line,
+    # category and error id) and the installer window showed all six lines.
+    wrapped = "try {\n" + script + "\n} catch {\n  [Console]::Error.WriteLine($_.Exception.Message)\n  exit 1\n}\n"
     result = subprocess.run(
-        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", wrapped],
         capture_output=True,
         text=True,
         creationflags=_creation_flags(),
@@ -434,45 +438,87 @@ def verify_installed_payload(install_dir: Path, manifest: dict[str, Any] | None 
 
 def stop_running_app(install_dir: Path) -> None:
     script = f"""
-$installDir = {ps_quote(str(install_dir))}
-$appName = {ps_quote(APP_NAME)}
-$legacyName = {ps_quote(LEGACY_APP_NAME)}
-$names = @($appName, $legacyName)
-$targets = Get-CimInstance Win32_Process |
-  Where-Object {{
-    $name = [System.IO.Path]::GetFileNameWithoutExtension($_.Name)
-    $path = [string]$_.ExecutablePath
-    ($names -contains $name) -and (
-      $path.StartsWith($installDir, [System.StringComparison]::OrdinalIgnoreCase) -or
-      $name -eq $legacyName
-    )
+$ErrorActionPreference = 'Stop'
+$installDir = [System.IO.Path]::GetFullPath({ps_quote(str(install_dir))})
+$names = @({ps_quote(APP_EXE_NAME)}, {ps_quote(LEGACY_APP_EXE_NAME)})
+$paths = @($names | ForEach-Object {{ [System.IO.Path]::Combine($installDir, $_) }})
+$currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$currentSession = [System.Diagnostics.Process]::GetCurrentProcess().SessionId
+# Without elevation, every process in another Windows account reads back with
+# no path. That account cannot start programs inside this user's profile, so a
+# copy it runs cannot be this per-user install. A folder outside the profile
+# has no such guarantee.
+$profileDir = [System.IO.Path]::GetFullPath({ps_quote(str(Path.home()))}).TrimEnd('\\') + '\\'
+$privateInstall = $installDir.StartsWith($profileDir, [System.StringComparison]::OrdinalIgnoreCase)
+function Test-OtherAccountCopy($row) {{
+  [string]::IsNullOrWhiteSpace([string]$row.ExecutablePath) -and
+    $null -ne $row.SessionId -and $row.SessionId -ne $currentSession
+}}
+$held = @()
+try {{
+  $targets = @(Get-CimInstance Win32_Process | Where-Object {{ $names -contains $_.Name }})
+  foreach ($target in $targets) {{
+    if (Test-OtherAccountCopy $target) {{
+      if ($privateInstall) {{ continue }}
+      throw 'Talk DAT! is open in another Windows account. Close it there, then try again.'
+    }}
+    # An unknown path in this session cannot establish that an update is safe.
+    # Other copies with readable paths are left alone, including
+    # prefix-neighbour directories.
+    if ([string]::IsNullOrWhiteSpace([string]$target.ExecutablePath)) {{
+      throw 'Cannot identify a running Talk DAT! copy. Quit it, then try again.'
+    }}
+    $path = [System.IO.Path]::GetFullPath([string]$target.ExecutablePath)
+    if ($paths -notcontains $path) {{ continue }}
+    if (-not $target.CreationDate -or $null -eq $target.SessionId -or
+        $target.SessionId -ne $currentSession) {{
+      throw 'This Talk DAT! copy belongs to another session. Quit it before updating.'
+    }}
+    $owner = Invoke-CimMethod -InputObject $target -MethodName GetOwnerSid
+    if ($owner.ReturnValue -ne 0 -or $owner.Sid -ne $currentSid) {{
+      throw 'Cannot verify the owner of Talk DAT!. Quit it before updating.'
+    }}
+    $process = Get-Process -Id $target.ProcessId -ErrorAction Stop
+    $held += $process
+    # Retain the native process handle before rechecking the CIM identity.
+    # Kill uses this handle, so a later reused PID cannot redirect termination.
+    $handle = $process.Handle
+    if ($null -eq $handle -or $handle -eq [IntPtr]::Zero) {{
+      throw 'Cannot retain the Talk DAT! process. Quit it before updating.'
+    }}
+    $fresh = @(Get-CimInstance Win32_Process -Filter "ProcessId = $($target.ProcessId)")
+    if ($fresh.Count -ne 1 -or -not $fresh[0].CreationDate -or
+        $fresh[0].CreationDate.ToUniversalTime().Ticks -ne $target.CreationDate.ToUniversalTime().Ticks -or
+        $fresh[0].ExecutablePath -ne $path -or
+        $fresh[0].SessionId -ne $currentSession -or $process.SessionId -ne $currentSession) {{
+      throw 'Talk DAT! changed while checking the update. Quit it, then try again.'
+    }}
+    $freshOwner = Invoke-CimMethod -InputObject $fresh[0] -MethodName GetOwnerSid
+    if ($freshOwner.ReturnValue -ne 0 -or $freshOwner.Sid -ne $currentSid) {{
+      throw 'Talk DAT! ownership changed. Quit it before updating.'
+    }}
   }}
-foreach ($target in $targets) {{
-  try {{ Stop-Process -Id $target.ProcessId -Force -ErrorAction Stop }} catch {{ }}
+  # Validate every candidate before stopping any of them. No name-wide fallback
+  # or child-tree termination may affect another user's app or another copy.
+  foreach ($process in $held) {{
+    if (-not $process.HasExited) {{ $process.Kill() }}
+    if (-not $process.WaitForExit(6000)) {{
+      throw 'Talk DAT! has not closed. Quit it before updating.'
+    }}
+  }}
+  $remaining = @(Get-CimInstance Win32_Process | Where-Object {{ $names -contains $_.Name }})
+  foreach ($target in $remaining) {{
+    if ($privateInstall -and (Test-OtherAccountCopy $target)) {{ continue }}
+    if ([string]::IsNullOrWhiteSpace([string]$target.ExecutablePath) -or
+        $paths -contains [System.IO.Path]::GetFullPath([string]$target.ExecutablePath)) {{
+      throw 'Talk DAT! is still running. Quit it before updating.'
+    }}
+  }}
+}} finally {{
+  foreach ($process in $held) {{ $process.Dispose() }}
 }}
-$taskkill = Join-Path $env:WINDIR 'System32\\taskkill.exe'
-if (Test-Path $taskkill) {{
-  & $taskkill /F /T /IM {ps_quote(APP_EXE_NAME)} 2>$null | Out-Null
-  & $taskkill /F /T /IM {ps_quote(LEGACY_APP_EXE_NAME)} 2>$null | Out-Null
-}}
-$deadline = (Get-Date).AddSeconds(6)
-do {{
-  Start-Sleep -Milliseconds 150
-  $stillRunning = @(Get-CimInstance Win32_Process |
-    Where-Object {{
-      $name = [System.IO.Path]::GetFileNameWithoutExtension($_.Name)
-      $path = [string]$_.ExecutablePath
-      ($names -contains $name) -and (
-        $path.StartsWith($installDir, [System.StringComparison]::OrdinalIgnoreCase) -or
-        $name -eq $legacyName
-      )
-    }})
-}} while ($stillRunning.Count -gt 0 -and (Get-Date) -lt $deadline)
 """
-    try:
-        run_powershell(script)
-    except RuntimeError:
-        pass
+    run_powershell(script)
 
 
 def file_sha256(path: Path) -> str:

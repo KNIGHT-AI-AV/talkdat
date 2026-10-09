@@ -2146,7 +2146,11 @@ class TalkDatApp:
             lambda: self.start_session(mode, message, control=control)
         ):
             return
-        self.overlay.set_state("starting", "Opening microphone.")
+        self.overlay.set_state(
+            "starting", "Opening microphone.",
+            only_if=lambda: self._mic_is_still_open()
+            and getattr(self, "session_chime_token", None) is not self.session_token,
+        )
 
         self._maybe_return_to_cloud()
         # 2026-09-22: Talk DAT! is free. There is no entitlement gate here --
@@ -2174,7 +2178,7 @@ class TalkDatApp:
             # leg, and auto picks the leg only when it can actually work.
             profile = copy.deepcopy(active_profile(self.config))
             provider_id = resolve_route(self.config)
-            session_config = self.config
+            session_config = copy.deepcopy(self.config)
             route_notice = ""
             # X-480: the route resolved to local while the config still names
             # something else -- a provider without a key, or a name left over
@@ -2239,6 +2243,11 @@ class TalkDatApp:
                 self._note_cloud_fallback()
             else:
                 self.offline_fallback_notice = route_notice
+            # The route resolver may select cloud_provider while the saved
+            # provider still names Local. Constructor, profile overrides and
+            # retry snapshot all use the route resolved before capture,
+            # without mutating global settings.
+            session_config.setdefault("stt", {})["provider"] = provider_id
             session_config = apply_profile(session_config, profile)
             provider = PROVIDER_BY_ID[provider_id]
             model_id = selected_model_id(session_config, provider_id)
@@ -2271,6 +2280,11 @@ class TalkDatApp:
             # X-628: the window this take started in. A take that ends by a
             # timeout pastes only if that window still has the focus.
             self._flight_window = (token, foreground_window_id())
+            # The Mac PID alone cannot prove a timed-out take stayed in its
+            # original document/field. Retain only opaque AX target references.
+            self._flight_mac_target = (
+                (token, mac_support.capture_delivery_target()) if mac_support.IS_MAC else None
+            )
             progressive_formatter = getattr(self, "_progressive_formatter", None)
             if progressive_formatter is not None:
                 progressive_formatter.reset()
@@ -2289,7 +2303,11 @@ class TalkDatApp:
             # reads as an apology for a transcript they have already accepted;
             # told now it reads as the product working without a network, which
             # is the thing being sold.
-            self.overlay.set_state(state, message, self.offline_fallback_notice)
+            self.overlay.set_state(
+                state, message, self.offline_fallback_notice,
+                only_if=lambda: self.is_current(token) and self._mic_is_still_open()
+                and (state != "starting" or self.session_chime_token is not token),
+            )
             limits = self.session_limits(control, provider_id)
             # X-34: one on-device read of the foreground window title; its
             # proper nouns bias THIS dictation's vocabulary and then vanish.
@@ -2325,6 +2343,10 @@ class TalkDatApp:
                         self.on_session_audio(t, data, rate, channels, heard)
                     ),
                 )
+                # Retry the exact resolved route/model even if settings change
+                # while this take is being captured or processed.
+                session._talkdat_config = copy.deepcopy(session_config)
+                session._talkdat_provider_id = selected_provider_id(session_config)
                 if mode == "dictation" and hasattr(session, "on_stable_update"):
                     prepared_config = apply_profile(self.config, profile)
                     if self._screen_names:
@@ -2748,6 +2770,10 @@ class TalkDatApp:
         if status in AUTO_STOP_STATUSES:
             with self.lock:
                 self._auto_stopped_token = token
+        if status == "listening" and not self._mic_is_still_open():
+            # A queued stream-open callback may arrive after release. It no
+            # longer describes the microphone and must not repaint processing.
+            return
         if status == "listening" and not first_frame and self._wait_for_first_frame(token, mode, control):
             return
         if status in ENGINE_WORK_STATUSES and self._mic_is_still_open():
@@ -2760,8 +2786,16 @@ class TalkDatApp:
             # Pill stays live until the release, which paints processing itself.
             log.debug("engine status %s during an open mic stays off the Pill", status)
             return
+        if (self._mic_is_still_open()
+                and getattr(self, "session_chime_token", None) is token
+                and status not in AUTO_STOP_STATUSES
+                and status != "listening"):
+            # Once this take announced listening, a delayed startup/connection
+            # notice cannot take it back to gray. Errors use on_session_error;
+            # real stop notices still reach the processing state below.
+            return
         if status == "warming":
-            self.overlay.set_state("starting", "Opening microphone.")
+            self._show_session_starting(token, "Opening microphone.")
         elif status == "listening":
             should_play = False
             with self.lock:
@@ -2779,9 +2813,9 @@ class TalkDatApp:
                 message = "Hands-free: toggle to stop."
             else:
                 message = "Hold mode: release to stop."
-            self.overlay.set_state(state, message)
+            self.overlay.set_state(state, message, only_if=lambda: self.is_current(token) and self._mic_is_still_open())
         elif status == "connected":
-            self.overlay.set_state("starting", "Connected. Opening microphone.")
+            self._show_session_starting(token, "Connected. Opening microphone.")
         elif status == "transcribing":
             self.overlay.set_state("processing", "Transcribing audio.")
         elif status == "downloading_model":
@@ -2801,7 +2835,14 @@ class TalkDatApp:
             self.overlay.set_state("processing", "No speech for a while. Closing the mic.", say=True)
             log.info("credit guard: silence timeout")
         else:
-            self.overlay.set_state("starting", "Starting voice session.")
+            self._show_session_starting(token, "Starting voice session.")
+
+    def _show_session_starting(self, token: object, message: str) -> None:
+        self.overlay.set_state(
+            "starting", message,
+            only_if=lambda: self.is_current(token) and self._mic_is_still_open()
+            and getattr(self, "session_chime_token", None) is not token,
+        )
 
     def _session_was_digitally_silent(self, session: Any) -> bool:
         """Whether the session recorded nothing but exact zeros.
@@ -2968,13 +3009,29 @@ class TalkDatApp:
                 formatter.request(text, config)
 
     def on_session_update(self, token: object, mode: str, text: str, is_final: bool) -> None:
+        if threading.get_ident() != getattr(
+            getattr(self, "overlay", None), "_ui_thread_id", threading.get_ident()
+        ):
+            self._cross_thread_calls.put(
+                lambda: self.on_session_update(token, mode, text, is_final)
+            )
+            return
         if not self.is_current(token):
+            return
+        mic_open = self._mic_is_still_open()
+        # Delayed partials cannot restore a live state after release. Finals
+        # still update this take's draft/captions without repainting Listening.
+        if not mic_open and not is_final:
             return
         state = "command" if mode == "command" else "listening"
         label = "Command" if mode == "command" else ("Captured" if is_final else "Hearing")
         if self._secure_take(token):
             # X-604: a password field. No preview, no caption, no crash draft.
-            self.overlay.set_state(state, "Password field: your words are not shown.", "")
+            if mic_open:
+                self.overlay.set_state(
+                    state, "Password field: your words are not shown.", "",
+                    only_if=lambda: self.is_current(token) and self._mic_is_still_open(),
+                )
             self._mark_password_capture(token)
             return
         self.write_live_draft(mode, text, is_final)
@@ -2984,7 +3041,11 @@ class TalkDatApp:
             self.overlay.captions_update(text, is_final)
         except Exception:
             log.debug("caption update skipped", exc_info=True)
-        self.overlay.set_state(state, f"{label}: {preview(text, 58)}", preview(text, 112))
+        if mic_open:
+            self.overlay.set_state(
+                state, f"{label}: {preview(text, 58)}", preview(text, 112),
+                only_if=lambda: self.is_current(token) and self._mic_is_still_open(),
+            )
 
     def _local_download_message(self, model: Any = None) -> str:
         """"Downloading local model" with no number, for 640 MB on a first run,
@@ -3082,7 +3143,7 @@ class TalkDatApp:
             return
         with self.lock:
             self.session_error_message = str(error or "Voice transcription failed.")
-        provider_id = selected_provider_id(self.config)
+        _session_config, provider_id = self._captured_transcription_route(self.session)
         self.overlay.set_state(
             "processing",
             f"{provider_label(provider_id)} interrupted. Recovering captured audio.",
@@ -3178,7 +3239,7 @@ class TalkDatApp:
                     status="transcription_failed",
                     error=error_message,
                 )
-                provider_id = selected_provider_id(self.config)
+                _session_config, provider_id = self._captured_transcription_route(session)
                 self.overlay.set_state(
                     "error",
                     f"{provider_label(provider_id)} error: {preview(error_message, 82)}",
@@ -3329,6 +3390,20 @@ class TalkDatApp:
                     self.session_mode = "idle"
                     self.session_control = "idle"
 
+    def _captured_transcription_route(self, session: Any) -> tuple[dict[str, Any], str]:
+        """Read a private copy of the route resolved before capture began."""
+        from .stt_registry import resolve_route
+
+        captured = getattr(session, "_talkdat_config", None)
+        config = copy.deepcopy(captured if isinstance(captured, dict) else self.config)
+        provider_id = str(
+            getattr(session, "_talkdat_provider_id", "")
+            or getattr(session, "provider_id", "")
+            or resolve_route(config)
+        )
+        config.setdefault("stt", {})["provider"] = provider_id
+        return config, provider_id
+
     def recover_transcript_if_needed(self, session: Any, mode: str, raw_text: str) -> str:
         audio = self.session_audio(session)
         if audio is None:
@@ -3378,7 +3453,8 @@ class TalkDatApp:
                 )
             return raw_text
 
-        dictation = self.config.get("dictation", {})
+        captured_config, provider_id = self._captured_transcription_route(session)
+        dictation = captured_config.get("dictation", {})
         if not bool(dictation.get("retry_failed_capture", True)):
             log.info("capture retry skipped: retry_failed_capture disabled")
             return raw_text
@@ -3399,8 +3475,7 @@ class TalkDatApp:
         # no surprise CPU freeze. The pill flashes red with a quiet double
         # beep so the person KNOWS, and if their very next attempt fails
         # too, THEN the local rescue takes over automatically.
-        provider_id = selected_provider_id(self.config)
-        rescue = local_fallback.rescue_model(self.config, provider_id)
+        rescue = local_fallback.rescue_model(captured_config, provider_id)
         # X-516: there is no metered bucket of ours to be empty any more.
         # A remote failure is a remote failure, and the say-it-again doctrine
         # below is the right response to all of them.
@@ -3440,10 +3515,10 @@ class TalkDatApp:
                 )
                 return raw_text
 
-        retry_config = self.config
-        retry_provider = ""
+        retry_config = captured_config
+        retry_provider = provider_id
         if rescue is not None:
-            retry_config = local_fallback.config_using(self.config, rescue)
+            retry_config = local_fallback.config_using(captured_config, rescue)
             retry_provider = "local"
             self._note_cloud_fallback()
             # X-338/X-516: the switch to local is STICKY. It stays until a
@@ -3678,6 +3753,10 @@ class TalkDatApp:
         if not flight_is_current():
             return cancelled_result()
 
+        # This flight owns only notices produced by its own formatting work.
+        # A prior prepared/model attempt on this worker must not repaint Esc
+        # recovery or a new take with an unrelated fallback warning.
+        take_local_finish_notice()
         reserved_sink = (
             getattr(self.overlay, "onboarding_test_sink", None)
             if guided_sink is _DYNAMIC_GUIDED_SINK
@@ -3805,6 +3884,47 @@ class TalkDatApp:
         # A stop the person made pastes where they are, as always.
         moved_away = explicit_flight and self._auto_stopped_elsewhere(delivery_token)
         withheld = esc_withheld or moved_away
+        # The typing target this delivery is bound to: an opaque AX target check
+        # on the Mac, the foreground window on Windows (each set below, on its
+        # own platform only).
+        typing_target = None
+        typing_window = 0
+        typing_target_lost = False
+
+        def refresh_withholding() -> None:
+            nonlocal esc_withheld, moved_away, withheld
+            if explicit_flight:
+                # Recheck before the native paste implementation commits its
+                # first insertion. These decisions can change during clipboard/
+                # modifier waits and direct typing. Once observed, withholding
+                # stays latched.
+                esc_withheld = esc_withheld or (
+                    getattr(self, "_withheld_delivery_token", None) is delivery_token
+                )
+                moved_away = moved_away or self._auto_stopped_elsewhere(delivery_token)
+            withheld = esc_withheld or moved_away or typing_target_lost
+
+        def typing_can_continue() -> bool:
+            nonlocal typing_target_lost
+            # A committed take may finish after Redo, but never into another
+            # native window/field or after Esc: the prefix stays where it was
+            # typed and the full result is kept without another insertion.
+            # Target loss remains latched.
+            if typing_target is not None and not typing_target():
+                typing_target_lost = True
+            if typing_window and foreground_window_id() != typing_window:
+                typing_target_lost = True
+            refresh_withholding()
+            return not withheld
+
+        def external_insertion_is_current() -> bool:
+            if not flight_is_current():
+                return False
+            if typing_target is not None:
+                typing_can_continue()
+            refresh_withholding()
+            return not withheld
+
         if withheld and secure_take:
             # A password is never copied or kept, so there is nothing to keep.
             if flight_is_current():
@@ -3898,6 +4018,11 @@ class TalkDatApp:
                 "fallback_used": False,
             }
         elif self.config.get("dictation", {}).get("auto_paste", True):
+            if mac_support.IS_MAC:
+                if not withheld and self.config.get("dictation", {}).get("paste_mode", "auto") != "copy_only":
+                    typing_target = mac_support.capture_delivery_target()
+            else:
+                typing_window = foreground_window_id()
             # Read only at insertion, after the model/translation has finished.
             # Nearby document text never becomes model input or journal data.
             # Recovery-only test/tool app instances have no native reader.
@@ -3926,6 +4051,7 @@ class TalkDatApp:
                         elapsed_ms=(time.perf_counter() - caret_started) * 1000.0,
                     )
             paste_options: dict[str, Any] = {
+                "typing_can_continue": typing_can_continue,
                 "send_enter": processed.send_enter,
                 "restore_clipboard": bool(
                     self.config.get("dictation", {}).get("restore_clipboard_after_paste", True)
@@ -3955,13 +4081,24 @@ class TalkDatApp:
             if withheld:
                 paste_options.update(paste_mode="copy_only", send_enter=False, smart_leading_space=False)
             if explicit_flight:
-                # This predicate is checked inside the paste implementation
-                # immediately before Ctrl+V, Shift+Insert, Enter, and every
-                # direct-typed character. A pre-paste check alone leaves a race
-                # during clipboard waits and long direct-typing routes.
-                paste_options["can_deliver"] = flight_is_current
+                # Ownership is checked before the first external input and
+                # clipboard chord. Once typing commits, its separate target
+                # guard checks each character/newline without depending on a
+                # later Redo token.
+                paste_options["can_deliver"] = (
+                    flight_is_current if paste_options["paste_mode"] == "copy_only"
+                    else external_insertion_is_current
+                )
+            if typing_target is not None:
+                paste_options["typing_can_continue"] = typing_can_continue
+                # Include AX focus proof even for a delivery without a token.
+                paste_options["can_deliver"] = external_insertion_is_current
             receipt = paste_text_with_receipt(processed.text, **paste_options)
             delivery = receipt.as_dict()
+            if receipt.success and receipt.method != "copy_only":
+                # A trailing Enter can be withheld after text already landed.
+                # Do not then describe the inserted result as "not pasted".
+                withheld = False
             if receipt.success:
                 paste_input_generation = foreground_input_generation()
         else:
@@ -3977,10 +4114,11 @@ class TalkDatApp:
         if delivery_cancelled:
             return cancelled_result()
         if receipt is not None and receipt.method == "cancelled":
-            # The paste layer failed closed because its delivery authorization
-            # changed (or could not be verified). Do not turn that refusal into
-            # a clipboard fallback that leaks the same stale result.
-            return cancelled_result("cancelled_during_delivery")
+            external_insertion_is_current()
+            # A current take withheld by focus/Esc may still be copied. A stale
+            # token, password, or unverifiable refusal must never fall through.
+            if not withheld or secure_take or not flight_is_current():
+                return cancelled_result("cancelled_during_delivery")
         if delivery.get("method") == "guided_test_closed":
             if flight_is_current():
                 self.overlay.set_state("idle", "Setup test closed. Nothing was typed.", "")
@@ -4146,13 +4284,10 @@ class TalkDatApp:
         # The words still arrived; what is being reported is WHICH formatter
         # wrote them, which is the difference between Executive and rules.
         local_notice = take_local_finish_notice()
-        if local_notice:
-            self.overlay.set_state(
-                "error",
-                "Your text was formatted by the built-in rules, not the model.",
-                local_finish_advice(local_notice),
-            )
-        elif translation_error:
+        partial_delivery = receipt is not None and receipt.method == "direct_type_partial"
+        if local_notice and not withheld and not partial_delivery:
+            self.overlay.set_state(*local_finish_feedback(local_notice))
+        elif translation_error and not withheld and not partial_delivery:
             self.overlay.set_state(
                 "error",
                 "Translation unavailable; the original text was kept safely.",
@@ -4160,12 +4295,34 @@ class TalkDatApp:
             )
         elif guided_sink_still_owned:
             self.overlay.set_state("captured", "Setup test complete. Mic off.", preview(processed.text, 112))
+        elif partial_delivery:
+            kept = self.config.get("privacy", {}).get("save_history", True)
+            where = (
+                "The full transcript is on the clipboard and in History."
+                if recovery_copy and kept else
+                "The full transcript is on the clipboard."
+                if recovery_copy else
+                "Use History to recover the full transcript."
+                if kept else
+                "The protected recording remains available in Recovery."
+            )
+            self.overlay.set_state(
+                "captured" if recovery_copy else "error",
+                "Typing stopped. Some text may already have been inserted.",
+                where,
+                say="warn",
+            )
         elif withheld and receipt is not None and (receipt.success or recovery_copy):
             with self.lock:
                 if getattr(self, "_withheld_delivery_token", None) is delivery_token:
                     self._withheld_delivery_token = None
             kept = self.config.get("privacy", {}).get("save_history", True)
-            headline = "Kept, not pasted." if esc_withheld else "Kept, not pasted: you moved to another window."
+            if receipt.method == "direct_type_partial":
+                headline = "Typing stopped. Some text may already have been inserted."
+            elif typing_target_lost or (mac_support.IS_MAC and moved_away):
+                headline = "Kept, not pasted: the text field changed."
+            else:
+                headline = "Kept, not pasted." if esc_withheld else "Kept, not pasted: you moved to another window."
             where = "It is on the clipboard and in History." if kept else "It is on the clipboard."
             self.overlay.set_state("captured", headline, preview(processed.text, 112))
             self.overlay.flag(headline.rstrip("."), detail=where, tone="warn", key="state", origin="person")
@@ -4199,11 +4356,20 @@ class TalkDatApp:
     def _auto_stopped_elsewhere(self, token: object) -> bool:
         """X-628: this take ended by a timeout and its window lost the focus.
 
-        An unknown start window (0) proves nothing, so it pastes as before.
+        The Mac also proves its original AX window/field. Unknown AX refuses
+        timeout insertion. Legacy instances without that snapshot use the PID;
+        the unchanged Windows path treats an unknown HWND as no focus proof.
         """
         with self.lock:
             auto_stopped = getattr(self, "_auto_stopped_token", None) is token
             started = getattr(self, "_flight_window", None)
+            mac_target = getattr(self, "_flight_mac_target", None)
+        if auto_stopped and mac_support.IS_MAC and mac_target is not None and mac_target[0] is token:
+            try:
+                return not mac_target[1]()
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Mac timeout target check failed (%s)", type(exc).__name__)
+                return True
         if not auto_stopped or started is None or started[0] is not token or not started[1]:
             return False
         return foreground_window_id() != started[1]
@@ -6912,6 +7078,13 @@ LOCAL_FINISH_ADVICE = {
         "This computer needs longer than the formatting time budget allows. Your words still "
         "arrived. To use the model, raise the budget in Settings > Writing > Formatting."
     ),
+    "preparing": "The local writing model is still preparing. Your text was kept with rules formatting.",
+    "model_unavailable": "The local writing model was unavailable. Check Settings > Writing > Formatting.",
+    "timeout": "The local writing model did not answer in time. Your text was kept with rules formatting.",
+    "budget_exceeded": "This take exceeded the writing time budget. Your text was kept with rules formatting.",
+    "invalid_response": "The local writing model returned no usable text. Your words were kept with rules formatting.",
+    "polish_safety_fallback": "The Executive edit failed a meaning check. Your words were kept in the Chill style.",
+    "model_safety_fallback": "The model's edit failed a meaning check. Your words were kept with rules formatting.",
 }
 
 
@@ -6922,6 +7095,13 @@ def local_finish_advice(notice: str) -> str:
     if advice:
         return advice
     return preview(code, 112) if code else "Your words still arrived. Check the writing model in Settings > Writing > Formatting."
+
+
+def local_finish_feedback(notice: str) -> tuple[str, str, str]:
+    """Describe the formatter that delivered the text, without changing the saved mode."""
+    if notice == "polish_safety_fallback":
+        return "captured", "Executive polish was skipped. Your text was kept in Chill.", local_finish_advice(notice)
+    return "error", "Your text was formatted by the built-in rules, not the model.", local_finish_advice(notice)
 
 
 def config_int(value: Any, default: int) -> int:

@@ -129,6 +129,9 @@ def preset_config(config: dict, preset: str) -> dict:
         config["cleanup"].update(copy.deepcopy(WRITING_PRESETS["verbatim"]["cleanup"]))
     elif preset == "censor":
         config["cleanup"]["censor_profanity"] = True
+    elif preset == "console":
+        from knight_flow.field_context import CONSOLE
+        config["_field"] = CONSOLE
     elif preset:
         raise ValueError(f"unknown preset {preset!r}")
     return config
@@ -238,7 +241,7 @@ def run(*, model: str | None = None, corpus: tuple[Case, ...] | None = None,
     rows = []
     for case in selected:
         started = time.perf_counter()
-        error = route = ""
+        error = route = rejection = ""
         sent_enter = None
         try:
             case_config = preset_config(copy.deepcopy(config), case.preset)
@@ -247,6 +250,9 @@ def run(*, model: str | None = None, corpus: tuple[Case, ...] | None = None,
             else:
                 processed = process_dictation(case.spoken, case_config, local_only=model is None)
                 produced, route = processed.text, processed.route
+                rejection = getattr(processed, "rejection", "")
+                if not rejection and route.endswith("rules_after_rejection"):
+                    rejection = last_rejection_reason()
                 sent_enter = bool(processed.send_enter)
             if not isinstance(produced, str):
                 raise TypeError("formatter did not return text")
@@ -254,7 +260,7 @@ def run(*, model: str | None = None, corpus: tuple[Case, ...] | None = None,
             produced, error = "", type(exc).__name__
         row = score(case, produced, (time.perf_counter() - started) * 1000, error, sent_enter)
         row["route"] = route
-        row["rejection"] = last_rejection_reason() if route.endswith("rules_after_rejection") else ""
+        row["rejection"] = rejection
         rows.append(row)
     return rows
 

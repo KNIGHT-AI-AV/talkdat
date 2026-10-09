@@ -44,7 +44,7 @@ class TheReasonSurvivesTheFallbackTests(unittest.TestCase):
     def test_formatting_records_it_where_the_engine_declines(self) -> None:
         block = re.search(
             r'if (?:local_route|resolved_llm_provider\(config\) == "ollama"):.*?'
-            r'note_local_finish_refusal\(local_finish_refusal\(config\)\)',
+            r'note_local_finish_refusal\(last_local_finish_reason\(\) or local_finish_refusal\(config\)\)',
             FORMATTING,
             re.S,
         )
@@ -57,10 +57,15 @@ class TheReasonSurvivesTheFallbackTests(unittest.TestCase):
         self.assertIn("local_notice = take_local_finish_notice()", APP)
         block = APP[APP.index("local_notice = take_local_finish_notice()"):]
         block = block[: block.index("elif guided_sink_still_owned")]
-        self.assertIn("Your text was formatted by the built-in rules, not the model.", block)
-        self.assertIn('"error"', block)
+        self.assertIn("self.overlay.set_state(*local_finish_feedback(local_notice))", block)
+        from knight_flow.app import local_finish_feedback
+        state, title, _ = local_finish_feedback("too_slow")
+        self.assertIn("Your text was formatted by the built-in rules, not the model.", title)
+        self.assertEqual(state, "error")
         # It comes first: the translation branch is now an elif under it.
-        self.assertIn("elif translation_error:", block)
+        # Translation feedback is subordinate to formatter feedback on normal
+        # delivery; Esc/partial recovery may keep their own critical status.
+        self.assertRegex(block, r"elif translation_error(?: and not withheld and not partial_delivery)?:")
 
 
 if __name__ == "__main__":

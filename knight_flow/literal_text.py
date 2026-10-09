@@ -49,6 +49,29 @@ def map_prose(text: str, transform: Callable[[str], str]) -> str:
     return "".join(result)
 
 
+_QUOTED_TEXT_RE = re.compile(
+    r'''("[^"\n]*(?:"|(?=\n|$))|“[^”\n]*(?:”|(?=\n|$))|«[^»\n]*(?:»|(?=\n|$))|'''
+    r'''‘(?:[^’\n]|(?<=\w)’(?=\w))*’|(?<!\w)'(?:[^'\n]|(?<=\w)'(?=\w))*'(?!\w))'''
+)
+
+
+def map_unquoted_prose(text: str, transform: Callable[[str], str], *,
+                       quote_transform: Callable[[str], str] | None = None) -> str:
+    """Preserve quoted examples and written literals while editing prose.
+
+    Hide code/URLs first so quotes inside them cannot close a surrounding
+    quotation. The opaque placeholders themselves never reach the transform.
+    """
+    protected, saved = protect_literals(text)
+    parts = _QUOTED_TEXT_RE.split(protected)
+    for index in range(0, len(parts), 2):
+        parts[index] = map_prose(parts[index], transform)
+    if quote_transform is not None:
+        for index in range(1, len(parts), 2):
+            parts[index] = map_prose(parts[index], quote_transform)
+    return restore_literals("".join(parts), saved)
+
+
 def protect_literals(text: str) -> tuple[str, dict[str, str]]:
     """Use stable opaque words so sentence formatting can still see the whole text."""
     saved: dict[str, str] = {}

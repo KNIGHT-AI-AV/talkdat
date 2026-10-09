@@ -858,7 +858,13 @@ def transcribe_pcm(
     thing guaranteed not to work, and the caller already knows which provider to
     use instead.
     """
+    from .stt_registry import local_only, route_mode
+
     provider_id = str(provider_id).strip() or selected_provider_id(config)
+    # One-shot recovery/meeting paths do not pass through the app's start gate.
+    # A saved provider name or explicit override cannot beat the Local choice.
+    if local_only(config) or route_mode(config) == "local":
+        provider_id = "local"
     provider = PROVIDER_BY_ID[provider_id]
     if provider.api_kind == "external":
         raise NotImplementedError(f"{provider.label} has no wired adapter yet.")
@@ -933,10 +939,15 @@ def http_request(
     timeout: float = 90.0,
     retries: int = 2,
 ) -> bytes:
+    from .net_fence import assert_cloud_allowed
+
     last_error: Exception | None = None
     for attempt in range(max(1, retries + 1)):
         if attempt:
             time.sleep(min(8.0, 0.8 * (2 ** (attempt - 1))))
+        # Route settings can change while an earlier request is retrying.
+        # Check immediately before each outbound batch transcription request.
+        assert_cloud_allowed(url, "Speech transcription")
         request = Request(url, data=body, headers=headers or {}, method=method)
         try:
             with urlopen(request, timeout=timeout) as response:

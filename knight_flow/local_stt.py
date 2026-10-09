@@ -999,6 +999,11 @@ def _load_faster_whisper(model: LocalModel, gpu: bool = False) -> Any:
 
 
 def ensure_loaded(model: LocalModel, status_cb: StatusCallback | None = None, *, gpu: bool = False) -> Any:
+    # Reject unintegrated engines before touching a model directory, readiness
+    # marker or cached instance. In particular, an experimental runtime must
+    # not become runnable merely because someone wrote its name into config.
+    if model.engine not in ("onnx_asr", "faster_whisper"):
+        raise LocalSTTError(f"Unknown local engine: {model.engine}")
     cache_key = f"{model.id}:gpu" if gpu else model.id
     with _ENGINE_LOCK:
         engine = _ENGINES.get(cache_key)

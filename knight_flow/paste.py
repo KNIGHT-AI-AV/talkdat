@@ -1274,7 +1274,7 @@ def apply_smart_leading_space(text: str, previous_clipboard: str) -> str:
 
 
 def _delivery_is_allowed(can_deliver: Callable[[], bool] | None) -> bool:
-    """Fail closed when a delivery flight has been cancelled or superseded."""
+    """Fail closed when a delivery or target-continuation guard refuses input."""
 
     if can_deliver is None:
         return True
@@ -1290,18 +1290,17 @@ def _type_text(
     *,
     interval_ms: int = 2,
     can_deliver: Callable[[], bool] | None = None,
+    typing_can_continue: Callable[[], bool] | None = None,
 ) -> bool:
     """Type the text key by key. Works in fields that block synthetic Ctrl+V.
 
-    pyautogui pauses between every call -- 25ms here, set at the top of this
-    module -- and this makes two calls per line, so a six line paragraph spent
-    300ms doing nothing before a character was typed. Small, but this is the
-    path every dictation takes in an application that refuses synthetic paste.
-
-    The pause is suspended for the duration and restored in a finally, so a
+    The per-call pyautogui pause is suspended and restored in a finally, so a
     failure part-way cannot leave the rest of the application typing at full
     speed. `interval` still governs the gap between individual keystrokes,
     because some applications drop characters typed with no gap at all.
+
+    Guarded callers check their target before each character and newline.
+    Other callers keep the legacy complete-after-first-input transaction.
     """
     previous_pause = getattr(pyautogui, "PAUSE", 0.025)
     committed = False
@@ -1315,26 +1314,38 @@ def _type_text(
                 return True
             if not _delivery_is_allowed(can_deliver):
                 return False
-            # Direct typing cannot be rolled back reliably across arbitrary
-            # editors. Once its first key is committed, complete the text as one
-            # transaction; stopping halfway would leave a stale fragment for a
-            # Redo result to append to. Cancel can still refuse the transaction
-            # before this point, and can suppress a trailing Enter afterwards.
+            # Ownership/Redo can refuse this transaction before its first key;
+            # after committing, ownership changes alone do not leave fragments.
+            # A separate target guard may still stop it when focus is lost.
             committed = True
             return True
 
+        def authorize_target() -> bool:
+            if not _delivery_is_allowed(typing_can_continue):
+                if committed:
+                    raise CommittedTypingError("typing target changed after input began")
+                return False
+            return authorize_first_input()
+
         for line_index, line in enumerate(text.split("\n")):
             if line_index:
-                if not authorize_first_input():
+                if not authorize_target():
                     return False
                 pyautogui.press("enter")
             if line:
-                if not authorize_first_input():
-                    return False
-                pyautogui.typewrite(line, interval=interval)
+                if typing_can_continue is None:
+                    # Keep legacy callers' complete-after-first-input policy.
+                    if not authorize_first_input():
+                        return False
+                    pyautogui.typewrite(line, interval=interval)
+                else:
+                    for character in line:
+                        if not authorize_target():
+                            return False
+                        pyautogui.typewrite(character, interval=interval)
         return True
     except Exception as exc:
-        log.warning("typing delivery failed after %d characters", len(text), exc_info=True)
+        log.warning("typing delivery failed while delivering %d characters", len(text), exc_info=True)
         if committed:
             # A prefix may already be visible. Never follow it with a second
             # automatic route, which would turn `ab` + `abcdef` into a corrupt
@@ -1709,6 +1720,7 @@ def paste_text_with_receipt(
     clipboard_paste_delay_ms: int = 10,
     can_deliver: Callable[[], bool] | None = None,
     keep_final_period: bool = False,
+    typing_can_continue: Callable[[], bool] | None = None,
 ) -> PasteReceipt:
     if not text and not send_enter:
         return PasteReceipt(False, str(paste_mode or "auto"), "none", ())
@@ -1779,6 +1791,8 @@ def paste_text_with_receipt(
         type_options: dict[str, object] = {"interval_ms": typing_interval_ms}
         if can_deliver is not None:
             type_options["can_deliver"] = can_deliver
+        if typing_can_continue is not None:
+            type_options["typing_can_continue"] = typing_can_continue
         try:
             typed = _type_text(text, **type_options)
         except CommittedTypingError:
@@ -1786,7 +1800,7 @@ def paste_text_with_receipt(
             return PasteReceipt(False, requested_mode, "direct_type_partial", tuple(attempts))
         if typed:
             try:
-                if send_enter and _delivery_is_allowed(can_deliver):
+                if send_enter and _delivery_is_allowed(can_deliver) and _delivery_is_allowed(typing_can_continue):
                     pyautogui.press("enter")
                 elif send_enter:
                     attempts.append("enter_cancelled")
@@ -1827,7 +1841,7 @@ def paste_text_with_receipt(
 
     try:
         if copied:
-            if not _delivery_is_allowed(can_deliver):
+            if not _delivery_is_allowed(can_deliver) or not _delivery_is_allowed(typing_can_continue):
                 return cancelled_receipt()
             try:
                 if borrowed is not None:
@@ -1866,7 +1880,7 @@ def paste_text_with_receipt(
                 )
             else:
                 try:
-                    if send_enter and _delivery_is_allowed(can_deliver):
+                    if send_enter and _delivery_is_allowed(can_deliver) and _delivery_is_allowed(typing_can_continue):
                         pyautogui.press("enter")
                     elif send_enter:
                         attempts.append("enter_cancelled")
@@ -1887,6 +1901,8 @@ def paste_text_with_receipt(
             type_options = {"interval_ms": typing_interval_ms}
             if can_deliver is not None:
                 type_options["can_deliver"] = can_deliver
+            if typing_can_continue is not None:
+                type_options["typing_can_continue"] = typing_can_continue
             try:
                 typed = _type_text(text, **type_options)
             except CommittedTypingError:
@@ -1900,7 +1916,7 @@ def paste_text_with_receipt(
                 )
             if typed:
                 try:
-                    if send_enter and _delivery_is_allowed(can_deliver):
+                    if send_enter and _delivery_is_allowed(can_deliver) and _delivery_is_allowed(typing_can_continue):
                         pyautogui.press("enter")
                     elif send_enter:
                         attempts.append("enter_cancelled")
@@ -1917,7 +1933,7 @@ def paste_text_with_receipt(
                 return cancelled_receipt()
         elif send_enter:
             attempts.append("enter")
-            if not _delivery_is_allowed(can_deliver):
+            if not _delivery_is_allowed(can_deliver) or not _delivery_is_allowed(typing_can_continue):
                 return cancelled_receipt()
             try:
                 pyautogui.press("enter")

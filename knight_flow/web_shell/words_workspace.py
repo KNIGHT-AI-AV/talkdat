@@ -34,7 +34,7 @@ class WordsWorkspace:
 
     def revision(self):
         dictionary = self.config.get('dictionary', {})
-        return self.sign([self.data(), dictionary.get('auto_learn', True), dictionary.get('auto_learn_mode', 'auto-on-second')])
+        return self.sign([self.data(), dictionary.get('auto_learn', True), dictionary.get('auto_learn_mode', 'offer')])
 
     @staticmethod
     def collection(value):

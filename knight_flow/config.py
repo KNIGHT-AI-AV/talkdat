@@ -281,6 +281,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "token": "",
     },
     "dictionary": {
+        # New and legacy unspecified choices ask before saving a spelling.
+        # An explicitly selected automatic/off mode remains the person's choice.
+        "auto_learn": True,
+        "auto_learn_mode": "offer",
         "words": [
             "Deepgram",
             "OpenAI",

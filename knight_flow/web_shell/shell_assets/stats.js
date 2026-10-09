@@ -14,6 +14,7 @@ window.TalkDatStats=({container,el,request,notice})=>{
     el("p",{class:"secondary",text:label}),el("strong",{text:value}),el("small",{class:"secondary",text:detail})]);}
   function line(label,value){return el("div",{class:"activity-detail"},[el("dt",{text:label}),el("dd",{text:value})]);}
   function render(data){
+    const estimateWasOpen=Boolean(body.querySelector('.activity-estimates')?.open);
     const a=data.activity,s=data.speech;
     const counts=el("div",{class:"activity-metrics"},[
       metric("Saved words",number(a.words),`${number(a.entries)} saved entries`),
@@ -38,6 +39,7 @@ window.TalkDatStats=({container,el,request,notice})=>{
       line("Speech time",`${number(s.total_minutes)} min, estimated`),
       line("Per dictation day",a.dictation_active_days?`${number(s.minutes_per_active_day)} min, estimated`:"Not enough dated history")])]);
     const estimate=el("details",{class:"activity-estimates"},[el("summary",{text:"About these estimates"})]);
+    estimate.open=estimateWasOpen;
     const cost=!s.is_cloud?"This local speech route has no per-minute provider charge.":
       !a.dictation_active_days?"Not enough dated history to project processing costs.":
       s.estimated_monthly_cost===null?"No processing-rate estimate is available for this model.":

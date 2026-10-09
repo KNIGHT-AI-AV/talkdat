@@ -580,6 +580,7 @@ class SessionLifecycleTests(unittest.TestCase):
             ),
             patch("knight_flow.app.paste_text_with_receipt", return_value=receipt),
             patch("knight_flow.app.copy_text") as copy,
+            patch("knight_flow.app.mac_support.capture_delivery_target", return_value=lambda: True),
         ):
             result = app.handle_dictation(
                 "old words",

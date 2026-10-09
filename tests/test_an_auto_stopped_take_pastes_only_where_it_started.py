@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from knight_flow.app import TalkDatApp
+from knight_flow import mac_support
 from tests.test_esc_while_processing_keeps_the_words import deliver, processing_app
 
 
@@ -42,7 +43,9 @@ class AnAutoStoppedTakeTests(unittest.TestCase):
             calls = deliver(app, token)
         self.assertEqual([call["paste_mode"] for call in calls], ["copy_only"], "it typed into another app")
         self.assertEqual(len(app.history), 1)
-        self.assertEqual(app.overlay.states[-1], ("captured", "Kept, not pasted: you moved to another window."))
+        message = ("Kept, not pasted: the text field changed." if mac_support.IS_MAC
+                   else "Kept, not pasted: you moved to another window.")
+        self.assertEqual(app.overlay.states[-1], ("captured", message))
 
     def test_auto_stopped_in_the_same_window_pastes(self) -> None:
         app, token = processing_app()

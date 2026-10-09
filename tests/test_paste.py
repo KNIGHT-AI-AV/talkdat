@@ -414,7 +414,7 @@ class ExternalDeliveryAtomicityTests(unittest.TestCase):
         restore.assert_called_once()
 
     def test_selection_capture_cannot_interleave_with_a_competing_clipboard_copy(self) -> None:
-        clipboard = {"value": "private prior clipboard"}
+        clipboard = {"value": "private prior clipboard", "sequence": 7}
         capture_started = threading.Event()
         release_capture = threading.Event()
         competing_write_started = threading.Event()
@@ -424,16 +424,19 @@ class ExternalDeliveryAtomicityTests(unittest.TestCase):
             if value == "competing copy":
                 competing_write_started.set()
             clipboard["value"] = value
+            clipboard["sequence"] += 1
 
         def copy_selection(*keys: str) -> None:
             self.assertEqual(keys, (EDIT_MODIFIER, "c"))
             capture_started.set()
             self.assertTrue(release_capture.wait(2.0))
             clipboard["value"] = "selected words"
+            clipboard["sequence"] += 1
 
         with (
             patch("knight_flow.paste.clipboard_contains_non_text_formats", return_value=False),
             patch("knight_flow.paste.clipboard_text", side_effect=lambda: clipboard["value"]),
+            patch("knight_flow.paste.clipboard_sequence_number", side_effect=lambda: clipboard["sequence"]),
             patch("knight_flow.paste.pyperclip.copy", side_effect=write_clipboard),
             patch("knight_flow.paste.pyautogui.hotkey", side_effect=copy_selection),
         ):
@@ -457,7 +460,7 @@ class ExternalDeliveryAtomicityTests(unittest.TestCase):
         self.assertTrue(competing_write_started.is_set())
 
     def test_selection_capture_cannot_interleave_with_a_competing_paste(self) -> None:
-        clipboard = {"value": "private prior clipboard"}
+        clipboard = {"value": "private prior clipboard", "sequence": 7}
         capture_started = threading.Event()
         release_capture = threading.Event()
         typing_started = threading.Event()
@@ -465,12 +468,14 @@ class ExternalDeliveryAtomicityTests(unittest.TestCase):
 
         def write_clipboard(value: str) -> None:
             clipboard["value"] = value
+            clipboard["sequence"] += 1
 
         def copy_selection(*keys: str) -> None:
             self.assertEqual(keys, (EDIT_MODIFIER, "c"))
             capture_started.set()
             self.assertTrue(release_capture.wait(2.0))
             clipboard["value"] = "selected words"
+            clipboard["sequence"] += 1
 
         def type_text(_text: str, **_options: object) -> bool:
             typing_started.set()
@@ -479,6 +484,7 @@ class ExternalDeliveryAtomicityTests(unittest.TestCase):
         with (
             patch("knight_flow.paste.clipboard_contains_non_text_formats", return_value=False),
             patch("knight_flow.paste.clipboard_text", side_effect=lambda: clipboard["value"]),
+            patch("knight_flow.paste.clipboard_sequence_number", side_effect=lambda: clipboard["sequence"]),
             patch("knight_flow.paste.pyperclip.copy", side_effect=write_clipboard),
             patch("knight_flow.paste.pyautogui.hotkey", side_effect=copy_selection),
             patch("knight_flow.paste._type_text", side_effect=type_text),

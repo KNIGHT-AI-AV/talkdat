@@ -46,6 +46,8 @@ import functools
 import re
 from dataclasses import dataclass, field
 
+from .ordinary_words import COMMON_WORDS
+
 # Below this, a match is not trusted. Chosen against the real failures rather
 # than tuned for elegance: "my yo wa"/"Mayowa" scores 1.00 and "talk that"/
 # "Talk DAT!" scores 1.00 once voiced pairs merge, while the near-misses that
@@ -441,9 +443,22 @@ def _match_case(original: str, replacement: str) -> str:
 
 
 def apply_vocabulary(text: str, terms: list[Term]) -> str:
-    from .literal_text import map_prose
+    from .literal_text import map_unquoted_prose
 
-    return map_prose(text, lambda prose: _apply_vocabulary_prose(prose, terms))
+    # Public brand casing is spelling, not a guess about a quoted word.
+    # Inside quotations change only the case of an exact canonical spelling;
+    # no aliases, phonetic substitutions, whitespace or punctuation edits.
+    brand_names = {term.text.casefold() for term in (*DEFAULT_TERMS, *BRAND_TERMS)}
+    quote_brands = [term for term in terms if term.text.casefold() in brand_names]
+
+    def brand_case(quoted: str) -> str:
+        for term in quote_brands:
+            quoted = re.sub(rf"(?<!\w){re.escape(term.text)}(?!\w)",
+                            lambda _match: term.text, quoted, flags=re.I)
+        return quoted
+
+    return map_unquoted_prose(text, lambda prose: _apply_vocabulary_prose(prose, terms),
+                             quote_transform=brand_case)
 
 
 def _apply_vocabulary_prose(text: str, terms: list[Term]) -> str:
@@ -518,6 +533,17 @@ def _apply_vocabulary_prose(text: str, terms: list[Term]) -> str:
                     position += 1
                     continue
                 window, stripped, window_key, window_letters = cached
+                # A saved spelling is not evidence that an ordinary word was
+                # misheard. "would" and learned "WILD" have the same sound
+                # key and fall within the permitted size difference. Keep
+                # common prose unless its spelling already
+                # agrees or the person explicitly supplied that hearing.
+                if stripped.casefold() in COMMON_WORDS and not any(
+                    stripped.casefold() == alias.casefold()
+                    for alias in (term.text, *term.sounds_like)
+                ):
+                    position += 1
+                    continue
                 # Public names only match their spelling and declared aliases.
                 # "Launched in" shares LinkedIn's phonetic key, but it is a verb.
                 # Personal terms keep phonetic matching for unfamiliar names.

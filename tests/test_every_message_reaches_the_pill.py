@@ -131,7 +131,8 @@ OPT_INS = {
              "Auto-translate ON.", "Auto-translate OFF.", "Copied last transcript to the clipboard.",
              "Copied last cleanup diff.", "Updates for this copy come from the Microsoft Store.", "Route: {}",
              "{} is your default finish.", "{} is ready.", "Panic Stop completed for dictation and registered mic tests."],
-    "warn": ["Captured locally. Auto paste is off.", "Rich clipboard preserved. Transcript kept in History for Paste Last."],
+    "warn": ["Captured locally. Auto paste is off.", "Rich clipboard preserved. Transcript kept in History for Paste Last.",
+             "Typing stopped. Some text may already have been inserted."],
     "info": ["Talk DAT! paused. Triggers are off.", "Talk DAT! resumed. Hold {} to talk.",
              "Finish the current recording before starting meeting notes.",
              "Finish the current recording or microphone check before starting Scribe.",
@@ -175,15 +176,15 @@ class TheCallSitesMovedTests(unittest.TestCase):
                             self.assertEqual(value.value, tone)
                         elif isinstance(value, ast.Constant):
                             self.assertIs(value.value, True)
-        self.assertEqual(found, 35)
+        self.assertEqual(found, 36)
         transforms = [call for call in sites if words(call) == "message" and said(call) is not None]
         self.assertEqual(len(transforms), 3, "the two command results and the model setup line")
         everywhere = sum(1 for call in sites if said(call) is not None)
         everywhere += sum(1 for module in ("wake_runtime.py", "web_shell/ramble_adapter.py")
                           for call in calls(module, "set_state") if said(call) is not None)
-        # 40 opt-ins, plus the four refusals through _say_why_not and the
-        # rescue through flag(): the spec's 45.
-        self.assertEqual(everywhere, 40)
+        # 41 opt-ins, including partial-typing recovery, plus four refusals
+        # through _say_why_not and the rescue through flag(): 46 messages.
+        self.assertEqual(everywhere, 41)
 
     @unittest.skipIf(sys.platform == "darwin", "the Mac spells these its own way")
     def test_the_platform_words_are_the_plain_ones(self) -> None:

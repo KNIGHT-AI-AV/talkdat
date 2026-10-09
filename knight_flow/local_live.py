@@ -21,22 +21,33 @@ class LivePartials:
     def __init__(self) -> None:
         self._pieces: dict[int, str] = {}
         self._tail = ""
+        self._revision = 0
         self._lock = threading.Lock()
 
     def set_piece(self, index: int, text: str) -> None:
         with self._lock:
             self._pieces[int(index)] = text.strip()
+            self._revision += 1
             # The closed segment now covers what the tail was previewing.
             self._tail = ""
 
-    def set_tail(self, text: str) -> None:
+    def revision(self) -> int:
+        """Capture before a decode so a closed segment can invalidate it."""
         with self._lock:
+            return self._revision
+
+    def set_tail(self, text: str, *, revision: int | None = None) -> bool:
+        with self._lock:
+            if revision is not None and revision != self._revision:
+                return False
             self._tail = text.strip()
+            return True
 
     def clear(self) -> None:
         with self._lock:
             self._pieces.clear()
             self._tail = ""
+            self._revision += 1
 
     def text(self) -> str:
         with self._lock:
@@ -139,10 +150,14 @@ class LiveTailDecoder:
 
     def publish_piece(self, index: int, text: str) -> None:
         """A closed segment's text arrived (a progressive future finished)."""
+        if self._stop.is_set():
+            return
         self.partials.set_piece(index, text)
         self._publish()
 
     def _publish(self) -> None:
+        if self._stop.is_set():
+            return
         try:
             self._on_text(self.partials.text())
         except Exception:  # the caption strip must never take the mic down
@@ -157,6 +172,7 @@ class LiveTailDecoder:
                 continue
             last = now
             try:
+                revision = self.partials.revision()
                 start, end = self._tail_span()
                 window = tail_window(start, end, self._sample_rate, self._channels)
                 if window is None:
@@ -169,5 +185,5 @@ class LiveTailDecoder:
             self._cadence = max(self._base_cadence, 2.0 * (time.monotonic() - now))
             if self._stop.is_set():
                 return
-            self.partials.set_tail(text)
-            self._publish()
+            if self.partials.set_tail(text, revision=revision):
+                self._publish()

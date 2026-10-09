@@ -22,7 +22,7 @@ from unittest import mock
 
 from knight_flow import platform_copy, smart_formatting
 from knight_flow.config import DEFAULT_CONFIG, LOCAL_FORMATTER_MODEL
-from knight_flow.local_finish import LOCAL_GPU_MODEL
+from knight_flow.local_finish import LOCAL_GPU_MODEL, MachineSpeed
 from knight_flow.smart_formatting import SmartFormattingSetup
 from knight_flow.web_shell.setup_workspace import SetupWorkspace
 
@@ -61,7 +61,7 @@ class EngineFixture(unittest.TestCase):
             "knight_flow.llm.local_formatter_preparing": lambda cfg: False,
             "knight_flow.llm.local_finish_target": lambda cfg, executive: ("http://localhost:11434", LOCAL_GPU_MODEL),
             "knight_flow.llm.local_finish_speed": lambda base, model: None,
-            "knight_flow.llm.warm_local_finish": lambda base, model: self.calls.append(("warm", model)),
+            "knight_flow.llm.warm_local_finish": self.warm,
             "knight_flow.smart_formatting.engine_installer_available": lambda: True,
             "knight_flow.mac_support.IS_MAC": False,
             "urllib.request.urlopen": no_network,
@@ -81,6 +81,10 @@ class EngineFixture(unittest.TestCase):
             self.executable = "ollama.exe"
             self.models = set() if self.models is None else self.models
         return self.install_result
+
+    def warm(self, base, model):
+        self.calls.append(("warm", model))
+        return MachineSpeed(prefill_tps=200.0, generation_tps=100.0)
 
     def run_engine(self, api_base="http://localhost:11434"):
         self.calls.append(("start_engine", api_base))
@@ -166,6 +170,37 @@ class TheSetupReusesTheShippedInstallerTests(EngineFixture):
 
 
 class FailureIsAStateNotACrashTests(EngineFixture):
+    def test_a_downloaded_model_with_failed_warmup_is_not_ready(self):
+        self.executable = "ollama.exe"
+        job = setup(gpu=True)
+        with mock.patch("knight_flow.llm.warm_local_finish", return_value=None):
+            job.start()
+        state = job.snapshot()
+        self.assertIn(LOCAL_GPU_MODEL.lower(), self.models)
+        self.assertEqual(state["state"], "failed")
+        self.assertTrue(state["can_start"])
+        self.assertIn("rules", state["message"])
+
+    def test_retry_after_failed_warmup_reuses_the_downloaded_model(self):
+        self.executable = "ollama.exe"
+        job = setup(gpu=True)
+        with mock.patch("knight_flow.llm.warm_local_finish", return_value=None):
+            job.start()
+        self.assertEqual(job.snapshot()["state"], "failed")
+        job.start()
+        self.assertEqual(job.snapshot()["state"], "ready")
+        self.assertEqual([c[0] for c in self.calls].count("pull"), 1)
+
+    def test_a_timed_out_prepare_does_not_start_a_second_warmup(self):
+        self.executable = "ollama.exe"
+        job = setup(gpu=True)
+        with mock.patch("knight_flow.llm.local_formatter_preparing", return_value=True), \
+             mock.patch("knight_flow.smart_formatting.time.monotonic", side_effect=[0.0, 241.0]), \
+             mock.patch("knight_flow.llm.warm_local_finish") as warm:
+            job._run()
+        warm.assert_not_called()
+        self.assertEqual(job.snapshot()["state"], "failed")
+
     def test_a_failed_engine_install_reads_failed_with_retry_and_the_download_page(self):
         self.install_result = (False, "Windows could not install the local translation engine automatically.")
         job = setup()

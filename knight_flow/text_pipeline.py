@@ -294,14 +294,14 @@ def replace_phrase(text: str, source: str, target: str) -> str:
 
 
 def apply_dictionary(text: str, config: dict[str, Any]) -> str:
-    from .literal_text import map_prose
+    from .literal_text import map_unquoted_prose
 
     replacements = config.get("dictionary", {}).get("replacements", [])
     for item in replacements:
         source = str(item.get("from", "")).strip()
         target = str(item.get("to", "")).strip()
         if source and target:
-            text = map_prose(text, lambda prose: replace_phrase(prose, source, target))
+            text = map_unquoted_prose(text, lambda prose: replace_phrase(prose, source, target))
     return text
 
 
@@ -442,7 +442,9 @@ def cleanup_text(text: str, config: dict[str, Any]) -> str:
     if level in {"medium", "high"}:
         for pattern, replacement in COMMON_CORRECTIONS:
             text = pattern.sub(replacement, text)
-        text = re.sub(r"\b(?:I think maybe|maybe we maybe|we maybe)\b", "I think", text, flags=re.IGNORECASE)
+        # Perspective and uncertainty are content, not spelling errors.
+        # Rewriting "we maybe" as "I think" changed who was speaking and
+        # also corrupted quoted wording on the basic-cleanup route.
         text = re.sub(r"\b(?:just wanted to|I just wanted to)\b", "I wanted to", text, flags=re.IGNORECASE)
         # "very very" and "really really" are emphasis the speaker chose, not
         # a stutter (2026-09-23); they are no longer collapsed here.
@@ -749,28 +751,203 @@ def _resolve_clause_restatements(text: str) -> str:
     return _I_MEAN_SHARED_OBJECT_RE.sub(swap, text)
 
 
+def _resolve_changed_mind(text: str) -> str:
+    """An explicit restart can replace a sentence with the same clause head."""
+    cue = re.compile(r"[.!?]\s*(?:actually\s*,?\s*)?i changed my mind\s*,\s*(?:no\s*,\s*)?", re.I)
+    for match in reversed(list(cue.finditer(text))):
+        before = text[:match.start()]
+        start = max(before.rfind(mark) for mark in ".!?;\n") + 1
+        old_matches = list(_RESTART_WORD_RE.finditer(before[start:]))
+        old = [word[0] for word in old_matches]
+        restatement = re.match(r"[^.!?;\n]+", text[match.end():])
+        new = _RESTART_WORD_RE.findall(restatement[0] if restatement else "")
+        for offset in range(max(0, len(old) - 3)):
+            shared = 0
+            for one, two in zip(old[offset:], new):
+                if one.casefold() != two.casefold():
+                    break
+                shared += 1
+            if shared >= 4 and shared < len(old) - offset and shared < len(new):
+                # A preceding introduction ('right now I'll say ...') may be
+                # outside the repeated head. Keep it and earlier sentences.
+                # A different topic has no repeated head and cannot erase them.
+                text = text[:start + old_matches[offset].start()] + text[match.end():]
+                break
+    return text
+
+
+def _resolve_article_corrections(text: str) -> str:
+    """Settle short noun slots: 'a dog. I mean a cat. I mean a lion.'"""
+    cue = re.compile(r"[.,]\s*i mean\s*,?\s+", re.I)
+    phrase = re.compile(r"\b(?:a|an|the)\s+[A-Za-z][A-Za-z'-]*(?:\s+[A-Za-z][A-Za-z'-]*){0,3}", re.I)
+    blocked = _CLAUSE_WORDS | _SLOT_FUNCTION_WORDS | _SLOT_TIME_WORDS
+    for _ in range(16):
+        changed = False
+        for match in cue.finditer(text):
+            before = text[:match.start()].rstrip()
+            after = text[match.end():]
+            replacement = phrase.match(after)
+            if replacement is None or not re.match(r"\s*(?:[.,!?;]|$)", after[replacement.end():]):
+                continue
+            candidates = [phrase.match(before, found.start()) for found in re.finditer(r"\b(?:a|an|the)\s+", before, re.I)]
+            candidates = [p for p in candidates if p is not None and p.end() == len(before)]
+            if not candidates:
+                continue
+            old = candidates[-1]
+            if any(word.casefold() in blocked for p in (old, replacement)
+                   for word in _RESTART_WORD_RE.findall(p[0])[1:]):
+                continue
+            text = before[:old.start()] + replacement[0] + after[replacement.end():]
+            changed = True
+            break
+        if not changed:
+            break
+    return text
+
+
+_EXPLICIT_RESTATEMENT_CUE_RE = re.compile(
+    r"\s*[.,;\u2014\u2013-]\s*"
+    r"(?:(?:oh|wait|sorry|no|actually)\b\s*[,\u2014\u2013-]?\s*){0,5}"
+    r"i\s+(?:mean|meant)\b\s*[,\u2014\u2013-]?\s*", re.I,
+)
+_DUPLICATE_ARTICLE_RE = re.compile(r"\b([Tt]he)\s+the\b")
+_QUOTED_REVISION_RE = re.compile(
+    r'''("[^"\n]*(?:"|(?=\n|$))|“[^”\n]*(?:”|(?=\n|$))|'''
+    r'''‘[^’\n]*(?:’|(?=\n|$))|«[^»\n]*(?:»|(?=\n|$))|(?<!\w)'[^'\n]+'(?!\w))'''
+)
+
+
+def _resolve_explicit_restatements(text: str) -> str:
+    """Use a repeated clause head to bound an explicitly abandoned phrase.
+
+    A bare replacement without a repeated head stays: it may replace one
+    value, a clause or the whole take. Never infer that scope from proximity.
+    At most sixteen revisions per take, without a model or learned preference.
+    """
+    for _ in range(16):
+        changed = False
+        for cue in _EXPLICIT_RESTATEMENT_CUE_RE.finditer(text):
+            before = text[:cue.start()]
+            start = max(before.rfind(mark) for mark in ".!?;\n,") + 1
+            old_words = list(_RESTART_WORD_RE.finditer(before[start:]))
+            after = text[cue.end():]
+            clause = re.match(r"[^.!?;\n]+", after)
+            new_words = _RESTART_WORD_RE.findall(clause[0] if clause else "")
+            if len(new_words) < 4:
+                continue
+            for offset in range(max(0, len(old_words) - 3)):
+                old = before[start + old_words[offset].start():]
+                old_head = [word[0].casefold() for word in old_words[offset:offset + 3]]
+                if old_head != [word.casefold() for word in new_words[:3]]:
+                    continue
+                # Identical repeated wording may be emphasis. A repeated
+                # head alone does not establish that anything was replaced.
+                if old.strip().casefold() == clause[0].strip().casefold():
+                    continue
+                settled = after
+                # This narrowly repairs the recognizer's "want to got to"
+                # in a proven restatement. Never rewrite a quoted name or
+                # unrelated use of "got", and never change an ASR word just
+                # because its destination resembles another word.
+                settled = re.sub(
+                    r"\b(want|wants|wanted|need|needs|needed)\s+to\s+got(?=\s+to\b)",
+                    r"\1 to go", settled, count=1, flags=re.I,
+                )
+                text = text[:start + old_words[offset].start()] + settled
+                changed = True
+                break
+            if changed:
+                break
+        if not changed:
+            break
+    return text
+
+
+def _resolve_owner_corrections(text: str) -> str:
+    from .formatting import _CLEFT_BEFORE_RE
+    # Quoted speech is a record, including its corrections and repetitions.
+    # Apostrophes inside contractions do not open quoted spans.
+    quoted = re.compile(r'''("[^"\n]*"|“[^”\n]*”|(?<!\w)'[^'\n]+'(?!\w))''')
+    parts = quoted.split(text)
+    for index in range(0, len(parts), 2):
+        part = _resolve_explicit_restatements(parts[index])
+        part = _resolve_article_corrections(_resolve_changed_mind(part))
+        part = _DUPLICATE_ARTICLE_RE.sub(r"\1", part)
+        # 'had had', 'that that', 'very very' and counted numbers keep meaning.
+        part = re.sub(r"\b(all)\s+all\s+(?=the\b|of\b|these\b|those\b)", r"\1 ", part, flags=re.I)
+        def settle_copula(match: re.Match[str]) -> str:
+            # "What it is is ..." has two grammatical copulas. Reuse the
+            # formatter's existing exception instead of treating it as speech noise.
+            prefix = part[:match.start() + len(match[1])]
+            cleft = _CLEFT_BEFORE_RE.search(prefix)
+            # "all the mistakes that it is is making" is a relative clause,
+            # not the cleft "all this is is ...". The broad context matcher
+            # must not let the earlier "all" hide that accidental repetition.
+            relative = bool(cleft and {"that", "who", "which"} & set(cleft[0].casefold().split()[1:-1]))
+            return match[0] if cleft and not relative else f"{match[1]} is"
+
+        part = re.sub(r"\b(it|he|she|this|that|there)\s+is\s+is\b", settle_copula, part, flags=re.I)
+        part = re.sub(r"\b(just)\s+like\s+like\s+", r"\1 like ", part, flags=re.I)
+        parts[index] = part
+    return "".join(parts)
+
+
 def resolve_spoken_retractions(text: str) -> str:
+    from .literal_text import map_prose
+
+    # Apply every correction rule inside prose boundaries, not just the
+    # newest rules. Quoted words are evidence, and code/paths are literals.
+    def unquoted(prose: str) -> str:
+        parts = _QUOTED_REVISION_RE.split(prose)
+        for index in range(0, len(parts), 2):
+            part = parts[index]
+            leading = re.match(r"\s*", part)[0]
+            trailing = re.search(r"\s*$", part)[0]
+            cleaned = _resolve_spoken_retractions_prose(part)
+            parts[index] = leading + cleaned + trailing if cleaned else part
+        return "".join(parts)
+
+    return map_prose(text, unquoted).strip()
+
+
+def _resolve_spoken_retractions_prose(text: str) -> str:
     from .number_text import contains_numeric_language
 
     # Only a terminal numeric correction with a repeated role is certain.
     # "at two actually three people came" is a different statement, not this.
     text = re.sub(r"\b(at\s+)\d+(?:\.\d+)?[, .]*\s+actually[, ]+(\d+(?:\.\d+)?)(?=\s*[.!?]*$)", r"\1\2", text, flags=re.I)
+    text = _resolve_owner_corrections(text)
     text = _resolve_clause_restatements(resolve_restarts(text))
     text = _resolve_slot_word_corrections(_resolve_named_slot_corrections(text))
     for pattern in (_RETRACT_RESTART_RE, _I_MEAN_RE, _NO_ACTUALLY_SHARED_HEAD_RE):
         previous = None
         while previous != text:
             previous = text
-            text = pattern.sub(
-                (lambda match: match.group("replacement"))
-                if pattern is _NO_ACTUALLY_SHARED_HEAD_RE
-                else "",
-                text,
-            )
+            def settle(match: re.Match[str]) -> str:
+                if pattern is _NO_ACTUALLY_SHARED_HEAD_RE:
+                    return match.group("replacement")
+                if pattern is _I_MEAN_RE:
+                    old = re.split(r",\s*i mean", match[0], flags=re.I)[0]
+                    following = re.match(r"[^.!?;\n]+", match.string[match.end():])
+                    if following and old.strip().casefold() == following[0].strip().casefold():
+                        return match[0]
+                return ""
+
+            text = pattern.sub(settle, text)
     previous = None
     while previous != text:
         previous = text
-        text = _STUTTER_PHRASE_RE.sub(lambda m: m[0] if contains_numeric_language(m[1]) else "", text)
+        def stutter(match: re.Match[str]) -> str:
+            words = match[1].casefold().split()
+            unfinished = words[-1] in _RESTART_DANGLING
+            # "it's really, it's really good" stops before the predicate;
+            # "go now, go now" and "really really" are complete emphasis.
+            if len(words) >= 2:
+                unfinished |= (words[-2] in {"is", "was", "are", "were", "am", "it's", "that's"}
+                               and words[-1] in {"really", "very", "so", "too", "extremely", "pretty"})
+            return "" if unfinished and not contains_numeric_language(match[1]) else match[0]
+
+        text = _STUTTER_PHRASE_RE.sub(stutter, text)
     return normalize_spaces(text)
 
 
@@ -935,7 +1112,7 @@ def process_dictation(raw: str, config: dict[str, Any], *, local_only: bool = Fa
         text = pre_clean_for_format(text, config)
         text = smart_format(text, config, local_only=local_only)
         route = last_format_route()
-        rejection = last_rejection_reason() if route.endswith("rules_after_rejection") else ""
+        rejection = last_rejection_reason() if route.endswith(("rules_after_rejection", "local_model_chill_after_rejection")) else ""
     else:
         text = cleanup_text(text, config)
         if str(cleanup.get("level", "")).lower() == "none":

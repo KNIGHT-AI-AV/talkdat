@@ -109,6 +109,57 @@ class TheChimeWaitsForTheMicrophone(unittest.TestCase):
         self.app.on_session_status(self.token, "dictation", "listening", "hold")
         self.assertEqual(self.chimes, ["on"])
 
+    def test_late_startup_messages_cannot_turn_an_open_microphone_gray(self) -> None:
+        self.frame(SOUND)
+        self.app.on_session_status(self.token, "dictation", "listening", "hold")
+        for status in ("warming", "connected", "provider_ready"):
+            with self.subTest(status=status):
+                self.app.on_session_status(self.token, "dictation", status, "hold")
+                self.assertEqual(self.app.overlay.states[-1][0], "listening")
+        self.assertEqual(self.chimes, ["on"])
+
+    def test_late_listening_after_release_cannot_repaint_processing(self) -> None:
+        self.frame(SOUND)
+        self.app._released_processing = True
+        self.app.overlay.set_state("processing", "Finishing.")
+        self.app.on_session_status(self.token, "dictation", "listening", "hold")
+        self.assertEqual(self.app.overlay.states[-1][0], "processing")
+        self.assertEqual(self.chimes, [])
+
+    def test_startup_still_shows_gray_before_the_microphone_is_ready(self) -> None:
+        self.app.on_session_status(self.token, "dictation", "warming", "hold")
+        self.assertEqual(self.app.overlay.states[-1][0], "starting")
+
+    def deferred_overlay(self):
+        from knight_flow.overlay import Overlay
+        overlay = Overlay.__new__(Overlay)
+        queued = []
+        overlay._post_ui = queued.append
+        overlay._set_state_now = lambda state, message, _preview, **_kwargs: self.app.overlay.states.append((state, message))
+        original = self.app.overlay
+        overlay.states = original.states
+        overlay.root = original.root
+        self.app.overlay = overlay
+        return queued
+
+    def test_queued_startup_paint_cannot_overwrite_listening_on_the_ui_thread(self):
+        queued = self.deferred_overlay()
+        self.app.on_session_status(self.token, "dictation", "warming", "hold")
+        self.frame(SOUND)
+        self.app.on_session_status(self.token, "dictation", "listening", "hold")
+        queued.pop()()  # Listening reaches the UI before the old gray paint.
+        queued.pop()()
+        self.assertEqual(self.app.overlay.states[-1][0], "listening")
+
+    def test_queued_listening_paint_checks_release_again(self):
+        queued = self.deferred_overlay()
+        self.frame(SOUND)
+        self.app.on_session_status(self.token, "dictation", "listening", "hold")
+        self.app._released_processing = True
+        self.app.overlay.states.append(("processing", "Finishing."))
+        queued.pop()()
+        self.assertEqual(self.app.overlay.states[-1][0], "processing")
+
 
 if __name__ == "__main__":
     unittest.main()

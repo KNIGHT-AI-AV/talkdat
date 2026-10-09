@@ -26,6 +26,8 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+from .ordinary_words import COMMON_WORDS
+
 #: A word whose recognizer probability is below this is "unsure".
 UNSURE = 0.6
 #: Fewer sounds than this collide with half the language (vocabulary.py agrees).
@@ -101,6 +103,13 @@ def repair_names(text: str, config: Mapping[str, Any]) -> str:
         if word.lower() not in unsure or word in names:
             return match[0]
         name = by_sound.get(sound_skeleton(word))
+        # Low recognition confidence does not establish that an ordinary
+        # word is a personal name. The vocabulary pass has already honored
+        # any pronunciation aliases the person deliberately supplied.
+        if word.casefold() in COMMON_WORDS and name and word.casefold() != name.casefold():
+            return match[0]
         return name + possessive if name else match[0]
 
-    return _WORD.sub(swap, text)
+    from .literal_text import map_unquoted_prose
+
+    return map_unquoted_prose(text, lambda prose: _WORD.sub(swap, prose))

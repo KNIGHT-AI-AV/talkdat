@@ -336,6 +336,12 @@ class _RendererApi:
                 self._window.restore()
             self._window.show()
 
+    def _native_menu_deactivated(self, _sender=None, _args=None):
+        # WebView's DOM blur does not reliably follow WinForms activation.
+        # Outside clicks must also dismiss at the native window boundary.
+        if self._mode == 'menu' and self._window.native.Visible:
+            self._hide_menu_after_exit()
+
     def _place_menu(self, bounds):
         if not isinstance(bounds, list) or len(bounds) != 4 or not all(type(v) is int for v in bounds):
             return
@@ -343,17 +349,10 @@ class _RendererApi:
         if width <= 0 or height <= 0:
             return
         if sys.platform == 'win32':
-            import ctypes
-            from ctypes import wintypes
             # Tk's anchor and monitor rectangles are physical pixels. pywebview's
             # move/resize multiply by monitor DPI, so apply these bounds directly.
             hwnd = int(self._window.native.Handle.ToInt64())
-            position = ctypes.WinDLL('user32', use_last_error=True).SetWindowPos  # private: argtypes below
-            position.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
-                                 ctypes.c_int, ctypes.c_int, wintypes.UINT)
-            position.restype = wintypes.BOOL
-            if not position(hwnd, None, x, y, width, height, 0x0014):
-                raise OSError('Could not position the Pill menu')
+            _position_menu_window(hwnd, bounds)
         else:
             self._window.resize(width, height)
             self._window.move(x, y)
@@ -432,6 +431,31 @@ def _install_mac_policy():
     BrowserView.BrowserDelegate = TalkDatBundledDelegate
 
 
+def _position_menu_window(hwnd, bounds, *, user32=None):
+    """Apply physical monitor coordinates without virtualizing this worker."""
+    import ctypes
+    from ctypes import wintypes
+    if user32 is None:
+        user32 = ctypes.WinDLL('user32', use_last_error=True)
+    context = user32.SetThreadDpiAwarenessContext
+    context.argtypes = (wintypes.HANDLE,)
+    context.restype = wintypes.HANDLE
+    position = user32.SetWindowPos
+    position.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
+                         ctypes.c_int, ctypes.c_int, wintypes.UINT)
+    position.restype = wintypes.BOOL
+    # The renderer's reply/loaded workers do not necessarily inherit the
+    # native UI thread's DPI context. Match the physical anchor reader here,
+    # including negative coordinates and monitors with different scaling.
+    previous = context(wintypes.HANDLE(-4))
+    try:
+        if not position(hwnd, None, *bounds, 0x0014):
+            raise OSError('Could not position the Pill menu')
+    finally:
+        if previous:
+            context(previous)
+
+
 #: Set when Windows announces the session is ending (SystemEvents.SessionEnding).
 _SESSION_ENDING = threading.Event()
 
@@ -506,6 +530,9 @@ def _run_window(connection, html, page, hidden=False, mode='settings', bounds=No
             native.NavigationStarting += refuse_external
             api._navigation_handler = refuse_external
             if mode == 'menu':
+                if not hasattr(api, '_deactivate_handler'):
+                    api._deactivate_handler = api._native_menu_deactivated
+                    window.native.Deactivate += api._deactivate_handler
                 # X-684: corners and shadow before the first frame; never fatal.
                 with contextlib.suppress(Exception):
                     _apply_menu_chrome(int(window.native.Handle.ToInt64()))

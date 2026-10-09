@@ -228,7 +228,8 @@ class CleanupLevelTests(unittest.TestCase):
 
     def test_medium_removes_fillers_and_finishes_the_sentence(self) -> None:
         out = cleanup_text("um i think maybe we should go", {"cleanup": {"level": "medium"}})
-        self.assertEqual(out, "I think we should go.")
+        # Hesitations go; "maybe" retains the person's uncertainty.
+        self.assertEqual(out, "I think maybe we should go.")
 
     def test_light_capitalises_without_forcing_punctuation(self) -> None:
         out = cleanup_text("hello there", {"cleanup": {"level": "light"}})

@@ -8,6 +8,15 @@ from tests.parity_battery import Case, cases, local_config, run, score, summariz
 
 
 class ParityHarnessTests(unittest.TestCase):
+    def test_corporate_fallback_report_retains_the_pipeline_rejection(self):
+        from knight_flow.text_pipeline import ProcessedText
+        case = Case("fallback receipt", "We should send the report.", "We should send the report.")
+        result = ProcessedText(case.spoken, case.expected, route="local_model_chill_after_rejection",
+                               rejection="stance_added")
+        with patch("knight_flow.text_pipeline.process_dictation", return_value=result):
+            row = run(corpus=(case,), intensity="executive")[0]
+        self.assertEqual(row["rejection"], "stance_added")
+
     def test_zero_cases_cannot_be_a_passing_gate(self):
         self.assertEqual(violations([]), ["empty corpus"])
 

@@ -3,6 +3,40 @@
 All notable product changes to Talk DAT! are recorded here. The project uses beta
 versions while broader field verification remains in progress.
 
+## 0.4.170-beta
+
+Recording stays visible, menus close when you click away, and spoken corrections keep your final choice.
+
+- Common words such as would stay intact when a saved name merely sounds similar.
+- Windows updates and uninstalls only close a verified app in your own session and install folder, and leave copies in other Windows accounts running. If the app cannot be closed safely, the installer says so in one line and changes nothing.
+- Name repair and saved pronunciations preserve quoted examples and code.
+- Formatting notices belong to the current take and keep recovery messages visible.
+- Activity estimates stay open while their saved totals refresh.
+- Retrying a local recording keeps its chosen speech route and model even if settings change.
+- Local-only speech requests refuse outside providers, including between retry attempts.
+- Windows direct typing stops if its window loses focus and keeps the full result available without inserting it again.
+- Mac insertion checks its document and text field during typing and keeps the full result if focus changes.
+- Delayed transcript updates cannot restore Listening after recording ends or update a newer take.
+- Corrections inside complete quotations keep the quoted words, including contractions.
+- Automatic provider formatting recognises the key already chosen for speech.
+- Writing-model setup reports a failed start or an unfinished preparation and offers Retry with built-in rules available.
+- The Pill stays in its listening appearance while recording, even when startup notices arrive late.
+- Local captions discard old previews when a segment finishes and stop updating after recording ends.
+- Releasing the recording button keeps the Pill in processing when a delayed listening notice arrives.
+- The Windows Pill menu uses the display's physical coordinates when monitors have different scaling.
+- Clicking outside the Windows Pill menu closes it even when the web page misses the focus change.
+- Spoken corrections such as a dog, I mean a cat, I mean a lion keep the final choice.
+- Clear repeated-word stutters are removed while emphasis, quoted words and verbatim dictation are preserved.
+- Clear restarts such as oh wait, sorry, I meant keep the speaker's final statement.
+- Deliberate repetition and grammatical phrases such as what it is is keep their words.
+- Basic cleanup keeps the speaker's point of view and uncertainty, including inside quotations.
+- Completed quotations no longer receive an extra full stop.
+- Local and selected provider writing models cannot swap numeric assignments or add written precision while retaining the same values.
+- Local formatting retries share the remaining time budget instead of starting a second full wait.
+- The Pill identifies a safety fallback to Chill or rules without changing the saved writing style.
+- New and unspecified word-learning choices ask before saving a spelling; existing explicit choices remain.
+- Executive formatting sends a new sentence through its model instead of appending an unpolished rules result.
+
 ## 0.4.169-beta
 
 The default theme has a clearer name, and the Store notes cover every update you missed.

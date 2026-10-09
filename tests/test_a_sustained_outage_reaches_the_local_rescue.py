@@ -75,6 +75,7 @@ class _FakeApp:
     # Real implementations, so the method under test reads real audio state.
     session_audio = app_module.TalkDatApp.session_audio
     session_transport_degraded = app_module.TalkDatApp.session_transport_degraded
+    _captured_transcription_route = app_module.TalkDatApp._captured_transcription_route
 
     def __init__(self) -> None:
         self.config = {

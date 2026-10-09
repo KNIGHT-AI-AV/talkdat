@@ -5308,6 +5308,7 @@ class Overlay:
     def set_state(
         self, state: str, message: str | None = None, preview: str | None = None, *,
         say: bool | str | None = None,
+        only_if: Callable[[], bool] | None = None,
     ) -> None:
         """Change what the Pill is doing, and optionally say so (X-742).
 
@@ -5318,7 +5319,12 @@ class Overlay:
         an error shows its message only: the preview of a result is usually the
         person's own dictation, which the Pill does not put on a shared screen.
         """
-        self._post_ui(lambda: self._set_state_now(state, message, preview, say=say))
+        def apply() -> None:
+            # A session can advance while this worker's paint waits in the UI
+            # queue. Recheck its owner/phase at the point of painting.
+            if only_if is None or only_if():
+                self._set_state_now(state, message, preview, say=say)
+        self._post_ui(apply)
 
     def _set_state_now(
         self, state: str, message: str | None, preview: str | None, *, say: bool | str | None = None

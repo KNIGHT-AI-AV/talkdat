@@ -251,7 +251,6 @@ def byok_text_key(config: dict[str, Any], route: str) -> str:
 
 def llm_configured(config: dict[str, Any]) -> bool:
     """True when a usable AI rewrite backend is configured."""
-    settings = llm_settings(config)
     provider = resolved_llm_provider(config)
     if provider in {"", "none"}:
         return False
@@ -262,7 +261,7 @@ def llm_configured(config: dict[str, Any]) -> bool:
     # sends the person to pick a lane instead of at a service that will refuse.
     if provider == "talk_dat_cloud":
         return False
-    return bool(_api_key(settings, provider))
+    return bool(_completion_api_key(config, provider))
 
 
 def _api_key(settings: dict[str, Any], provider: str) -> str:
@@ -271,6 +270,21 @@ def _api_key(settings: dict[str, Any], provider: str) -> str:
         return key
     env_key = PROVIDER_DEFAULTS.get(provider, {}).get("env_key", "")
     return os.environ.get(env_key, "").strip() if env_key else ""
+
+
+def _completion_api_key(config: dict[str, Any], provider: str) -> str:
+    """Readiness and completion use the same explicitly chosen credential."""
+    settings = llm_settings(config)
+    api_key = _api_key(settings, provider)
+    if str(settings.get("provider", "none")).strip().lower() == "auto" and provider != "ollama":
+        from .stt_registry import resolve_route
+
+        speech_route = resolve_route(config)
+        if TEXT_CAPABLE_SPEECH_PROVIDERS.get(speech_route) == provider:
+            # Auto follows the speech route, so its speech key also finishes
+            # the text. A manually selected formatter keeps its own key.
+            return byok_text_key(config, speech_route) or api_key
+    return api_key
 
 
 def _post_json(url: str, body: dict[str, Any], headers: dict[str, str], timeout: float) -> dict[str, Any]:
@@ -631,6 +645,14 @@ def local_finish_refusal(config: dict[str, Any]) -> str:
     return ""
 
 
+_LOCAL_FINISH_RESULT = threading.local()
+
+
+def last_local_finish_reason() -> str:
+    """The current take's fallback reason, separate from hardware readiness."""
+    return getattr(_LOCAL_FINISH_RESULT, "reason", "")
+
+
 _WARMUP_PREDICT = 32
 
 
@@ -757,10 +779,19 @@ def local_finish(
     the engine is not there, the model is not pulled, the model is still being
     prepared, or this machine has measured itself too slow for the budget.
     """
+    deadline = time.perf_counter() + max(0.1, float(budget_seconds))
+    _LOCAL_FINISH_RESULT.reason = ""
+
+    def decline(reason: str) -> None:
+        _LOCAL_FINISH_RESULT.reason = reason
+        return None
+
     api_base, model = local_finish_target(config, executive=executive)
     key = local_finish_key(api_base, model)
-    if _ollama_prepare_pending(api_base, model) or not _ollama_ready(api_base, model):
-        return None
+    if _ollama_prepare_pending(api_base, model):
+        return decline("preparing")
+    if not _ollama_ready(api_base, model):
+        return decline("model_unavailable")
 
     request = build_local_request(
         text, executive=executive, vocabulary=relevant_vocabulary(vocabulary_terms(config), text), tone=tone
@@ -787,17 +818,21 @@ def local_finish(
             predicted,
             budget_ms,
         )
-        return None
+        return decline("too_slow" if machine_is_too_slow(speed, budget_ms, slack=_LOCAL_FINISH_SLACK)
+                       else "budget_exceeded")
 
     predict = reply_budget(request)
     window = context_window(len(LOCAL_FINISH_SYSTEM) + len(request), num_predict=predict)
+    remaining = deadline - time.perf_counter()
+    if remaining < 0.1:
+        return decline("budget_exceeded")
     try:
         payload = _ollama_chat(
             LOCAL_FINISH_SYSTEM,
             request,
             api_base=api_base,
             model=model,
-            timeout=max(0.1, float(budget_seconds)),
+            timeout=remaining,
             num_ctx=window,
             num_predict=predict,
             schema=LOCAL_FINISH_SCHEMA,
@@ -805,24 +840,27 @@ def local_finish(
     except urllib.error.HTTPError as exc:
         if exc.code not in {400, 404, 422, 500}:
             log.warning("local finishing unavailable (HTTP %s); using the rules formatter", exc.code)
-            return None
+            return decline("model_unavailable")
         # A refused schema is a property of the engine or the weights, not of
         # this dictation, so retry once unconstrained rather than losing the
         # finish. `parse_finish_envelope` reads plain text too.
+        remaining = deadline - time.perf_counter()
+        if remaining < 0.1:
+            return decline("budget_exceeded")
         try:
             payload = _ollama_chat(
                 LOCAL_FINISH_SYSTEM,
                 request,
                 api_base=api_base,
                 model=model,
-                timeout=max(0.1, float(budget_seconds)),
+                timeout=remaining,
                 num_ctx=window,
                 num_predict=predict,
             )
         except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as retry_exc:
             log.warning("local finishing unavailable (%s); using the rules formatter",
                         type(retry_exc).__name__)
-            return None
+            return decline("timeout" if isinstance(retry_exc, TimeoutError) else "model_unavailable")
     except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError) as exc:
         log.warning("local finishing unavailable (%s); using the rules formatter", type(exc).__name__)
         if isinstance(exc, (urllib.error.URLError, TimeoutError, OSError)):
@@ -830,7 +868,7 @@ def local_finish(
             # loaded and every take timed out on a cold load. The next take
             # should find the model warm, so load it now, off this thread.
             keep_local_finisher_resident(config, force=True)
-        return None
+        return decline("timeout" if isinstance(exc, TimeoutError) else "model_unavailable")
 
     _record_local_speed(api_base, model, payload)
     sent = int(payload.get("prompt_eval_count") or 0)
@@ -847,7 +885,7 @@ def local_finish(
         answer = answer.replace("\\n", "\n")
     if answer:
         _LOCAL_REFUSED.pop(key, None)
-    return answer or None
+    return answer or decline("invalid_response")
 
 
 def finishing_status(
@@ -1351,17 +1389,7 @@ def llm_complete(
     defaults = PROVIDER_DEFAULTS.get(provider)
     if defaults is None:
         return None
-    api_key = _api_key(settings, provider)
-    if chosen == "auto" and provider != "ollama":
-        # X-365: auto reached a BYOK provider by following the SPEECH route,
-        # so the key it must use is the speech key -- the formatter settings
-        # hold one key belonging to whatever provider was last chosen by
-        # hand, which is usually nothing at all on a BYOK install.
-        from .stt_registry import resolve_route
-
-        speech_route = resolve_route(config)
-        if TEXT_CAPABLE_SPEECH_PROVIDERS.get(speech_route) == provider:
-            api_key = byok_text_key(config, speech_route) or api_key
+    api_key = _completion_api_key(config, provider)
     if chosen == "auto":
         # Auto resolves the WHOLE route: a stored model or base belongs to
         # whatever the user last had configured, not to the provider auto

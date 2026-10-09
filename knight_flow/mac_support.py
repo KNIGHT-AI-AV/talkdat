@@ -1052,6 +1052,83 @@ def _read_focused_element() -> tuple[int, int, tuple[float, float, float, float]
         return int(pid.value), identity, frame
 
 
+def _read_delivery_target() -> tuple[int, Any, Any] | None:
+    """Owned AX window/field references, without reading document contents.
+
+    PyObjC retains the returned CF objects for the snapshot's lifetime. Compare
+    them with CFEqual, never CFHash or frame coordinates: hashes can collide,
+    and a live editor can resize while the same field is receiving text.
+    """
+    from ApplicationServices import (
+        AXIsProcessTrusted, AXUIElementCreateSystemWide,
+        AXUIElementCopyAttributeValue, AXUIElementGetPid,
+        AXUIElementSetMessagingTimeout,
+    )
+
+    if not AXIsProcessTrusted():
+        return None
+    root = AXUIElementCreateSystemWide()
+    if AXUIElementSetMessagingTimeout(root, 0.1) != 0:
+        return None
+    error, field = AXUIElementCopyAttributeValue(root, "AXFocusedUIElement", None)
+    if error != 0 or field is None:
+        return None
+    error, pid = AXUIElementGetPid(field, None)
+    if error != 0 or not pid or int(pid) == os.getpid():
+        return None
+    error, window = AXUIElementCopyAttributeValue(field, "AXWindow", None)
+    if error != 0 or window is None:
+        return None
+    error, window_pid = AXUIElementGetPid(window, None)
+    if error != 0 or int(window_pid) != int(pid) or frontmost_window_id() != int(pid):
+        return None
+    # Refuse a snapshot assembled while focus changed between AX reads.
+    error, current = AXUIElementCopyAttributeValue(root, "AXFocusedUIElement", None)
+    if error != 0 or current is None or not _delivery_elements_equal(field, current):
+        return None
+    return int(pid), window, field
+
+
+def _delivery_elements_equal(left: Any, right: Any) -> bool:
+    from CoreFoundation import CFEqual
+
+    return bool(CFEqual(left, right))
+
+
+def capture_delivery_target():
+    """Return a latched native window/field guard for one insertion.
+
+    Unknown or failed AX reads refuse input. Retained native objects live only
+    for this delivery; no field text, title, selected range or clipboard is read.
+    This guards focus changes, not movement of the caret inside one AX field.
+    """
+    if not IS_MAC:
+        return lambda: True
+    try:
+        original = _read_delivery_target()
+    except Exception:
+        original = None
+    lost = not bool(original and original[0] and original[1] is not None and original[2] is not None)
+
+    def still_current() -> bool:
+        nonlocal lost
+        if lost:
+            return False
+        try:
+            current = _read_delivery_target()
+            lost = not bool(
+                current and current[0] == original[0]
+                and current[1] is not None and current[2] is not None
+                and _delivery_elements_equal(original[1], current[1])
+                and _delivery_elements_equal(original[2], current[2])
+            )
+        except Exception:
+            lost = True
+        return not lost
+
+    return still_current
+
+
 def focused_element_id() -> int:
     """The focused element's identity (the Mac's focused-control HWND), or 0."""
     if not IS_MAC:

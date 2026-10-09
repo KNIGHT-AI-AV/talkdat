@@ -91,6 +91,29 @@ class TheSameKeyThatHeardYouFinishesYouTests(unittest.TestCase):
         config = config_for("cloud", "openrouter", key="or-secret")
         self.assertEqual(llm.byok_text_key(config, "openrouter"), "or-secret")
 
+    def test_auto_byok_is_configured_with_only_the_speech_key(self) -> None:
+        with mock.patch.dict("os.environ", {}, clear=True):
+            self.assertTrue(llm.llm_configured(config_for("byok", "openrouter")))
+
+    def test_automatic_formatting_uses_the_same_speech_key(self) -> None:
+        from knight_flow.formatting import smart_format, last_format_route
+
+        config = config_for("byok", "openrouter", key="speech-test-key")
+        config["cleanup"] = {"format_mode": "auto"}
+        source = "Please review the release notes before tomorrow."
+        with mock.patch.dict("os.environ", {}, clear=True), \
+             mock.patch.object(llm, "_complete_openai", return_value=source) as complete:
+            self.assertEqual(smart_format(source, config), source)
+        complete.assert_called_once()
+        self.assertEqual(complete.call_args.kwargs["api_key"], "speech-test-key")
+        self.assertEqual(last_format_route(), "remote_model")
+
+    def test_explicit_formatter_does_not_borrow_another_provider_speech_key(self) -> None:
+        config = config_for("byok", "openrouter")
+        config["transforms"]["llm"]["provider"] = "anthropic"
+        with mock.patch.dict("os.environ", {}, clear=True):
+            self.assertFalse(llm.llm_configured(config))
+
     def test_a_missing_function_is_not_reported_as_a_missing_key(self) -> None:
         """An earlier draft wrapped this in a bare except, so importing the
         helper from the wrong module looked exactly like "no key configured"

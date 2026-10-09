@@ -17,7 +17,7 @@ class AutoStoreV2Tests(unittest.TestCase):
     permanent. Evidence stays on this PC (the X-37 fence)."""
 
     def setUp(self) -> None:
-        self.config: dict = {"dictionary": {}}
+        self.config: dict = {"dictionary": {"auto_learn_mode": "auto-on-second"}}
 
     def test_shapely_words_still_learn_on_the_first_fix(self) -> None:
         self.assertEqual(note_fix_evidence("SAHVVV", self.config, 1000.0), "learn")
@@ -62,7 +62,7 @@ class AutoStoreV2Tests(unittest.TestCase):
 
     def test_mode_defaults_survive_bad_values(self) -> None:
         self.config["dictionary"]["auto_learn_mode"] = "nonsense"
-        self.assertEqual(auto_learn_mode(self.config), "auto-on-second")
+        self.assertEqual(auto_learn_mode(self.config), "offer")
 
     def test_tombstones_do_not_duplicate(self) -> None:
         add_tombstone("Word", self.config)

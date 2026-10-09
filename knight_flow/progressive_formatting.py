@@ -50,7 +50,10 @@ def _eligible(raw: str, config: dict[str, Any]) -> bool:
 def _joinable(source: str, output: str, suffix: str, config: dict[str, Any]) -> bool:
     from .formatting import needs_intelligence
 
-    if config.get("cleanup", {}).get("tone"):
+    cleanup = config.get("cleanup", {})
+    # A rules-only tail never receives Executive's polish. Exact completed
+    # results still reuse work, but a new tail must use the selected contract.
+    if cleanup.get("tone") or str(cleanup.get("format_intensity", "standard")).lower() == "executive":
         return False
     if not source.endswith((".", "?", "!")) or not output.endswith((".", "?", "!")):
         return False

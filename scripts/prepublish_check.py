@@ -196,19 +196,18 @@ def is_text_file(path: Path) -> bool:
 
 def iter_repo_files() -> list[Path]:
     files: list[Path] = []
-    for path in ROOT.rglob("*"):
-        parts = path.relative_to(ROOT).parts[:-1]
-        # .venv matched by prefix: the Mac packaging env is .venv-dmg, and any
-        # future variant is still a virtualenv full of third-party hex.
-        if any(part in SKIP_DIRS or part.startswith(".venv") for part in parts):
-            continue
-        # Raw research captures (scraped posts, ids that look like hex) are data
-        # the marketing session keeps under version control, not shipped code;
-        # the secret scanner has nothing to find there and everything to trip on.
-        if parts[:3] == ("marketing", "research", "raw"):
-            continue
-        if path.is_file():
-            files.append(path)
+    for directory, children, names in os.walk(ROOT, topdown=True, followlinks=False):
+        parent = Path(directory)
+        parts = parent.relative_to(ROOT).parts
+        # Preserve the existing exclusions, but prune before traversal.
+        # Filtering rglob results still walked every dependency/cache folder.
+        children[:] = [name for name in children
+                       if name not in SKIP_DIRS and not name.startswith(".venv")
+                       and (*parts, name)[:3] != ("marketing", "research", "raw")]
+        for name in names:
+            path = parent / name
+            if path.is_file():
+                files.append(path)
     return files
 
 

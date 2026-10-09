@@ -37,10 +37,11 @@ class ProgressiveFormattingTests(unittest.TestCase):
         self.assertIsNone(cache.take(PREFIX, CONFIG))
 
     def test_safe_complete_sentence_prefix_and_short_tail_keep_every_word(self):
+        config = {**CONFIG, "cleanup": {**CONFIG["cleanup"], "format_intensity": "standard"}}
         cache = self.cache(lambda raw, config: text_pipeline.prepare_dictation(raw, config, local_only=True))
-        cache.request(PREFIX, CONFIG)
+        cache.request(PREFIX, config)
         self.assertTrue(cache.wait_idle(1))
-        result = cache.take(PREFIX + " Please bring the printed agenda.", CONFIG)
+        result = cache.take(PREFIX + " Please bring the printed agenda.", config)
         self.assertIsNotNone(result)
         self.assertEqual(result.text, PREFIX + " Please bring the printed agenda.")
         self.assertEqual(result.original, PREFIX + " Please bring the printed agenda.")
