@@ -20,7 +20,7 @@
   // Drawn masks for the meanings the sixteen atlas cells have no glyph for
   // (X-172 started this with Home). Stats and Tools are drawn at the atlas's
   // own stroke weight and footprint; see shell.css.
-  const maskIcons = new Set(["home", "stats", "tools"]);
+  const maskIcons = new Set(["home", "stats", "tools", "download"]);
   function el(tag, attrs = {}, children = []) {
     const node = document.createElement(tag);
     for (const [key, value] of Object.entries(attrs)) {
@@ -328,11 +328,16 @@
     const strip = $("save-strip"), line = $("say-footer");
     if (!strip || !line) return null;
     clearTimeout(footerSay?.timer);
-    const menu = document.body.classList.contains("menu-view") && document.querySelector(".menu-pagination span");
+    const menu = document.body.classList.contains("menu-view") && document.querySelector(".pill-menu-heading h1");
     if (menu) {
-      // The Pill menu has no footer panel: its own bottom row says it.
-      menu.textContent = detail ? `${message} ${detail}` : message;
-      footerSay = {timer: sticky ? 0 : setTimeout(() => { footerSay = null; menuReflow?.(); }, hold ?? sayHold(tone, message))};
+      // The Pill menu has no footer panel (and, since 2026-10-09, no pager row to
+      // borrow): its title line says it, then the title comes back.
+      fold(menu);
+      const answer = {host: menu, listeners: [], describedBy: menu.getAttribute("aria-describedby"), rollHost: menu};
+      answers.set(menu, answer);
+      menu.classList.add("say-host", ...(tone === "error" ? ["say-error"] : []));
+      answer.roll = roll(menu, detail ? `${message} ${detail}` : message, {align: "left"}).layer;
+      if (!sticky) holdAnswer(menu, answer, hold ?? sayHold(tone, message + " " + detail));
       return menu;
     }
     line.replaceChildren(...(tone === "done" ? [el("span", {class: "say-check", "aria-hidden": "true"})] : []),
@@ -376,8 +381,9 @@
     if (!target) return sayInFooter(message, options);
     if (target.matches("[role=switch],select,input[type=checkbox],input[type=radio]") || target.closest(".segmented")) return answerOnRow(target, message, options);
     if (target.matches(".menu-row")) {
-      // A Pill menu row answers on its own second line.
-      const line = target.querySelector(".menu-label small") || target.querySelector(".menu-label");
+      // A Pill menu row answers across its whole label, two lines at most: the rows
+      // are one line tall and most no longer carry a caption (2026-10-09).
+      const line = target.querySelector(".menu-label");
       fold(target);
       const answer = {host: target, listeners: [], describedBy: target.getAttribute("aria-describedby"), rollHost: line};
       answers.set(target, answer);
@@ -1032,23 +1038,46 @@
     main.append(el("section", { class: "section" }, [el("h2", { text: account.title || "Your account" }), el("p", { class: "secondary", text: account.description || "Open your account to view access and sign-in options." })]));
     const button = el("button", { text: "Manage account" }); button.addEventListener("click", () => action("account", {}, button)); main.append(el("div", { class: "action-list" }, [button]));
   }
-  let menuBack = null, menuReflow = null, lastMenuMove = null;
+  let menuBack = null, lastMenuMove = null, menuOpener = "";
+  // The Pill menu's sizes (CSS px at 100%), the same numbers as shell.css --menu-* and
+  // menu_geometry.MENU_METRICS (tests/test_the_menu_fits_its_window.py keeps all three).
+  const MENU_SIZE = {pad: 6, header: 44, row: 40, update: 64, sep: 9};
+  const menuViewHeight = rows => 2 * MENU_SIZE.pad + MENU_SIZE.header + rows.reduce((sum, item) =>
+    sum + (item.separator ? MENU_SIZE.sep : item.kind === "update" ? MENU_SIZE.update : MENU_SIZE.row), 0);
+  // A right-click opens the menu with its first row focused for the keyboard and screen
+  // readers, but no ring until a key is pressed, as Windows' own menus do.
+  document.addEventListener("keydown", () => document.body.removeAttribute("data-menu-quiet"), true);
   // Windows' default double-click time; a press inside it on a view that just
   // replaced itself is the tail of the click that replaced it (X-686).
   const DOUBLE_CLICK_MS = 500, MENU_CONFIRM_MS = 3000;
   const MENU_CONFIRM = {restart_app: "Click again to restart", quit_app: "Click again to quit"};
   function menuKeys(list) {
     list.addEventListener("keydown", event => {
-      const buttons = [...list.querySelectorAll('[role="menuitem"]')].filter(b => !b.hidden && !b.disabled && b.getClientRects().length);
+      // 2026-10-09: Right opens the focused row's submenu and Left comes back a level,
+      // as menus do (WAI-ARIA menu pattern, WinUI); decided before anything else.
+      if (event.key === "ArrowRight" && typeof document.activeElement?.menuOpen === "function") { event.preventDefault(); document.activeElement.menuOpen(); return; }
+      if (event.key === "ArrowLeft" && menuBack) { event.preventDefault(); menuBack(); return; }
+      // Every menu row: menuitem and the choices' menuitemradio (review UI-1).
+      const buttons = [...list.querySelectorAll('[role^="menuitem"]')].filter(b => !b.hidden && !b.disabled && b.getClientRects().length);
       if (!buttons.length) return;
       let index = buttons.indexOf(document.activeElement);
+      // Type-ahead: a letter moves to the next row whose label starts with it, wrapping.
+      if (event.key.length === 1 && /\S/.test(event.key) && !event.ctrlKey && !event.altKey && !event.metaKey) {
+        const letter = event.key.toLocaleLowerCase();
+        for (let step = 1; step <= buttons.length; step++) {
+          const row = buttons[(index + step + buttons.length) % buttons.length];
+          if ((row.getAttribute("aria-label") || row.textContent || "").trim().toLocaleLowerCase().startsWith(letter)) {
+            event.preventDefault(); row.focus(); return;
+          }
+        }
+        return;
+      }
       if (event.key === "ArrowDown") index = (index + 1) % buttons.length;
-      else if (event.key === "ArrowUp") index = (index - 1 + buttons.length) % buttons.length;
+      else if (event.key === "ArrowUp") index = index < 0 ? buttons.length - 1 : (index - 1 + buttons.length) % buttons.length;
       else if (event.key === "Home") index = 0; else if (event.key === "End") index = buttons.length - 1; else return;
       event.preventDefault(); buttons[index]?.focus();
     });
   }
-  window.addEventListener("resize", () => menuReflow?.());
   function renderMenuOrder(main) {
     const field = allFields().find(field => field.id === "overlay.menu_order");
     if (!field) return;
@@ -1080,7 +1109,8 @@
   }
   function renderMenu(main) {
     menuBack = null;
-    const iconNames = {settings:"general",paste_last:"paste",history:"history",more_features:"tools",stats:"stats",ramble:"formatting",captions:"captions",translation:"translation",scratchpad:"scratchpad",scribe:"scribe",local_models:"dictation",check_updates:"update",restart_app:"restart",quit_app:"power"};
+    document.body.setAttribute("data-menu-quiet", "");
+    const iconNames = {settings:"general",paste_last:"paste",history:"history",more_features:"tools",stats:"stats",ramble:"formatting",captions:"captions",translation:"translation",scratchpad:"scratchpad",scribe:"scribe",local_models:"dictation",check_updates:"download",restart_app:"restart",quit_app:"power"};
     // Tools' child rows carry only an action ("menu:captions"), no id. Looking
     // the icon up by `item.id` alone gave Live captions and Translate the
     // generic sliders; the action names the destination just as well.
@@ -1088,6 +1118,11 @@
       const key = item.id || item.action?.replace("menu:","") || "";
       return {...item, icon:iconNames[key] || (Object.prototype.hasOwnProperty.call(icons,key) || maskIcons.has(key) ? key : "general")};
     };
+    const glyph = name => el("span", {class:"menu-glyph menu-glyph-"+name, "aria-hidden":"true"});
+    // 2026-10-09, the owner: the menu felt "janky, ugly, misshapen... hard to find",
+    // and the update was four clicks deep. It is now a compact flyout: one line per
+    // row with its current value on the right, one header, and a waiting update as the
+    // first row. Every size is in shell.css (--menu-*), mirrored by menu_geometry.py.
     // X-682: a submenu slides in from the side it came from ("forward" from the right,
     // "back" from the left) while the old list leaves the other way for one exit,
     // inert and deaf to the pointer, over the new one.
@@ -1096,9 +1131,10 @@
       const oldBox = old ? {top: old.offsetTop, height: old.offsetHeight} : null;
       main.replaceChildren(); menuBack = back;
       const heading = el("div", {class:"pill-menu-heading"});
-      if (back) { const previous=el("button", {class:"quiet menu-back",text:"‹", "aria-label":"Back to menu"}); previous.addEventListener("click",back); heading.append(previous); }
+      if (back) { const previous=el("button", {class:"quiet menu-back", "aria-label":"Back to menu"}, [glyph("back")]); previous.addEventListener("click",back); heading.append(previous); }
       heading.append(el("h1", {text:title}));
-      const close=el("button", {class:"quiet menu-close",text:"×", "aria-label":"Close menu"}); close.addEventListener("click",()=>{leaveMenu();rpc("dismiss").catch(e=>notice(e.message,true));}); heading.append(close);
+      if (!back) { const help=el("button", {class:"quiet menu-help", "aria-label":"Help"}, [glyph("help")]); help.addEventListener("click",()=>{action("menu:help",{},help);}); heading.append(help); }
+      const close=el("button", {class:"quiet menu-close", "aria-label":"Close menu"}, [glyph("close")]); close.addEventListener("click",()=>{leaveMenu();rpc("dismiss").catch(e=>notice(e.message,true));}); heading.append(close);
       const list=el("div", {class:"menu-items",role:"menu","aria-label":title});
       // X-686 (interaction grid, build 10): a row acts only on a press that began on
       // it in THIS view. A double-click on Speech, Formatting, Tools or App controls
@@ -1110,11 +1146,24 @@
       const shownAt = performance.now();
       let pressed = null;
       for (const item of rows) {
+        if (item.separator) { list.append(el("div", {class:"menu-sep", role:"separator"})); continue; }
         const label=el("span", {text:item.label});
         const text=el("span", {class:"menu-label"}, [label]);
-        if (item.description) text.append(el("small",{text:item.description}));
-        const button=el("button", {role:"menuitem",class:"menu-row", "data-action":item.action || item.id || "", "aria-label":item.label}, [icon(item.icon || "general"),text]);
-        if (item.run) button.append(el("span", {class:"menu-chevron",text:"›","aria-hidden":"true"}));
+        const parts=[];
+        if (item.kind === "update") {
+          text.append(el("small",{text:item.caption || item.description}));
+          parts.push(el("span", {class:"update-mark","aria-hidden":"true"}, [icon("download")]), text, el("span", {class:"update-cta","aria-hidden":"true",text:"Install"}));
+        } else {
+          parts.push(icon(item.icon || "general"), text);
+          if (item.value) parts.push(el("span", {class:"menu-value",text:item.value}));
+          if (item.run) parts.push(el("span", {class:"menu-chevron","aria-hidden":"true"}));
+          if (item.choice && item.checked) parts.push(el("span", {class:"menu-check","aria-hidden":"true"}));
+        }
+        const button=el("button", {role:item.choice ? "menuitemradio" : "menuitem",class:"menu-row"+(item.kind?" menu-row-"+item.kind:"")+(item.required?" required":""), "data-action":item.action || item.id || "", "aria-label":item.name || item.label}, parts);
+        if (item.description) button.setAttribute("aria-description", item.description);
+        if (item.choice) button.setAttribute("aria-checked", item.checked ? "true" : "false");
+        // A keyboard open (Right) is never a stray press, so it skips the X-686 press guard.
+        if (item.run) { button.setAttribute("aria-haspopup", "menu"); button.menuOpen = () => { menuOpener = item.label; item.run(); }; }
         const confirm = MENU_CONFIRM[item.id || item.action?.replace("menu:","") || ""];
         let disarm = 0;
         const arm = on => {
@@ -1130,58 +1179,73 @@
           if (event.detail > 1 && (performance.now() - shownAt < DOUBLE_CLICK_MS || confirm)) return;
           if (confirm && button.dataset.armed !== "true") { arm(true); return; }
           if (confirm) arm(false);
-          if (item.run) item.run(); else action(item.action,{},button);
+          // The current choice is already made: pressing it again changes nothing.
+          if (item.choice && item.checked) return;
+          if (item.run) { menuOpener = item.label; item.run(); } else action(item.action,{},button);
         });
         list.append(button);
       }
-      const pager=el("div", {class:"menu-pagination"});
-      const prev=el("button", {class:"quiet",text:"Previous"}), next=el("button", {class:"quiet",text:"Next"}), position=el("span", {class:"secondary", "aria-live":"polite"});
-      pager.append(prev,position,next);main.append(heading,list,pager); menuKeys(list);
+      main.append(heading,list); menuKeys(list);
       if (direction) list.dataset.enter = direction;
+      // 2026-10-09: the window takes this view's height. It grows before the slide, so
+      // the arriving rows have room, and shrinks after it, so the leaving rows are not
+      // cut; the content sits on the Pill's side of the window, so nothing jumps.
+      const height = menuViewHeight(rows);
+      const fit = () => rpc("menu_fit", {height}).catch(() => {});
+      if (!old || height > window.innerHeight + 0.5) fit();
       if (old) {
         delete old.dataset.enter; delete old.dataset.turn;
         old.classList.add("menu-items-leaving"); old.dataset.leave = direction;
         old.inert = true; old.setAttribute("aria-hidden", "true");
         old.style.top = oldBox.top + "px"; old.style.height = oldBox.height + "px";
-        main.append(old); afterExit(old, () => old.remove());
+        main.append(old); afterExit(old, () => { old.remove(); if (height <= window.innerHeight + 0.5) fit(); });
       }
-      // A page turn slides the list by one page (up for Next, down for Previous).
-      const turn = way => { delete list.dataset.enter; delete list.dataset.turn; void list.offsetWidth; list.dataset.turn = way; };
-      let page=0, count=1;
-      const layout = () => {
-        if (!main.isConnected || state.page!=="menu") return;
-        const available=main.clientHeight-heading.offsetHeight-pager.offsetHeight-16;
-        count=Math.max(1,Math.floor(available/54));
-        page=Math.min(page,Math.max(0,Math.ceil(rows.length/count)-1));
-        [...list.children].forEach((button,index)=>{button.hidden=index<page*count || index>=(page+1)*count;});
-        prev.disabled=page===0;next.disabled=(page+1)*count>=rows.length;
-        const multiple=rows.length>count;
-        prev.style.visibility=next.style.visibility=multiple?"visible":"hidden";
-        position.textContent=multiple ? `${page+1} / ${Math.ceil(rows.length/count)}` : "Esc to close";
-      };
-      prev.addEventListener("click",()=>{page--;layout();turn("prev");list.querySelector("button:not([hidden])")?.focus();});
-      next.addEventListener("click",()=>{page++;layout();turn("next");list.querySelector("button:not([hidden])")?.focus();});
-      menuReflow=layout;layout();requestAnimationFrame(layout);
-      list.querySelector("button:not([hidden])")?.focus({preventScroll:true});
+      // The window is sized to the menu (menu_geometry.menu_height); on a screen too
+      // short for it the list scrolls instead of paging.
+      // Review R4: the focus never opens on the update row (one Enter would install);
+      // coming back, it returns to the row that opened the view.
+      const rowsShown = [...list.querySelectorAll("button:not([hidden])")];
+      const opener = direction === "back" ? rowsShown.find(row => row.getAttribute("aria-label") === menuOpener) : null;
+      (opener || rowsShown.find(row => !row.classList.contains("menu-row-update")) || rowsShown[0])?.focus({preventScroll:true});
     };
     const back = () => home("back");
     const home = (direction = "") => {
-      const daily=(state.data.menu||[]).filter(item=>!item.fixed).map(item=> {
+      const rows = [];
+      const update = state.data.update;
+      if (update && !update.skipped) {
+        // The release the last check found (2026-10-09). Never a guess: the app sends
+        // this only after its own update check confirmed a newer version.
+        rows.push({kind:"update", required:Boolean(update.required), action:"menu:install_update",
+          // Each line fits beside Install in all four app fonts (review UI-3, measured);
+          // the danger tint marks a required one, and its name says it in full (UI-6).
+          label:`Update ${update.version}`,
+          name:update.required ? `Install required update ${update.version}` : `Install update ${update.version}`,
+          caption:update.required ? "Fixes a problem." : "Restarts to install.",
+          description:update.required ? "Fixes a problem. Restarts Talk DAT! to install." : "Restarts Talk DAT! to install."});
+      }
+      for (const item of (state.data.menu||[]).filter(item=>!item.fixed)) {
         const row=entry(item);
         if(item.children) row.run=()=>show(row.label,item.children.map(entry),back,"forward");
-        return row;
-      });
-      daily.push({id:"speech-route",label:"Speech",description:state.data.route==="local"?"Local · on this computer":"Your key · connected provider",icon:"dictation",run:()=>show("Speech",[
-        {label:"Local speech",description:"Process on this computer",icon:"dictation",action:"route:local"},
-        {label:"Use your key",description:"Use your configured provider",icon:"account",action:"route:byok"}],back,"forward")},
-        {id:"writing-finish",label:"Formatting",description:state.data.intensity==="executive"?"Executive · polished writing":"Chill · natural writing",icon:"formatting",run:()=>show("Formatting",[
-          {label:state.data.intensity==="executive"?"Switch to Chill":"Switch to Executive",description:state.data.intensity==="executive"?"Keep your natural speaking style":"Polish and structure your writing",icon:"formatting",action:"menu:toggle_intensity"},
+        rows.push(row);
+      }
+      rows.push({separator:true});
+      // 2026-10-09: Speech and Formatting are one-of-two choices, shown as radio rows
+      // with the current one checked (they read "On" and "Switch to Executive").
+      const local = state.data.route === "local", executive = state.data.intensity === "executive";
+      const choice = (label, description, icon, checked, action) => ({label, description, icon, action, choice: true, checked});
+      rows.push({id:"speech-route",label:"Speech",value:local?"Local":"Your key",description:local?"Local, on this computer":"Your key, connected provider",icon:"dictation",run:()=>show("Speech",[
+        choice("Local speech","Process on this computer","dictation",local,"route:local"),
+        choice("Your key","Use your configured provider","account",!local,"route:byok")],back,"forward")},
+        {id:"writing-finish",label:"Formatting",value:executive?"Executive":"Chill",description:executive?"Executive, polished writing":"Chill, natural writing",icon:"formatting",run:()=>show("Formatting",[
+          choice("Chill","Keep your natural speaking style","formatting",!executive,"menu:toggle_intensity"),
+          choice("Executive","Polish and structure your writing","formatting",executive,"menu:toggle_intensity"),
+          {separator:true},
           {label:"Writing settings",description:"Numbers, punctuation and cleanup",icon:"general",action:"menu:formatting"}],back,"forward")},
         {id:"application",label:"App controls",description:"Updates, restart, quit and help",icon:"power",run:()=>show("App controls",[
           ...(state.data.menu||[]).filter(item=>item.fixed).map(entry),
           {label:"Arrange menu",description:"Choose your daily order",icon:"appearance",action:"menu_order"},
           {label:"Help",description:"Guides and feature reference",icon:"help",action:"menu:help"}],back,"forward")});
-      show("Talk DAT!",daily,null,direction);
+      show("Talk DAT!",rows,null,direction);
     };
     home();
   }
@@ -1200,12 +1264,33 @@
     for (let step = 0; step <= 20; step++) { const candidate = mixHex(from, toward, step / 20); if (contrastRatio(candidate, surface) >= 4.5) return candidate; }
     return toward;
   }
+  function readableOnAll(surfaces, from, toward) {
+    for (let step = 0; step <= 20; step++) { const candidate = mixHex(from, toward, step / 20); if (surfaces.every(surface => contrastRatio(candidate, surface) >= 4.5)) return candidate; }
+    return toward;
+  }
   function applyPalette(palette = {}) {
     for (const key of ["bg", "panel", "surface", "field", "text", "muted", "accent", "button", "select", "stroke", "danger", "ring"]) if (palette[key]) document.documentElement.style.setProperty("--" + key, palette[key]);
     if (palette.on_accent) document.documentElement.style.setProperty("--on-accent", palette.on_accent);
     const hex = /^#[0-9a-fA-F]{6}$/;
+    if (hex.test(palette.on_danger || "")) document.documentElement.style.setProperty("--on-danger", palette.on_danger);
     if ([palette.select, palette.muted, palette.text].every(value => hex.test(value || "")))
       document.documentElement.style.setProperty("--muted-on-select", readableOn(palette.select, palette.muted, palette.text));
+    // 2026-10-09 (Pill menu): the update row's caption sits on a tint of the theme's
+    // accent (the danger colour for a required update), and an error said on the menu
+    // sits on the panel or on a row tinted with the danger colour. Measured, the plain
+    // colours failed 4.5:1 in 45 and 2 themes; each walks toward the text colour until
+    // it reads on every surface it can meet (tests/test_the_menu_reads_in_every_theme.py).
+    if (["panel", "select", "text", "muted", "accent", "danger"].every(key => hex.test(palette[key] || ""))) {
+      const tint = (colour, share) => mixHex(palette.panel, colour, share);
+      document.documentElement.style.setProperty("--muted-on-tint", readableOnAll(
+        [tint(palette.accent, .13), tint(palette.accent, .21), tint(palette.danger, .13), tint(palette.danger, .21)], palette.muted, palette.text));
+      // An error lands on the panel (the title line, a row at rest: a row paints no tint
+      // of its own), a hovered row's --select, or an update row's tints (review UI-2). A
+      // pressed row paints between the panel and --select, so it reads there too (CL-3).
+      document.documentElement.style.setProperty("--danger-text", readableOnAll(
+        [palette.panel, palette.select, tint(palette.accent, .13), tint(palette.accent, .21), tint(palette.danger, .13),
+         tint(palette.danger, .21)], palette.danger, palette.text));
+    }
     // X-681: a hovered primary button lifts its accent AWAY from its ink, so the
     // label keeps 4.5:1 in every theme (tests/test_controls_answer_the_hand.py).
     if (palette.on_accent) document.documentElement.style.setProperty("--accent-lift", palette.on_accent === "#000000" ? "#ffffff" : "#000000");

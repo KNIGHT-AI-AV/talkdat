@@ -33,18 +33,26 @@ class _Overlay:
     def __init__(self) -> None:
         self.states: list[tuple[str, str]] = []
         self.toasts: list[str] = []
+        # Review CL4-2 (2026-10-10): states and flags in ONE ordered log, with what the
+        # real Overlay reads from each, so a test can see tone, key, origin and order.
+        self.events: list[dict] = []
         self.onboarding_test_sink = None
         self.root = SimpleNamespace(after=lambda _delay, callback: callback())
 
-    def set_state(self, state: str, message: str = "", _preview: str = "", **_kwargs) -> None:
+    def set_state(self, state: str, message: str = "", _preview: str = "", **kwargs) -> None:
         self.states.append((state, message))
+        self.events.append({"kind": "state", "state": state, "message": message, "detail": _preview,
+                            "say": kwargs.get("say")})
 
     def set_level(self, _level: float) -> None:
         return
 
-    def flag(self, message: str, *, detail: str = "", **_kwargs) -> None:
+    def flag(self, message: str, *, detail: str = "", **kwargs) -> None:
         # X-743: the Pill says it itself (Overlay.flag), title then detail.
         self.toasts.append(f"{message}. {detail}".strip())
+        self.events.append({"kind": "flag", "message": message, "detail": detail,
+                            "tone": kwargs.get("tone", "info"), "key": kwargs.get("key", ""),
+                            "origin": kwargs.get("origin", "system"), "after_key": kwargs.get("after_key", "")})
 
 
 def processing_app(mode: str = "dictation"):

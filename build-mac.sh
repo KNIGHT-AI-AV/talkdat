@@ -211,6 +211,12 @@ echo "==> Python: $("$PYTHON" --version)"
     exit 1
 }
 
+# The key listener reads the keyboard layout on the main thread only while
+# pynput looks it up the way the pinned version does (knight_flow/mac_support.py).
+# A venv that drifted to another pynput builds cleanly and brings back the
+# macOS 27 launch trap, so the build stops here instead.
+"$PYTHON" scripts/check_pinned_version.py pynput || exit 1
+
 echo "==> Generating the icon from knight_flow/assets/app_icon.png"
 ICONSET="build-mac/TalkDat.iconset"
 rm -rf "$ICONSET" build-mac/TalkDat.icns

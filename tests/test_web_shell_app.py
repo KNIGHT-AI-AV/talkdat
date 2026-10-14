@@ -28,8 +28,13 @@ class AppShellTests(unittest.TestCase):
         return app, shell
 
     @patch('knight_flow.web_shell.shell_app.sys.platform', 'win32')
+    @patch('knight_flow.menu_anchor.read_pill_window', side_effect=OSError('no window'))
+    @patch('knight_flow.menu_anchor.cursor_position', return_value=(890, 690))
+    @patch('knight_flow.menu_anchor.work_area_at_point', return_value=((0, 0, 900, 700), 1.0))
     @patch.object(AppShell, '_target_is_shell', return_value=False)
-    def test_menu_preserves_original_paste_target_and_clamps_to_monitor(self, _target_check):
+    def test_menu_preserves_original_paste_target_and_clamps_to_monitor(self, _target_check, _at_point, _cursor, _read):
+        # 2026-10-09: when the Pill's window cannot be read, the menu belongs to
+        # the monitor under the pointer (tests/test_the_menu_opens_on_the_pills_monitor.py).
         app, shell = self.make_shell()
         shell.open_menu(890,690)
         self.assertEqual(app.overlay.context_menu_target_hwnd,123)

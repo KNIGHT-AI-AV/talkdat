@@ -22,6 +22,18 @@ class HistoryWorkspaceTests(unittest.TestCase):
         self.assertEqual(rows[0]['preview'],'new note')
         self.assertEqual(len(rows[1]['preview']),240)
         self.assertNotIn('text',rows[1])
+    def test_a_takes_formatting_note_is_listed_with_it(self):
+        # 2026-10-09: a take whose words came through the built-in rules no longer says
+        # so on the Pill; History says it on the take's own row, bounded like a preview.
+        note='Your text was formatted by the built-in rules, not the model.'
+        self.store.rows.append({'text':'third take','created_at':4,'type':'dictation','format_note':note+' '*300})
+        rows={row['preview']:row for row in self.listing()['entries']}
+        self.assertEqual(rows['third take']['note'],note)
+        self.assertEqual(rows['new note']['note'],'')
+    def test_the_history_page_shows_the_note_on_the_row(self):
+        from pathlib import Path
+        script=(Path(__file__).resolve().parents[1]/'knight_flow'/'web_shell'/'shell_assets'/'workspaces.js').read_text(encoding='utf-8')
+        self.assertRegex(script, r'row\.note\s*\?\s*el\("small",\{class:"entry-note",text:row\.note\}\)')
     def test_chunks_reconstruct_the_entire_unicode_transcript(self):
         identifier=self.listing()['entries'][1]['id']
         parts=[]; offset=0

@@ -207,8 +207,10 @@ def normalize_settings(candidate, changed, previous=None):
 
 
 class ShellBackend:
-    def __init__(self, config, assets, persist, applied, palette, *, actions=None, menu=None, system_preferences=None, models=None, menu_layout=None, microphones=None, workspaces=None, formatting=None, finish_choice=None):
+    def __init__(self, config, assets, persist, applied, palette, *, actions=None, menu=None, system_preferences=None, models=None, menu_layout=None, microphones=None, workspaces=None, formatting=None, finish_choice=None, update=None, menu_fit=None):
         self.config, self.assets = config, Path(assets)
+        self.update = update
+        self.menu_fit = menu_fit
         self.formatting = formatting
         self.finish_choice = finish_choice
         self.applied, self.palette = applied, palette
@@ -270,6 +272,7 @@ class ShellBackend:
                 'high_contrast': bool(preferences.get('high_contrast')),
                 'tools': [{'action': action, 'label': label, 'description': description} for action,label,description in TOOLS if action in self.actions],
                 'menu': self.menu(), 'actions': sorted(self.actions),
+                'update': self.update() if self.update is not None else None,
                 'microphones': self.microphones(),
                 'route': read_path(self.config, 'stt.route_mode', 'local'),
                 'intensity': read_path(self.config, 'cleanup.format_intensity', DEFAULT_CONFIG['cleanup']['format_intensity']),
@@ -301,6 +304,13 @@ class ShellBackend:
             if set(payload) != {'expanded'} or type(payload['expanded']) is not bool or self.menu_layout is None:
                 raise ValueError('This menu layout is unavailable.')
             return self.menu_layout(payload['expanded'])
+        if method == 'menu_fit':
+            # 2026-10-09: the Pill menu's window takes the height of the view it shows,
+            # in CSS px at 100%. Anything but one sane number is refused.
+            height = payload.get('height') if isinstance(payload, dict) and set(payload) == {'height'} else None
+            if type(height) not in (int, float) or not 100 <= height <= 2000 or self.menu_fit is None:
+                raise ValueError('This menu size is unavailable.')
+            return self.menu_fit(height)
         if method == 'state':
             return self.snapshot()
         if method == 'save':

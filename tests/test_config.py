@@ -311,6 +311,42 @@ class ConfigDefaultsTests(unittest.TestCase):
         self.assertEqual(config["overlay"]["resize_frame_ms"], 9)
         self.assertEqual(config["overlay"]["resize_steps"], 25)
 
+    def test_old_pill_loop_defaults_move_to_the_seamless_loops_once(self) -> None:
+        """Every launch saved the whole config, so 8 s / 2.6 s (and the June 3.84 s)
+        sit in every existing install; without this the slower loop reaches nobody."""
+        for active in (2.6, 3.84):
+            with self.subTest(active=active), tempfile.TemporaryDirectory() as tmp:
+                os.environ["TALK_DAT_HOME"] = tmp
+                Path(tmp, "config.json").write_text(
+                    json.dumps({"overlay": {"idle_loop_seconds": 8.0, "active_loop_seconds": active}}),
+                    encoding="utf-8",
+                )
+                config = load_config(Path(tmp))
+                self.assertEqual(config["overlay"]["idle_loop_seconds"], 24.0)
+                self.assertEqual(config["overlay"]["active_loop_seconds"], 7.8)
+                self.assertTrue(config["overlay"]["pill_loop_timing_migrated"])
+
+    def test_a_chosen_pill_loop_time_is_kept(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["TALK_DAT_HOME"] = tmp
+            Path(tmp, "config.json").write_text(
+                json.dumps({"overlay": {"idle_loop_seconds": 12.5, "active_loop_seconds": 2.6}}),
+                encoding="utf-8",
+            )
+            config = load_config(Path(tmp))
+        self.assertEqual(config["overlay"]["idle_loop_seconds"], 12.5)
+        self.assertEqual(config["overlay"]["active_loop_seconds"], 7.8)
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["TALK_DAT_HOME"] = tmp
+            Path(tmp, "config.json").write_text(
+                json.dumps({"overlay": {"idle_loop_seconds": 8.0, "active_loop_seconds": 2.6,
+                                        "pill_loop_timing_migrated": True}}),
+                encoding="utf-8",
+            )
+            config = load_config(Path(tmp))
+        self.assertEqual((config["overlay"]["idle_loop_seconds"], config["overlay"]["active_loop_seconds"]),
+                         (8.0, 2.6), "an 8 s chosen after the migration is a choice")
+
     def test_previous_local_formatter_default_migrates_once(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             os.environ["TALK_DAT_HOME"] = tmp

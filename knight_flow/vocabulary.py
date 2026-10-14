@@ -64,6 +64,16 @@ MIN_KEY_LENGTH = 3
 # the windows that have to be compared on a path with a 35ms budget.
 MAX_TERM_WORDS = 5
 
+# A saved word the recognizer SPLIT is matched on its exact letters (see
+# _split_spelling), but never after a word that makes the first piece a verb or
+# an adjective: "please open AI settings", "an open AI model" and "to open AI
+# tools" are ordinary speech, and a missed correction costs less than a
+# rewritten sentence.
+SPLIT_NOT_AFTER = frozenset({
+    "please", "to", "can", "could", "will", "would", "should", "must", "may", "might", "shall",
+    "lets", "let's", "an", "more", "most", "less", "least", "fully", "truly", "very", "really",
+})
+
 # Digraphs folded to the sound they make, longest first so "tch" wins over "ch".
 _DIGRAPHS = (
     ("tch", "t"), ("dge", "j"), ("ough", "f"), ("augh", "f"),
@@ -574,6 +584,16 @@ def _apply_vocabulary_prose(text: str, terms: list[Term]) -> str:
                     if abs(window_letters - source_letters) / longest > 0.20:
                         continue
                     best = max(best, similarity(window_key, key))
+                # 2026-10-12, owner report: "OpenAI" in his dictionary still
+                # came out "open AI". A word split before a vowel turns that
+                # vowel into a head letter the key keeps, so "open AI" keys
+                # "opna" against "OpenAI"'s "opn" and never reaches the bar.
+                # Matched on spelling instead, guarded by the word before it.
+                if best < MIN_SIMILARITY and _split_spelling(stripped, term, width):
+                    previous = (words[position - 1][1].strip(".,;:!?\"'()[]").casefold().replace("’", "'")
+                                if position > 0 else "")
+                    if previous not in SPLIT_NOT_AFTER:
+                        best = 1.0
                 if best >= MIN_SIMILARITY and term.only_after:
                     # The mirror guard: this term fires ONLY after one of its
                     # named openers. Built for cloud/Claude vs "called" --
@@ -616,6 +636,20 @@ def _apply_vocabulary_prose(text: str, terms: list[Term]) -> str:
     # sentence end next to the formatter's period -- collapse the
     # stray dot so the bang IS the terminal.
     return re.sub(r"([!?])\.(\s|$)", r"\1\2", result)
+
+def _split_spelling(window: str, term: Term, width: int) -> bool:
+    """True when `width` spoken words spell one of the term's spellings letter for letter.
+
+    Only a SPLIT counts: the window has more words than that spelling. Matched on
+    spelling, never on sound, so "open AI" is "OpenAI" split, while X-14's "open a"
+    (letters "opena") is not.
+    """
+    letters = re.sub(r"[^0-9a-z]", "", window.casefold())
+    return bool(letters) and any(
+        width > len(spelling.split()) and letters == re.sub(r"[^0-9a-z]", "", spelling.casefold())
+        for spelling in (term.text, *term.sounds_like)
+    )
+
 
 def _claimed_by_another(window_key: str, term: Term, ordered: list[Term]) -> bool:
     """True when some other term is an exact phonetic match for this window.

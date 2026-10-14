@@ -2831,6 +2831,52 @@ _FOLD_CONTRACTIONS = (
 )
 _FOLD_TOKEN_RE = re.compile(r"[^\W\d_]+(?:'[^\W\d_]+)?|\d+(?:st|nd|rd|th)?", re.UNICODE)
 
+# Owner bug 2026-10-11 (Trello 0t0Z0X1D): the same word, spelled the way an
+# editor writes it, is the same word. formatter_rejection_reason reads the
+# speech AND the answer through these folds before it compares a single word,
+# so a fold can never hide a change: both sides are read the same way. Kept
+# small on purpose; synonyms ("sec" -> "moment") stay the speaker's words.
+_SURFACE_FOLDS = tuple((re.compile(pattern, re.IGNORECASE), replacement) for pattern, replacement in (
+    (r"\be[-\s]mail(s?)\b", r"email\1"),
+    (r"\b(?:cause|cuz)\b", "because"),
+    (r"\btill\b", "until"),
+    (r"\blemme\b", "let me"),
+    (r"\bgimme\b", "give me"),
+    (r"\bkinda\b", "kind of"),
+    (r"\bsorta\b", "sort of"),
+    (r"\b(?:yeah|yep|yup)\b", "yes"),
+    (r"\balright\b", "all right"),
+    (r"\bvs\b\.?", "versus"),
+    (r"\betc\b\.?", "et cetera"),
+    (r"(\d)\s*%", r"\1 percent"),
+    # Not "$": a currency the speech never named is its own refusal
+    # (currency_added); "dollars" written as "$" is forgiven in _words_dropped.
+))
+
+
+def _fold_surface(text: str) -> str:
+    for pattern, replacement in _SURFACE_FOLDS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+# Informal forms whose standard spelling is a different word ("gonna" is
+# "going to"): said one way, written the other, it is still what was said.
+_SAID_EQUIVALENTS: dict[str, tuple[str, ...]] = {"gonna": ("going",), "wanna": ("want",)}
+# An ordinal said as a word and written as digits ("the first" -> "the 1st").
+_ORDINAL_VALUES: dict[str, int] = {
+    word: value for value, word in enumerate((
+        "first second third fourth fifth sixth seventh eighth ninth tenth eleventh twelfth thirteenth "
+        "fourteenth fifteenth sixteenth seventeenth eighteenth nineteenth twentieth").split(), start=1)
+}
+_ORDINAL_VALUES.update({"thirtieth": 30})
+_DIGIT_ORDINAL_RE = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)\b", re.IGNORECASE)
+# A discourse "so" that opens a sentence ("So we need to ship it"), with any
+# filler before it; never "so that", which states a purpose.
+_LEADING_SO_RE = re.compile(
+    r"(^|[.!?]\s+)(?:(?:um|uh|er|ah|oh|well|okay|ok|like)[\s,]+)*so\b(?!\s+that\b),?\s*", re.IGNORECASE
+)
+
 
 def _faithful_tokens(text: str) -> list[str]:
     """Content words, case-folded, contractions expanded, numbers dropped."""
@@ -2862,10 +2908,14 @@ def _said_forms(*texts: str) -> set[str]:
         text = text.lower().replace("’", "'")
         for pattern, replacement in _FOLD_CONTRACTIONS:
             text = pattern.sub(replacement, text)
-        words = [w for w in re.findall(r"[^\W\d_]+", text) if w]
+        # Owner bug 2026-10-11: _faithful_tokens reads "ok" as "okay", so the
+        # speech must too, or an answer IDENTICAL to it was refused for an
+        # "added" okay.
+        words = ["okay" if w == "ok" else w for w in re.findall(r"[^\W\d_]+", text) if w]
         said.update(words)
         said.update(_stem(word) for word in words)
         said.update(a + b for a, b in zip(words, words[1:]))
+        said.update(equal for word in words for equal in _SAID_EQUIVALENTS.get(word, ()))
         # A spelled name ("k a e l y n") is the word its letters make.
         run: list[str] = []
         for word in [*words, ""]:
@@ -2983,17 +3033,34 @@ def _words_dropped(source: str, candidate: str, *, polish: bool = False) -> list
     # "and" before its last item. X-603: counted per word, so a swap is a
     # drop too ("5 miles, so roughly 8" became "five miles, or roughly
     # eight"; "two or three days" became "two to three days").
-    said_joins = _conjunctions(source)
+    # Owner bug 2026-10-11: a "So" that opens a sentence is a discourse marker,
+    # not a join; "It rained so we stayed in" still keeps its "so".
+    said_joins = _conjunctions(_LEADING_SO_RE.sub(r"\1", source))
     if polish:
         said_joins["so"] -= len(_SO_BASICALLY_RE.findall(source))
     if not listed and +(said_joins - _conjunctions(candidate)):
         dropped.append("and")
     if len(_PREPOSITION_RE.findall(candidate)) < len(_PREPOSITION_RE.findall(source)):
         dropped.append("at")
+    ordinals_written = {int(value) for value in _DIGIT_ORDINAL_RE.findall(candidate)}
     for word, count in Counter(_faithful_tokens(source)).items():
         if word in allowed:
             continue
+        # Numbers have their own guards (number_added, number_dropped,
+        # number_changed through _meaning_anchors), so a number word written
+        # as digits ("five" -> "5") is not a dropped word; the added-word
+        # check already forgave the same thing the other way round.
+        if word in _NUMBER_WORD_CANON or word in ("hundred", "thousand"):
+            continue
+        if word in ("dollar", "dollars") and re.search(r"\$\s*\d", candidate):
+            continue
+        ordinal = _ORDINAL_VALUES.get(word)
+        if ordinal is not None and (ordinal in ordinals_written
+                                    or any(value % 10 == ordinal and value > 20 for value in ordinals_written)):
+            continue
         have = max(kept.get(word, 0), kept_stems.get(_stem(word), 0))
+        for equal in _SAID_EQUIVALENTS.get(word, ()):
+            have = max(have, kept.get(equal, 0))
         if have < count:
             dropped.append(word)
     return dropped
@@ -3389,6 +3456,13 @@ def formatter_rejection_reason(
     invented_layout = _broken_layout(source, candidate)
     if invented_layout:
         return invented_layout
+
+    # Owner bug 2026-10-11 (Trello 0t0Z0X1D): from here on WORDS are compared,
+    # so the speech, the answer and the transcript are all read through the
+    # same spellings (_SURFACE_FOLDS). Layout was judged above on the raw text.
+    source, candidate = _fold_surface(source), _fold_surface(candidate)
+    if transcript is not None:
+        transcript = _fold_surface(transcript)
 
     source_words = _word_tokens(source)
     output_words = _word_tokens(candidate)

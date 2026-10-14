@@ -436,6 +436,8 @@ class HotkeyController:
                 self._spoiled_holds.clear()
 
     def start(self) -> None:
+        # Before either listener exists: a listener thread can run the moment it
+        # starts, and on a Mac it then reads the keyboard layout handed over here.
         mac_support.prepare_input_bridge()
         self.keyboard_listener = keyboard.Listener(on_press=self._on_key_press, on_release=self._on_key_release)
         self.mouse_listener = mouse.Listener(on_click=self._on_mouse_click)

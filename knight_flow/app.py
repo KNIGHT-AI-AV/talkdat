@@ -77,7 +77,10 @@ from .paste import (
     foreground_focus_window_id,
     foreground_input_generation,
     foreground_window_id,
+    keys_or_buttons_down,
     paste_text_with_receipt,
+    pointer_position,
+    pointer_travel_moves_input_tick,
     restore_clipboard_if_unchanged,
 )
 from .single_instance import already_running, show_already_running_message
@@ -957,9 +960,26 @@ class TalkDatApp:
 
     def install_or_check_update(self) -> None:
         if self.pending_update is not None:
-            self.show_update_window(self.pending_update)
+            self.show_update_window(self.pending_update, self._predownloaded_for(self.pending_update))
         else:
             self.check_updates(silent=False)
+
+    def _predownloaded_for(self, info: Any) -> Path | None:
+        """The installer the check already downloaded for this release, if it is still there.
+
+        Review B14 (2026-10-10): the check downloads a required release itself, and
+        Install (the menu's, Home's or the tray's) downloaded it a second time.
+        launch_installer still checks its size, SHA-256 and signature before it runs.
+        Review N3: the same build only, matched on the version, the SHA-256 and the
+        size, so a release published again under the same version downloads afresh.
+        """
+        found = getattr(self, "_predownloaded_update", None)
+        build = (getattr(info, "latest_version", None), getattr(info, "installer_sha256", None),
+                 getattr(info, "installer_size", None))
+        if not found or tuple(found[:3]) != build:
+            return None
+        path = found[3]
+        return path if path is not None and Path(path).exists() else None
 
     @staticmethod
     def _announce_interrupted_takes(since: float) -> None:
@@ -4249,19 +4269,26 @@ class TalkDatApp:
             except Exception:
                 log.debug("finish re-prompt skipped", exc_info=True)
 
+        # X-465: why this take's words came through the built-in rules, if they did.
+        # Read once, here, so the take's own History entry keeps it (2026-10-09: the
+        # Pill no longer says a per-take fallback, and the log must not be its only trace).
+        local_notice = take_local_finish_notice()
+        self._quiet_fallback_streak = quiet_fallback_streak(getattr(self, "_quiet_fallback_streak", ("", 0, False)),
+                                                            local_notice)
         if not secure_take and self.config.get("privacy", {}).get("save_history", True):
-            self.add_history(
-                {
-                    "type": "dictation",
-                    "original": processed.original,
-                    "text": processed.text,
-                    "send_enter": processed.send_enter,
-                    "delivery": delivery,
-                    "translation": translation_receipt,
-                    "translation_error": translation_error,
-                    "created_at": time.time(),
-                }
-            )
+            entry = {
+                "type": "dictation",
+                "original": processed.original,
+                "text": processed.text,
+                "send_enter": processed.send_enter,
+                "delivery": delivery,
+                "translation": translation_receipt,
+                "translation_error": translation_error,
+                "created_at": time.time(),
+            }
+            if local_notice:
+                entry["format_note"] = local_finish_feedback(local_notice)[1]
+            self.add_history(entry)
 
         if not flight_is_current():
             return result
@@ -4274,19 +4301,47 @@ class TalkDatApp:
                 "",
             )
             return result
-        if getattr(processed, "held_enter", False) and delivery.get("success"):
+        # Review CL4-3 (2026-10-10): only when the words really went into the terminal.
+        # A take captured with Auto paste off, kept by Esc (copied) or only copied after
+        # typing failed was "delivered" too, and said it was typed there.
+        typed_in = receipt is not None and receipt.success and receipt.method != "copy_only"
+        if getattr(processed, "held_enter", False) and typed_in:
             from .platform_copy import ENTER_KEY
 
             self.overlay.set_state("captured", f"Typed into the terminal. Press {ENTER_KEY} to run it.", "", say=True)
             return result
         # X-465: a local-only install has no cloud to quietly rescue a
-        # formatter that could not run, so the reason is said out loud once.
-        # The words still arrived; what is being reported is WHICH formatter
-        # wrote them, which is the difference between Executive and rules.
-        local_notice = take_local_finish_notice()
+        # formatter that could not run, so a reason the person can act on is
+        # said out loud once. A per-take fallback (the meaning check refused
+        # the model's edit, a timeout) is a normal take: logged, and kept on
+        # the take's History entry (local_notice was read above).
         partial_delivery = receipt is not None and receipt.method == "direct_type_partial"
-        if local_notice and not withheld and not partial_delivery:
-            self.overlay.set_state(*local_finish_feedback(local_notice))
+        if local_notice and not local_finish_is_worth_saying(local_notice):
+            log.info("formatting kept rules formatting, not shown: %s", local_notice)
+        stalled_code, stalled_takes, stalled_said = self._quiet_fallback_streak
+        # Review J-B1 (2026-10-10): a formatting line may only take the place of the
+        # routine "Inserted ... Mic off." line. Any other outcome (the words did not go
+        # in, went to the clipboard only, auto paste is off, Setup took them, they were
+        # kept, a translation failed) is this take's own news and is said instead. The
+        # reason (X-465) comes back on the next take that lands, and an unsaid
+        # escalation stays due.
+        routine_success = (receipt is not None and receipt.success and not withheld and not partial_delivery
+                           and not translation_error and not guided_sink_still_owned)
+        # Review F1 (2026-10-10): with Auto paste off every take is captured and none is
+        # pasted, so a line that waited for a routine take was never said. There the take
+        # keeps "Captured locally" and the line follows it (below).
+        captured_locally = (receipt is None and delivery.get("method") == "local_capture" and not withheld
+                            and not partial_delivery and not translation_error and not guided_sink_still_owned)
+        formatting_line = None
+        if routine_success or captured_locally:
+            if local_notice and local_finish_is_worth_saying(local_notice):
+                formatting_line = local_finish_feedback(local_notice)
+            elif stalled_takes >= QUIET_FALLBACK_ESCALATES_AFTER and not stalled_said:
+                # Review B4: quiet per take, but said once when it keeps happening.
+                formatting_line = quiet_fallback_escalation(stalled_code)
+                self._quiet_fallback_streak = (stalled_code, stalled_takes, True)
+        if routine_success and formatting_line:
+            self.overlay.set_state(*formatting_line)
         elif translation_error and not withheld and not partial_delivery:
             self.overlay.set_state(
                 "error",
@@ -4351,6 +4406,13 @@ class TalkDatApp:
                 if recovery_copy
                 else "Click where the text should go, then use Paste last transcript in the Pill menu.",
             )
+        if captured_locally and formatting_line:
+            # Review F1 and CL4-1 (2026-10-10): after "Captured locally", with the routine
+            # line's guarantees: an error the person caused, so a meeting app, a withdrawn
+            # Pill or the next press cannot lose it (an info could), and it waits behind
+            # the take's own line (after_key "state") instead of replacing it.
+            _state, title, detail = formatting_line
+            self.overlay.flag(title, detail=detail, tone="error", key="formatting", origin="person", after_key="state")
         return result
 
     def _auto_stopped_elsewhere(self, token: object) -> bool:
@@ -5033,6 +5095,31 @@ class TalkDatApp:
         if not wait_for_keys_released():
             log.info("paste_last: keys still held; reading the target anyway")
         input_generation = foreground_input_generation()
+        # 2026-10-12, his report: Paste Last "just goes to my clipboard"; 7 of 7
+        # outcomes since 09-27 were "cancelled". The Windows tick also moves
+        # for pointer travel, and the hand that clicked the menu item moves the
+        # mouse inside the tenth of a second the paste takes. Only a key or a
+        # click is "moving on" (the Mac's tick counts nothing else): a moved
+        # tick with the pointer somewhere new is travel and the new baseline;
+        # a key or button newly held, or focus in another control, still stops.
+        baseline = {"tick": input_generation, "pointer": pointer_position()}
+        held_at_start = keys_or_buttons_down()
+        focus = foreground_focus_window_id()
+
+        def moved_on() -> bool:
+            if keys_or_buttons_down() - held_at_start:
+                return True
+            if focus and foreground_focus_window_id() != focus:
+                return True
+            tick = foreground_input_generation()
+            if tick == baseline["tick"]:
+                return False
+            pointer = pointer_position()
+            if (pointer_travel_moves_input_tick() and pointer is not None
+                    and baseline["pointer"] is not None and pointer != baseline["pointer"]):
+                baseline.update(tick=tick, pointer=pointer)
+                return False
+            return True
 
         def target_is_current() -> bool:
             return (
@@ -5040,7 +5127,7 @@ class TalkDatApp:
                 and bool(target_window)
                 and foreground_window_id() == target_window
                 and bool(input_generation)
-                and foreground_input_generation() == input_generation
+                and not moved_on()
             )
 
         try:
@@ -5632,6 +5719,10 @@ class TalkDatApp:
                     self.pending_update = None
                     with contextlib.suppress(Exception):
                         self.tray.set_update_available("")
+                    # 2026-10-09: nothing is waiting, so the Pill's dot goes too.
+                    # Before this nothing cleared it during a session.
+                    with contextlib.suppress(Exception):
+                        self.overlay.root.after(0, lambda: self.overlay.set_update_flag(""))
                     if report is not None:
                         answer({"phase": "current", "version": APP_VERSION})
                         return
@@ -5668,10 +5759,13 @@ class TalkDatApp:
                     updates["dialog_dismissals"] = 0
                     save_config(self.config)
 
-                # X-84: the Pill carries the flag the moment we know.
+                # X-84: the Pill carries the flag the moment we know. Not for a version
+                # the person skipped (review B8, 2026-10-10): the menu has no row for it,
+                # so the dot stays off with it, even when the check was asked for by hand.
                 severity = "red" if getattr(info, "forced", False) else "green"
-                with contextlib.suppress(Exception):
-                    self.overlay.root.after(0, lambda: self.overlay.set_update_flag(severity))
+                if info.latest_version != str(updates.get("skip_version", "")):
+                    with contextlib.suppress(Exception):
+                        self.overlay.root.after(0, lambda: self.overlay.set_update_flag(severity))
 
                 if report is not None:
                     # The page that asked shows the answer and its Install
@@ -5694,6 +5788,8 @@ class TalkDatApp:
                         predownloaded = download_installer(info)
                         updates["last_installer_path"] = str(predownloaded)
                         save_config(self.config)
+                        self._predownloaded_update = (info.latest_version, info.installer_sha256,
+                                                      info.installer_size, predownloaded)
                     except UpdateError:
                         predownloaded = None
                 if getattr(info, "forced", False):
@@ -5823,23 +5919,39 @@ class TalkDatApp:
             # actually working all the way" arrived as a report with no trail:
             # the download pile proved downloads happened, and nothing recorded
             # whether the handoff ever did.
-            try:
-                installer = predownloaded
-                if installer is None or not installer.exists():
-                    set_status("Downloading update...")
-                    log.info("update install: downloading %s", info.latest_version)
-                    installer = download_installer(info, progress=set_progress)
-                log.info("update install: installer ready at %s", installer)
+            def download() -> Path:
+                set_status("Downloading update...")
+                log.info("update install: downloading %s", info.latest_version)
+                return download_installer(info, progress=set_progress)
+
+            def launch(path: Path) -> None:
+                log.info("update install: installer ready at %s", path)
                 updates = self.config.setdefault("updates", {})
-                updates["last_installer_path"] = str(installer)
+                updates["last_installer_path"] = str(path)
                 save_config(self.config)
                 set_status("Rechecking installer integrity before launch...")
                 launch_installer(
-                    installer,
+                    path,
                     expected_sha256=info.installer_sha256,
                     expected_size=info.installer_size,
                     require_authenticode=bool(info.artifact_signing_enabled),
                 )
+
+            try:
+                reused = predownloaded is not None and predownloaded.exists()
+                installer = predownloaded if reused else download()
+                try:
+                    launch(installer)
+                except UpdateError as error:
+                    if not reused:
+                        raise
+                    # Review N3 (2026-10-10): an installer kept from the check that fails
+                    # its check now is dropped and downloaded once more, instead of
+                    # failing every Install until a restart. A fresh one that fails is said.
+                    log.warning("update install: the kept installer failed its check (%s); downloading again", error)
+                    self._predownloaded_update = None
+                    installer = download()
+                    launch(installer)
                 set_status("Installer verified. Starting silent update...")
                 log.info("update install: installer launched for %s; quitting in 2.2s", info.latest_version)
                 on_done(True, "Update installer started. Talk DAT! will close and relaunch when install finishes.")
@@ -5867,6 +5979,9 @@ class TalkDatApp:
         updates = self.config.setdefault("updates", {})
         updates["skip_version"] = str(version)
         save_config(self.config)
+        # A skipped version stops asking: the Pill's dot goes with it (2026-10-09).
+        with contextlib.suppress(Exception):
+            self.overlay.root.after(0, lambda: self.overlay.set_update_flag(""))
 
     def show_overlay(self) -> None:
         self.overlay.show()
@@ -7095,6 +7210,65 @@ def local_finish_advice(notice: str) -> str:
     if advice:
         return advice
     return preview(code, 112) if code else "Your words still arrived. Check the writing model in Settings > Writing > Formatting."
+
+
+#: 2026-10-09, the owner, shown "Your text was formatted by the built-in rules,
+#: not the model": "This should just happen." A take whose words arrived
+#: through the rules formatter because the model's edit was refused, ran out of
+#: time or came back empty is a normal take, so these go to the log only. A
+#: reason the person can act on is still said once (X-465).
+QUIET_LOCAL_FINISH = frozenset({
+    "model_safety_fallback", "polish_safety_fallback", "timeout",
+    "budget_exceeded", "invalid_response", "preparing",
+})
+
+
+#: Quiet per take, but never quiet for ever (Overwatch's review B4, 2026-10-10). A
+#: model that stalls on every take never becomes "too slow" (it records its speed
+#: only when a reply arrives), so Chill or Executive could silently never apply.
+#: After this many fallbacks of the same stalling kind in a row the Pill says once
+#: what is happening and what to do; a take formatted as asked starts the count
+#: again. The meaning-check fallbacks stay quiet: they are the owner's own case.
+QUIET_FALLBACK_ESCALATES_AFTER = 3
+STALLING_LOCAL_FINISH = {
+    "timeout": ("The writing model has not answered in time for 3 dictations in a row. "
+                "To use it, raise the time budget in Settings > Writing > Formatting."),
+    "budget_exceeded": ("The writing model has not answered in time for 3 dictations in a row. "
+                        "To use it, raise the time budget in Settings > Writing > Formatting."),
+    "invalid_response": ("The writing model returned no usable text for 3 dictations in a row. "
+                         "Check it in Settings > Writing > Formatting."),
+    "preparing": "The writing model is still preparing after 3 dictations. Check it in Settings > Writing > Formatting.",
+}
+
+
+#: Stalls that share a cause and a remedy count as one kind (review R-B4b, 2026-10-10).
+#: A model too slow for the time budget times out on a short take and overruns the
+#: budget on a long one, and both carry the same line and the same fix; counted apart,
+#: alternating them never reached three. An empty reply and a model still preparing are
+#: other faults with other fixes, so each keeps its own count.
+STALL_KIND = {"timeout": "slow", "budget_exceeded": "slow", "invalid_response": "empty", "preparing": "preparing"}
+
+
+def quiet_fallback_streak(streak: tuple[str, int, bool], notice: str) -> tuple[str, int, bool]:
+    """(code, takes in a row of its kind, said) after this take's formatter notice."""
+    code = " ".join(str(notice or "").split()).lower()
+    if code not in STALLING_LOCAL_FINISH:
+        return ("", 0, False)
+    # A stalling code without a kind (review T3-5) is a kind of its own, never a crash.
+    if streak and STALL_KIND.get(streak[0], streak[0]) == STALL_KIND.get(code, code):
+        return (code, streak[1] + 1, streak[2])
+    return (code, 1, False)
+
+
+def quiet_fallback_escalation(code: str) -> tuple[str, str, str]:
+    """The one line said when a stalling fallback keeps happening."""
+    return "error", "Formatting isn't being applied.", STALLING_LOCAL_FINISH.get(code, local_finish_advice(code))
+
+
+def local_finish_is_worth_saying(notice: str) -> bool:
+    """Whether a formatter notice goes on the Pill, or only to the log."""
+    code = " ".join(str(notice or "").split()).lower()
+    return bool(code) and code not in QUIET_LOCAL_FINISH
 
 
 def local_finish_feedback(notice: str) -> tuple[str, str, str]:

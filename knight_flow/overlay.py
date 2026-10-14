@@ -78,6 +78,7 @@ from .release_notes import readable_release_notes
 from . import mac_support
 from .flat_button import FlatButton
 from . import main_thread
+from . import menu_anchor
 from .native_pill import NativePill
 from .onboarding import (
     chord_label,
@@ -271,6 +272,12 @@ PASTE_MODE_CHOICES = (
 _WINEVENT_PROC_KEEPALIVE: list = []
 
 log = logging.getLogger(__name__)
+
+# The Pill's loop times when a config does not name them are config.py's own
+# defaults, so these fallbacks cannot drift from them again (this one said 3.84 s
+# while config.py said 2.6 s). See DEFAULT_CONFIG["overlay"] for why 24 s / 7.8 s.
+_PILL_ACTIVE_LOOP_SECONDS = float(DEFAULT_CONFIG["overlay"]["active_loop_seconds"])
+_PILL_IDLE_LOOP_SECONDS = float(DEFAULT_CONFIG["overlay"]["idle_loop_seconds"])
 
 Callback = Callable[[], None]
 
@@ -962,8 +969,8 @@ class Overlay:
         self.idle_frame_ms = int(overlay_config.get("idle_frame_ms", 33))
         self.resize_frame_ms = int(overlay_config.get("resize_frame_ms", 8))
         self.resize_steps = int(overlay_config.get("resize_steps", 22))
-        self.active_loop_seconds = float(overlay_config.get("active_loop_seconds", 3.84))
-        self.idle_loop_seconds = float(overlay_config.get("idle_loop_seconds", 8.0))
+        self.active_loop_seconds = float(overlay_config.get("active_loop_seconds", _PILL_ACTIVE_LOOP_SECONDS))
+        self.idle_loop_seconds = float(overlay_config.get("idle_loop_seconds", _PILL_IDLE_LOOP_SECONDS))
         self.fixed_position = bool(overlay_config.get("fixed_position", True))
         self.no_activate = bool(overlay_config.get("no_activate", True))
         self.opacity = float(overlay_config.get("opacity", 0.94))
@@ -1322,7 +1329,6 @@ class Overlay:
             "frame_width": frame_width,
             "frame_height": frame_height,
             "fps": float(loaded_meta.get("fps", 60.0)),
-            "bridge_start_frame": int(loaded_meta.get("bridge_start_frame", frame_count)),
             "source": str(loaded_meta.get("source", "")),
             "direction": str(loaded_meta.get("direction", "")),
             "no_pingpong": bool(loaded_meta.get("no_pingpong", False)),
@@ -1370,8 +1376,10 @@ class Overlay:
             frame_height = int(self.flow_loop_meta.get("frame_height", self.active_pill_height))
             columns = int(self.flow_loop_meta.get("columns", 1))
             frame_count = int(self.flow_loop_meta.get("frame_count", 1))
-            clean_count = self._clean_loop_frame_count(frame_count)
-            end_index = min(clean_count, max(0, int(start_index)) + 24)
+            # The idle loop is seamless end to end (scripts/generate_flow_pill_loop.py):
+            # every frame is played, so every frame is warmed. The old sheet ended in a
+            # cross-fade "bridge" back to frame 0 that this used to stop short of.
+            end_index = min(frame_count, max(0, int(start_index)) + 24)
             for index in range(max(0, int(start_index)), end_index):
                 self._flow_cached_frame_for_size(
                     index,
@@ -1389,7 +1397,7 @@ class Overlay:
                     frame_height,
                     columns,
                 )
-            if end_index < clean_count:
+            if end_index < frame_count:
                 self.root.after(24, lambda next_index=end_index: self._warm_visual_caches(next_index))
         except Exception:
             pass
@@ -2035,7 +2043,7 @@ class Overlay:
     def _blit_pill_image(self, image: Image.Image) -> None:
         pill = getattr(self, "native_pill", None)
         if pill is not None and pill.available:
-            pill.set_image(image)
+            pill.set_image(self._native_frame_with_light(image))
         self.visual_photo = ImageTk.PhotoImage(image)
         if self.visual_canvas_item is None:
             self.visual_canvas_item = int(
@@ -2061,12 +2069,19 @@ class Overlay:
         """
         if getattr(self, "_update_flag", "") == severity:
             return
+        now = time.perf_counter() * 1000.0
+        # 2026-10-09: a cleared light sinks back from wherever it had got to instead
+        # of vanishing; a new one cancels that and rises out of the Pill.
+        light = self._pip_look(now) if getattr(self, "_update_flag", "") and not severity else None
+        self._pip_leaving = (light[0], now, light[1]) if light else None
         self._update_flag = severity
-        self._pip_since = time.perf_counter() * 1000.0 if severity else None
+        self._pip_since = now if severity else None
         self._render_update_flag()
-        # X-641: at rest nothing redraws, so the layered Pill shows the new dot now.
+        # X-641: at rest nothing redraws, so the layered Pill shows the new light now.
         self._represent_layered()
-        # X-742: and the pip's one breath needs the loop awake for 900 ms.
+        # And the Mac Pill (NativePill), which never takes the layered frame.
+        self._represent_native()
+        # And its entrance or exit needs the loop awake while it moves.
         with contextlib.suppress(Exception):
             self._wake_animation()
 
@@ -2445,6 +2460,29 @@ class Overlay:
         self._paint_update_dot(frame)
         return frame
 
+    def _native_frame_with_light(self, image: Image.Image) -> Image.Image:
+        """X-742 on macOS: the NativePill takes its plain-Pill frames here, never
+        through _layered_frame, so the light is painted on a copy before the
+        hand-off (the input may be a cached frame). Message frames carry it from
+        _flag_frame already and do not come here. The last source is kept so a
+        light that changes at rest is shown at once (_represent_native)."""
+        self._native_pill_source = image
+        if self._pip_look() is None:
+            return image
+        frame = image.convert("RGBA") if image.mode != "RGBA" else image.copy()
+        self._paint_update_dot(frame)
+        return frame
+
+    def _represent_native(self) -> None:
+        """The macOS twin of _represent_layered: at rest nothing redraws, so the
+        NativePill gets its last frame again with the light as it is now."""
+        pill = getattr(self, "native_pill", None)
+        source = getattr(self, "_native_pill_source", None)
+        if pill is None or source is None or not getattr(pill, "available", False):
+            return
+        with contextlib.suppress(Exception):
+            pill.set_image(self._native_frame_with_light(source))
+
     def _paint_update_dot(self, frame: Image.Image) -> None:
         """X-742: the pip, a 6 px light set into the Pill's rim (it was a 10 px
         dot in hard-coded red and green laid over the right cap).
@@ -2452,24 +2490,55 @@ class Overlay:
         On the layered path the canvas no longer reaches the screen, but its
         oval item still marks the click (_render_update_flag draws it at the
         same centre), and the pip sits inside the Pill's own opaque pixels, so
-        the press always lands on the Pill. It breathes once when it arrives.
+        the press always lands on the Pill. Since 2026-10-09 it is a designed
+        light that rises out of the Pill when it arrives and sinks back when it
+        leaves (pill_message.paint_pip).
         """
-        severity = getattr(self, "_update_flag", "")
-        if not severity:
+        light = self._pip_look()
+        if light is None:
             return
         scale = self._flag_scale()
-        since = getattr(self, "_pip_since", None)
-        age = None if since is None else time.perf_counter() * 1000.0 - since
-        pill_message.paint_pip(
-            frame, pill_message.pip_centre(frame.width, frame.height, scale), severity=severity, scale=scale,
-            grow=pill_message.pip_scale(age),
-        )
+        pill_message.paint_pip(frame, pill_message.pip_centre(frame.width, frame.height, scale),
+                               severity=light[0], scale=scale, look=light[1])
 
-    def _pip_breathing(self) -> bool:
-        since = getattr(self, "_pip_since", None)
-        if not getattr(self, "_update_flag", "") or since is None:
+    def _pip_look(self, now: float | None = None) -> tuple[str, tuple[float, ...]] | None:
+        """The light this frame, (severity, pill_message.pip_look), or None when none shows."""
+        now = time.perf_counter() * 1000.0 if now is None else float(now)
+        severity = getattr(self, "_update_flag", "")
+        if severity:
+            since = getattr(self, "_pip_since", None)
+            # Settled is settled however it arrived, so the setting is not read (UI-9).
+            if since is None or now - since >= max(pill_message.PIP_ENTRANCE_MS, pill_message.PIP_FADE_IN_MS):
+                return severity, pill_message.PIP_REST
+            return severity, pill_message.pip_look(now - since, reduced=self._motion_is_reduced())
+        leaving = getattr(self, "_pip_leaving", None)
+        if not leaving:
+            return None
+        old, since, start = leaving
+        if now - since >= max(pill_message.PIP_EXIT_MS, pill_message.PIP_FADE_OUT_MS):
+            return None
+        reduced = self._motion_is_reduced()
+        if not pill_message.pip_moving(now - since, leaving=True, reduced=reduced):
+            return None
+        return old, pill_message.pip_look(now - since, leaving=True, reduced=reduced, start=start)
+
+    def _pip_moving(self) -> bool:
+        """Whether the light is still rising or sinking. The loop stays awake 34 ms past
+        the end, so the last frame drawn is the settled one.
+
+        The loop asks this on every tick, so a light that has settled answers from the
+        clock alone, before the motion setting (and Windows behind it) is read (UI-9).
+        """
+        now = time.perf_counter() * 1000.0
+        if getattr(self, "_update_flag", ""):
+            since = getattr(self, "_pip_since", None)
+            if since is None or now - since - 34.0 >= max(pill_message.PIP_ENTRANCE_MS, pill_message.PIP_FADE_IN_MS):
+                return False
+            return pill_message.pip_moving(now - since - 34.0, reduced=self._motion_is_reduced())
+        leaving = getattr(self, "_pip_leaving", None)
+        if not leaving or now - leaving[1] - 34.0 >= max(pill_message.PIP_EXIT_MS, pill_message.PIP_FADE_OUT_MS):
             return False
-        return time.perf_counter() * 1000.0 - since < pill_message.PIP_BREATHE_MS + 34
+        return pill_message.pip_moving(now - leaving[1] - 34.0, leaving=True, reduced=self._motion_is_reduced())
 
     def _represent_layered(self) -> None:
         """Push the last layered frame again (the update dot changed at rest)."""
@@ -4379,6 +4448,7 @@ class Overlay:
         progress: float | None = None,
         hold_ms: int | None = None,
         origin: str = "system",
+        after_key: str = "",
     ) -> None:
         """Say it with the Pill. Safe from any thread, never raises.
 
@@ -4392,11 +4462,13 @@ class Overlay:
         tone: "info" | "done" | "warn" | "error" | "busy"
         key: the same key updates the showing message in place
         origin: "person" (a press or hotkey caused it) | "system" | "pill-menu"
+        after_key: the key of the line this one follows ("state"): while that line
+        shows, this one waits behind it instead of replacing it
         """
         try:
             item = island.message_from(
                 message, detail=detail, tone=tone, actions=actions, key=key, progress=progress,
-                hold=hold_ms, origin=origin,
+                hold=hold_ms, origin=origin, after_key=after_key,
             )
         except Exception:
             log.exception("a message could not be read")
@@ -5046,15 +5118,16 @@ class Overlay:
             divider_x=divider, scale=view.scale,
         )
         view.capsule_now = (int(round(x)), int(round(y)), int(round(w)), int(round(h)))
-        severity = getattr(self, "_update_flag", "")
-        if severity:
+        light = self._pip_look()
+        if light is not None:
             if view.layout.mode == "segment" and view.pin == "left":
                 end = x + view.target.head
             else:
                 end = x + w
             centre = (end - 8.0 * view.scale, y + h / 2.0)
-            pill_message.paint_pip(frame, centre, severity=severity, scale=view.scale)
-            view.pip_screen = (env.x + centre[0], env.y + centre[1])
+            pill_message.paint_pip(frame, centre, severity=light[0], scale=view.scale, look=light[1])
+            # Only a light that is still set takes a press, never one sinking back.
+            view.pip_screen = (env.x + centre[0], env.y + centre[1]) if getattr(self, "_update_flag", "") else None
         else:
             view.pip_screen = None
         if shape.mix < 1.0:
@@ -5526,9 +5599,9 @@ class Overlay:
             # X-620: an ACK moves the picture for 180 ms; the loop wakes for
             # it and, once it ends, draws the still frame once and sleeps.
             and not self._ack_is_live()
-            # X-742: the lengthened Pill moves, and the pip breathes once.
+            # X-742: the lengthened Pill moves; the light rises or sinks once.
             and not self._flag_is_moving()
-            and not self._pip_breathing()
+            and not self._pip_moving()
         )
         rest_signature = (
             self.state,
@@ -5747,7 +5820,7 @@ class Overlay:
                 self.idle_photo_cache[idle_cache_key] = cached_photo
         pill = getattr(self, "native_pill", None)
         if pill is not None and pill.available:
-            pill.set_image(field)
+            pill.set_image(self._native_frame_with_light(field))
         self.visual_photo = cached_photo
         self._ack_drawn_offset = (ack_dx, ack_dy)
         if self.visual_canvas_item is None:
@@ -5877,15 +5950,6 @@ class Overlay:
         if frame.size != (width, height):
             frame = frame.resize((width, height), Image.Resampling.LANCZOS)
         return frame
-
-    def _clean_loop_frame_count(self, frame_count: int) -> int:
-        source = str(self.flow_loop_meta.get("source", "")).lower()
-        if self.flow_loop_meta.get("transparent_background") or "seamless" in source:
-            return frame_count
-        bridge_start = int(self.flow_loop_meta.get("bridge_start_frame", frame_count))
-        if 16 <= bridge_start < frame_count:
-            return bridge_start
-        return frame_count
 
     def _pingpong_frame_position(self, elapsed: float, loop_seconds: float, frame_count: int) -> float:
         if frame_count <= 1:
@@ -7061,7 +7125,9 @@ class Overlay:
         shrinking the panel's typography would technically fit while making
         the controls less usable.
         """
-        _left, top, _right, bottom = work_area or self._logical_work_area()
+        _left, top, _right, bottom = (
+            work_area or getattr(self, "_context_menu_open_work_area", None) or self._logical_work_area()
+        )
         available = max(1, int(bottom) - int(top) - 2 * self._context_menu_work_margin())
         return max(1, min(max(1, int(content_height)), available))
 
@@ -7162,7 +7228,9 @@ class Overlay:
             height = min(height, limit)
         top = bottom - height
         try:
-            _work_left, work_top, _work_right, work_bottom = self._logical_work_area()
+            _work_left, work_top, _work_right, work_bottom = (
+                getattr(self, "_context_menu_open_work_area", None) or self._logical_work_area()
+            )
             margin = self._context_menu_work_margin()
             minimum_top = int(work_top) + margin
             maximum_top = max(minimum_top, int(work_bottom) - margin - height)
@@ -9002,6 +9070,44 @@ class Overlay:
         except tk.TclError:
             pass
 
+    def _context_menu_work_area(self, x_root: int, y_root: int) -> tuple[int, int, int, int]:
+        """The work area of the monitor that was right-clicked (2026-10-09).
+
+        The click point is in Tk's own (system-DPI) pixels, and so is the answer.
+        Before this the menu used _logical_work_area(): the FOREGROUND app's
+        monitor, so a right-click on a Pill parked on a second screen opened the
+        menu on whichever screen the person was typing into.
+        """
+        found = menu_anchor.work_area_at_point(x_root, y_root, physical=False)
+        if found is not None:
+            return found[0]
+        pill_area = getattr(self, "_pill_monitor_work_area", None)
+        area = pill_area() if callable(pill_area) else None
+        return area or self._logical_work_area()
+
+    @staticmethod
+    def _context_menu_origin(
+        x_root: int, y_root: int, width: int, height: int,
+        work_area: tuple[int, int, int, int], margin: int,
+    ) -> tuple[int, int]:
+        """Where the Tk menu's window goes: above the click, else below it.
+
+        Always inside the work area, as the web menu is (review R5, 2026-10-10): a
+        click on a Pill left beyond its screen, when a monitor goes away under it,
+        opened this menu off every screen.
+        """
+        left, top, right, bottom = work_area
+        x = min(max(left + margin, x_root - width // 2), right - width - margin)
+        preferred_y = y_root - height - 12
+        below_y = y_root + 12
+        if preferred_y >= top + margin:
+            y = preferred_y
+        elif below_y + height <= bottom - margin:
+            y = below_y
+        else:
+            y = preferred_y
+        return x, min(max(y, top + margin), bottom - height - margin)
+
     def _open_context_menu(self, x_root: int, y_root: int) -> None:
         self._close_context_menu(animate=False)
         callbacks = getattr(self, "callbacks", {})
@@ -9024,20 +9130,13 @@ class Overlay:
         window.attributes("-alpha", 1.0 if mac_support.IS_MAC else 0.0)
         window.configure(bg=palette["bg"])
 
-        work_area = self._logical_work_area()
+        work_area = self._context_menu_work_area(x_root, y_root)
+        self._context_menu_open_work_area = work_area
         left, top, right, bottom = work_area
         margin = self._context_menu_work_margin()
         height = self._context_menu_viewport_height(content_height, work_area)
         self._context_menu_viewport_limit = max(1, bottom - top - 2 * margin)
-        x = min(max(left + margin, x_root - width // 2), right - width - margin)
-        preferred_y = y_root - height - 12
-        below_y = y_root + 12
-        if preferred_y >= top + margin:
-            y = preferred_y
-        elif below_y + height <= bottom - margin:
-            y = below_y
-        else:
-            y = min(max(top + margin, preferred_y), bottom - height - margin)
+        x, y = self._context_menu_origin(x_root, y_root, width, height, work_area, margin)
         window.geometry(f"{width}x{height}+{x}+{y}")
         canvas = tk.Canvas(
             window,
@@ -18395,8 +18494,8 @@ class Overlay:
         idle_frame_var = string_var(overlay_config.get("idle_frame_ms", 33))
         resize_frame_var = string_var(bounded_int_value(overlay_config.get("resize_frame_ms", 8), 8, 8, 18))
         resize_steps_var = string_var(bounded_int_value(overlay_config.get("resize_steps", 22), 22, 12, 40))
-        active_loop_var = string_var(overlay_config.get("active_loop_seconds", 3.84))
-        idle_loop_var = string_var(overlay_config.get("idle_loop_seconds", 8.0))
+        active_loop_var = string_var(overlay_config.get("active_loop_seconds", _PILL_ACTIVE_LOOP_SECONDS))
+        idle_loop_var = string_var(overlay_config.get("idle_loop_seconds", _PILL_IDLE_LOOP_SECONDS))
         result_hold_var = string_var(overlay_config.get("result_hold_ms", 900))
         error_hold_var = string_var(overlay_config.get("error_hold_ms", 5200))
         wave_start_var = string_var(overlay_config.get("wave_loop_start", 0))
@@ -20147,8 +20246,8 @@ class Overlay:
             overlay_config["idle_frame_ms"] = parse_int(idle_frame_var, 33, 8, 500)
             overlay_config["resize_frame_ms"] = parse_int(resize_frame_var, 8, 8, 18)
             overlay_config["resize_steps"] = parse_int(resize_steps_var, 22, 12, 40)
-            overlay_config["active_loop_seconds"] = parse_float(active_loop_var, 3.84, 0.10, 20.0)
-            overlay_config["idle_loop_seconds"] = parse_float(idle_loop_var, 8.0, 0.10, 60.0)
+            overlay_config["active_loop_seconds"] = parse_float(active_loop_var, _PILL_ACTIVE_LOOP_SECONDS, 0.10, 20.0)
+            overlay_config["idle_loop_seconds"] = parse_float(idle_loop_var, _PILL_IDLE_LOOP_SECONDS, 0.10, 60.0)
             overlay_config["result_hold_ms"] = parse_int(result_hold_var, 900, 0, 30000)
             overlay_config["error_hold_ms"] = parse_int(error_hold_var, 5200, 0, 60000)
             overlay_config["wave_loop_start"] = parse_int(wave_start_var, 0, 0, 10000)

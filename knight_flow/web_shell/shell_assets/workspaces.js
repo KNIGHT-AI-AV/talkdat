@@ -70,7 +70,8 @@ window.TalkDatWorkspaces = (() => {
         for(const row of result.entries) {
           const button=el("button",{class:"document-entry","data-entry":row.id,"aria-pressed":state.selected?.id===row.id},[
             el("time",{text:stamp(row.created_at)}),el("span",{text:row.preview}),
-            el("small",{text:row.pinned?"Pinned":row.type.replaceAll("_"," ")})]);
+            el("small",{text:row.pinned?"Pinned":row.type.replaceAll("_"," ")}),
+            row.note ? el("small",{class:"entry-note",text:row.note}) : null]);
           button.addEventListener("click",()=>select(row,true));list.append(button);
         }
         const selected=result.entries.find(row=>row.id===state.selected?.id);

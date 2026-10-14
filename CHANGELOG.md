@@ -3,6 +3,36 @@
 All notable product changes to Talk DAT! are recorded here. The project uses beta
 versions while broader field verification remains in progress.
 
+## 0.4.172-beta
+
+Formatting keeps the writing model's answer more often, Paste last transcript pastes again, and words in your dictionary come out the way you saved them.
+
+- The meaning check accepts the writing model's answer when it matches what you said, writes a number or a date's ordinal as digits (5, $300, the 1st of May), or spells a word another common way, such as OK or okay, till or until, kinda or kind of, and yeah or yes. An answer that changes a number, a name or a negation is still refused, and your words are then kept with the built-in rules.
+- On Windows, Paste last transcript pastes even when you move the mouse right after clicking it. Before, it often only copied the text. A key press, a click, or switching to another window or field still stops the paste.
+- A word in your dictionary that speech recognition splits in two, such as OpenAI heard as "open AI", is written the way you saved it when the letters match exactly. Ordinary speech such as "please open AI settings" stays as said.
+- The Pill menu's Speech choice says Your key, as the Pill's switch, the setup window and the site do. A setup resumed from an older version names only the routes that exist, Local and Your key.
+- On the Mac, the Pill's update light shows in the Pill when an update is waiting, as it does on Windows.
+- On the Mac, the key listener reads the keyboard layout on the main thread, as macOS requires, and the app still starts if that read fails.
+
+## 0.4.171-beta
+
+The Pill menu is redrawn, an update is one click from the Pill, and the Pill's update light rises out of it.
+
+- The Pill menu shows one line per item, the current Speech and Formatting choice on the right, and a waiting update as its first row, in your theme's accent (red when the update is required).
+- Install on that row starts the verified update at once and shows its progress on Home. An update that already downloaded in the background is not downloaded again.
+- Each submenu opens in a window its own size, keeps the edge next to the Pill in place, and slides in without a jump.
+- The menu opens on the monitor where you right-clicked the Pill, including monitors to the left of or above the main one, monitors with different or custom scaling, and stays on screen after a monitor is unplugged.
+- Speech and Formatting show their choices with a check, and choosing the current one changes nothing.
+- Arrow keys move through the menu, Right opens a submenu, Left and Escape go back, typing a letter moves to the next item that starts with it, and the focus outline appears only when you use the keyboard.
+- Messages on the menu appear on its title line or across the row you pressed.
+- Menu text stays readable at 4.5:1 in every theme, including the update row and error messages. In Windows contrast themes the menu's icons, check marks and update mark stay visible.
+- The Pill's update light sits in the Pill: it rises out when an update arrives, glows softly, and sinks back when it is gone. With animations off in Windows it only fades. A version you skipped shows no light and no menu row.
+- The Pill's idle animation now flows one way without reversing, and more slowly.
+- Pill messages wrap into even lines, blend into the Pill's colours at its end, and show errors without filling the whole message in red.
+- Formatting no longer announces when it kept the built-in rules; your words arrive the same way, and History notes it on that dictation. If the writing model keeps timing out or returning nothing usable, the Pill says so once, with what to change.
+- With Auto paste off, a formatting notice now appears after "Captured locally". Before, a meeting app, a hidden Pill or the next dictation could hide it.
+- In a terminal, the Pill says your text was typed only when it was. With Auto paste off, after Esc, or when only the copy worked, it says what happened.
+
 ## 0.4.170-beta
 
 Recording stays visible, menus close when you click away, and spoken corrections keep your final choice.

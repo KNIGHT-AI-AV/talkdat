@@ -130,13 +130,27 @@ class ThePipelineHonoursTheFieldTests(unittest.TestCase):
 
 
 class TheAppKeepsNothingFromAPasswordTests(unittest.TestCase):
-    def take(self, field: str, raw: str):
+    def take(self, field: str, raw: str, *, auto_paste: bool = True, esc: bool = False,
+             insertion_works: bool = True):
+        """esc: Esc was pressed while the take was processing (its words are kept, copied
+        and not typed). insertion_works=False: typing or pasting fails, the copy works."""
         from knight_flow.paste import PasteReceipt
         from tests.test_app_session_lifecycle import _app
 
         token = object()
         app = _app(object())
         app.config = local_config()
+        if not auto_paste:
+            app.config.setdefault("dictation", {})["auto_paste"] = False
+        if esc:
+            app._withheld_delivery_token = token
+        answer = PasteReceipt(True, "type", "type", ())
+        if esc or not insertion_works:
+            def answer(_text, **options):
+                if options.get("paste_mode") == "copy_only":
+                    return PasteReceipt(True, "copy_only", "copy_only", ("copy_only",))
+                return PasteReceipt(insertion_works, options.get("paste_mode", "auto"),
+                                    "type" if insertion_works else "none", ("type",))
         app.session_token = token
         app._session_field = (token, fc.FieldProbe(kind=field))
         app._caret_context_reader = lambda: None
@@ -145,10 +159,11 @@ class TheAppKeepsNothingFromAPasswordTests(unittest.TestCase):
         history, states = [], []
         app.add_history = history.append
         app.overlay.set_state = lambda *args, **kwargs: states.append(args)
+        app.overlay.flag = lambda *_args, **_kwargs: None  # "Kept, not pasted" also flags its detail
         with patch("knight_flow.app.active_profile", return_value={}), \
              patch("knight_flow.app.apply_profile", side_effect=lambda cfg, profile: cfg), \
              patch("knight_flow.app.paste_text_with_receipt",
-                   return_value=PasteReceipt(True, "type", "type", ())) as paste, \
+                   **({"side_effect": answer} if callable(answer) else {"return_value": answer})) as paste, \
              patch("knight_flow.app.save_config"), \
              patch("knight_flow.app.threading.Thread"), \
              patch("knight_flow.formatting.local_finish", return_value=None):
@@ -180,6 +195,22 @@ class TheAppKeepsNothingFromAPasswordTests(unittest.TestCase):
         from knight_flow.platform_copy import ENTER_KEY
 
         self.assertIn(f"Press {ENTER_KEY} to run it", states[-1][1])
+
+    def test_a_terminal_take_that_was_not_typed_never_says_it_was(self):
+        # Review CL4-3 (2026-10-10): "Typed into the terminal" was said for any take that
+        # was delivered somehow, so also with Auto paste off (nothing typed), after Esc
+        # (copied, not typed) and when typing failed and only the copy worked. Each one
+        # keeps its own line, as in any other field.
+        for case, options, line in (
+            ("auto paste off", {"auto_paste": False}, ("captured", "Captured locally. Auto paste is off.")),
+            ("Esc while processing", {"esc": True}, ("captured", "Kept, not pasted.")),
+            ("typing failed, copied", {"insertion_works": False},
+             ("captured", "Insertion unavailable. Copied for manual paste. Mic off.")),
+        ):
+            with self.subTest(case=case):
+                _app, result, _paste, _history, states = self.take(fc.CONSOLE, "git status press enter", **options)
+                self.assertEqual(result["text"], "git status")
+                self.assertEqual(states[-1][:2], line)
 
 
 class AChatAppKeepsASaidPeriodTests(unittest.TestCase):

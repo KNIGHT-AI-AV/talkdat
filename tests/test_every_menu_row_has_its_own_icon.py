@@ -112,7 +112,7 @@ def probe_window(connection, html, page, hidden, mode, bounds):
 
 
 class ProbeController(ShellController):
-    def open(self, page="general", *, hidden=False, bounds=None):
+    def open(self, page="general", *, hidden=False, bounds=None, side=None):
         if self.process and self.process.is_alive():
             return super().open(page, hidden=hidden, bounds=bounds)
         context = multiprocessing.get_context("spawn")

@@ -1608,6 +1608,46 @@ def foreground_input_generation() -> int:
         return 0
 
 
+def pointer_travel_moves_input_tick() -> bool:
+    """True where foreground_input_generation also moves for pointer travel.
+
+    Windows' GetLastInputInfo counts every mouse move. A guard that wants keys
+    and clicks only must tell travel apart there (pointer_position); a tick
+    that counts only key-downs and clicks (the Mac's) needs no such reading.
+    """
+    return os.name == "nt"
+
+
+def pointer_position() -> tuple[int, int] | None:
+    """The pointer's screen position on Windows, or None when it cannot be read."""
+    if os.name != "nt":
+        return None
+
+    class _Point(ctypes.Structure):
+        _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+    try:
+        point = _Point()
+        if not ctypes.windll.user32.GetCursorPos(ctypes.byref(point)):
+            return None
+        return int(point.x), int(point.y)
+    except Exception:
+        log.debug("pointer position unavailable; Paste Last treats new input as moving on", exc_info=True)
+        return None
+
+
+def keys_or_buttons_down() -> frozenset[int]:
+    """Virtual-key codes held right now, mouse buttons included; empty when it cannot be read."""
+    if os.name != "nt":
+        return frozenset()
+    try:
+        state = ctypes.windll.user32.GetAsyncKeyState
+        return frozenset(code for code in range(1, 255) if state(code) & 0x8000)
+    except Exception:
+        log.debug("key and button state unavailable; Paste Last falls back to the input tick", exc_info=True)
+        return frozenset()
+
+
 def activate_foreground_window(window_id: int, *, settle_ms: int = 90) -> bool:
     """Restore a user-chosen external target and prove it owns focus."""
 

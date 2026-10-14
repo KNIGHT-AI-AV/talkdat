@@ -13,7 +13,8 @@ from .shell_persistence import save_settings_config as save_config
 from .shell_backend import ShellBackend
 from .shell_host import ShellController
 from .shell_models import ModelManager
-from .menu_geometry import pill_menu_bounds
+from .menu_geometry import menu_height, pill_menu_bounds, pill_menu_side
+from .. import menu_anchor
 from .shell_devices import InputDevices
 from .workspace_adapter import Workspaces
 
@@ -54,7 +55,7 @@ class AppShell:
                 lambda: self.overlay.set_state(kind, message, "")),
             open_url=self._open_release_page, count_dismissal=self._count_update_dismissal)
         self.backend = ShellBackend(app.config, self.assets, self._persist, self._applied,
-                                    self.overlay._settings_palette, actions=actions, menu=self._menu,
+                                    self.overlay._settings_palette, actions=actions, menu=self._menu, update=self._update_state, menu_fit=self._fit_menu,
                                     system_preferences=self._preferences, models=self.models,
                                     menu_layout=self._menu_layout, microphones=self.devices.snapshot, workspaces=self.workspaces,
                                     formatting=smart_formatting(app.config), finish_choice=self.finish_choice)
@@ -129,6 +130,9 @@ class AppShell:
             'route:local': lambda: app.set_route_mode('local'),
             'route:byok': lambda: app.set_route_mode('byok'),
             'menu:toggle_intensity': self._toggle_menu_intensity,
+            # 2026-10-09: the menu's update row installs the release the last
+            # check found (pending_update); it never starts a new network check.
+            'menu:install_update': self._install_from_menu,
         }
         for identifier, _label, _description, _icon in overlay._context_menu_access_rows():
             actions['menu:'+identifier] = lambda identifier=identifier: overlay._activate_context_menu_action(identifier)
@@ -173,6 +177,72 @@ class AppShell:
             result.append(row)
         return result
 
+    def _menu_content_height(self):
+        """Home's height at 100%: the menu opens on Home, and every other view then asks
+        for its own height (menu_fit), so no view sits in a window sized for another."""
+        rows = self._menu()
+        daily = sum(1 for row in rows if not row.get('fixed'))
+        update = self._update_state()
+        # Home: the daily rows, then Speech, Formatting and App controls under one separator.
+        return menu_height(daily + 3, update=bool(update and not update.get('skipped')), separators=1)
+
+    def _install_from_menu(self):
+        """The update row's Install, in one click (2026-10-09).
+
+        The release goes to Home exactly as before (App.install_or_check_update offers
+        pending_update there), and its install starts at once through the same
+        verified path Home's own Install button uses, so Home shows the download and
+        the checks. A release that cannot be verified stays on Home, blocked, with the
+        reason. With nothing pending the row was stale: no check is started from here,
+        and the Pill says nothing is waiting.
+        """
+        if self._update_state() is None:
+            # Review B9 (2026-10-10): the menu closes on every action, so an answer
+            # returned to the page was never seen. The Pill says it instead.
+            self.app._cross_thread_calls.put(
+                lambda: self.overlay.set_state('captured', 'No update is waiting.', ''))
+            return {}
+        self.app.install_or_check_update()
+        offer = self.update_offer.snapshot()
+        if offer is not None and offer.get('phase') == 'ready':
+            self.update_offer.act('install')
+        return {}
+
+    def _fit_menu(self, height):
+        """The menu window takes the height of the view the page shows (2026-10-09).
+
+        It opened at Home's height, and a submenu replaces Home in place, so App
+        controls (five rows) sat in a window sized for nine: the half-empty panel the
+        owner called "misshapen". The page asks for each view's height; the window
+        keeps the edge that faces the Pill (pill_menu_bounds puts it there) and moves
+        the far one, so the content, anchored to that edge, never jumps.
+        """
+        pill = getattr(self, '_menu_pill', None)
+        if pill is None:
+            return {'bounds': list(self._menu_bounds)}
+        bounds = pill_menu_bounds(pill, self._menu_work_area, self._menu_scale, height=height,
+                                  side=getattr(self, '_menu_side', None))
+        if bounds != list(self._menu_bounds):
+            self._menu_bounds = bounds
+            self.menu_controller.resize(bounds)
+        return {'bounds': list(bounds)}
+
+    def _update_state(self):
+        """What the Pill menu says about updates, from the last check only (2026-10-09).
+
+        `pending_update` is set by app.check_updates only after it confirmed a newer
+        release and cleared when it finds none, so the menu never claims an update
+        the check did not find, and reading it costs no network call.
+        """
+        info = getattr(self.app, 'pending_update', None)
+        version = getattr(info, 'latest_version', '') if info is not None else ''
+        if not isinstance(version, str) or not version.strip():
+            return None
+        version = version.strip()
+        updates = self.app.config.get('updates', {}) if isinstance(self.app.config, dict) else {}
+        return {'version': version, 'required': bool(getattr(info, 'forced', False)),
+                'skipped': version == str(updates.get('skip_version', '') or '')}
+
     def _menu_layout(self, expanded):
         return {'side':'replace' if expanded else 'closed', 'expanded':expanded}
 
@@ -189,60 +259,34 @@ class AppShell:
         return {'state': result}
 
     def _pill_anchor(self, x, y):
+        """The Pill's own rectangle, its monitor's work area and that monitor's scale.
+
+        Windows: physical pixels read from the Pill's window (knight_flow.menu_anchor),
+        measuring the Pill and not a message's envelope around it (X-742). If Windows
+        cannot answer, the monitor under the pointer: never the foreground app's
+        monitor, which is how the menu ended up on the wrong screen (2026-10-09).
+        """
         root = self.overlay.root
-        restore_context = None
-        previous_context = None
+        view = getattr(self.overlay, '_flag_view', None)
+        if sys.platform == 'win32':
+            try:
+                reading = menu_anchor.read_pill_window(root)
+                body = menu_anchor.pill_body_in_window(
+                    reading.rect, getattr(view, 'envelope', None), getattr(view, 'pill', None))
+                return body, reading.work, reading.scale
+            except (AttributeError, OSError, TypeError, ValueError):
+                point = menu_anchor.cursor_position(physical=True) or (int(x), int(y))
+                found = menu_anchor.work_area_at_point(*point, physical=True)
+                if found is not None:
+                    return (int(point[0]), int(point[1]), 0, 0), found[0], found[1]
+                return (int(x), int(y), 0, 0), self.overlay._logical_work_area(), 1.0
         try:
             pill = (root.winfo_rootx(), root.winfo_rooty(), root.winfo_width(), root.winfo_height())
             if not all(type(value) is int for value in pill):
                 raise ValueError('Pill geometry is not ready')
-            area = self.overlay._logical_work_area()
-            scale = 1.0
-            if sys.platform == 'win32':
-                import ctypes
-                from ctypes import wintypes
-                # X-605: a PRIVATE handle. Setting argtypes on the shared
-                # ctypes.windll.user32 changed GetMonitorInfoW for the whole
-                # app: after the first menu, overlay and monitors.py passed
-                # their own MONITORINFO and got ArgumentError, so the Pill lost
-                # track of which monitor it was on.
-                user32 = ctypes.WinDLL('user32', use_last_error=True)
-                # The Pill is system-DPI aware; WebView2 is per-monitor aware.
-                # Read both rectangles in physical pixels even on a second monitor.
-                restore_context = user32.SetThreadDpiAwarenessContext
-                restore_context.argtypes = (wintypes.HANDLE,)
-                restore_context.restype = wintypes.HANDLE
-                previous_context = restore_context(wintypes.HANDLE(-4))
-                user32.GetAncestor.argtypes = (wintypes.HWND, wintypes.UINT)
-                user32.GetAncestor.restype = wintypes.HWND
-                hwnd = user32.GetAncestor(root.winfo_id(), 2)
-                rect = wintypes.RECT()
-                user32.GetWindowRect.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.RECT))
-                if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
-                    raise OSError('Pill window is unavailable')
-                pill = (rect.left, rect.top, rect.right-rect.left, rect.bottom-rect.top)
-                class MonitorInfo(ctypes.Structure):
-                    _fields_ = [('size', wintypes.DWORD), ('monitor', wintypes.RECT), ('work', wintypes.RECT), ('flags', wintypes.DWORD)]
-                user32.MonitorFromWindow.argtypes = (wintypes.HWND, wintypes.DWORD)
-                user32.MonitorFromWindow.restype = wintypes.HANDLE
-                monitor = user32.MonitorFromWindow(hwnd, 2)
-                info = MonitorInfo(); info.size = ctypes.sizeof(info)
-                user32.GetMonitorInfoW.argtypes = (wintypes.HANDLE, ctypes.POINTER(MonitorInfo))
-                if user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
-                    area = (info.work.left, info.work.top, info.work.right, info.work.bottom)
-                user32.GetDpiForWindow.argtypes = (wintypes.HWND,)
-                scale = (user32.GetDpiForWindow(hwnd) or 96) / 96
-                factor = ctypes.c_int()
-                get_factor = ctypes.WinDLL('shcore').GetScaleFactorForMonitor
-                get_factor.argtypes = (wintypes.HANDLE, ctypes.POINTER(ctypes.c_int))
-                if get_factor(monitor, ctypes.byref(factor)) == 0 and 100 <= factor.value <= 500:
-                    scale = factor.value / 100
-            return pill, area, scale
-        except (AttributeError, OSError, TypeError, ValueError):
+            return pill, self.overlay._logical_work_area(), 1.0
+        except (AttributeError, TypeError, ValueError):
             return (int(x), int(y), 0, 0), self.overlay._logical_work_area(), 1.0
-        finally:
-            if restore_context is not None and previous_context:
-                restore_context(previous_context)
 
     def _own_processes(self):
         processes = {os.getpid()}
@@ -346,9 +390,13 @@ class AppShell:
             target = NSWorkspace.sharedWorkspace().frontmostApplication()
             self._mac_paste_target = target if target and target.processIdentifier() not in self._own_processes() else None
         pill, self._menu_work_area, scale = self._pill_anchor(x, y)
-        self._menu_bounds = pill_menu_bounds(pill, self._menu_work_area, scale)
+        self._menu_pill, self._menu_scale = pill, scale
+        home = self._menu_content_height()
+        # The side is chosen once, here, for Home; every view keeps it (review B2).
+        self._menu_side = pill_menu_side(pill, self._menu_work_area, scale, height=home)
+        self._menu_bounds = pill_menu_bounds(pill, self._menu_work_area, scale, height=home, side=self._menu_side)
         try:
-            self.menu_controller.open('menu', bounds=self._menu_bounds)
+            self.menu_controller.open('menu', bounds=self._menu_bounds, side=self._menu_side)
             return True
         except Exception as error:
             log.warning('Web menu could not open (%s)', type(error).__name__)

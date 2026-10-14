@@ -100,9 +100,10 @@ class HistoryWorkspace:
                     self.contexts.popitem(last=False)
                 timestamp=row.get('created_at')
                 if _activity_datetime(timestamp) is None: timestamp=None
+                # A take whose words came through the built-in rules says so on its row.
                 result.append({'id':identifier,'preview':text[:240], 'characters':len(text),
                     'created_at':timestamp,'type':str(row.get('type') or 'dictation')[:40],
-                    'pinned':text.strip() in pins})
+                    'pinned':text.strip() in pins,'note':str(row.get('format_note') or '').strip()[:160]})
             return {'entries':result,'total':len(rows),'offset':offset,'preferences':self.preferences(),
                     'next':offset+self.PAGE_SIZE if offset+self.PAGE_SIZE<len(rows) else None}
         if operation in {'read','copy','pin','unpin'}:

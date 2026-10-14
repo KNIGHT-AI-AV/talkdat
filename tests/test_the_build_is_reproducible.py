@@ -1,6 +1,6 @@
 """X-230: the signed binary was built from whatever PyPI served that minute.
 
-requirements.txt is entirely ranges -- websockets>=14.0, numpy>=1.26 -- with no
+requirements.txt is mostly ranges -- websockets>=14.0, numpy>=1.26 -- with no
 upper bound on most and no pin on ANY transitive dependency. So two builds of
 the same commit could contain different code, and a compromised or merely
 broken upstream release would land inside a binary carrying Knight AI+AV's

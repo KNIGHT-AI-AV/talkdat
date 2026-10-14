@@ -529,6 +529,9 @@ class TheRealPillIsLayeredTests(unittest.TestCase):
         self.draw_idle()
         try:
             overlay.set_update_flag("red")
+            # 2026-10-09: the light rises out of the Pill over 320 ms
+            # (pill_message.PIP_ENTRANCE_MS); it is read once it has arrived.
+            pump(overlay.root, 0.5)
             pushed = PushedFrames(overlay)
             overlay._draw_visual()
             pixels = pushed.last()

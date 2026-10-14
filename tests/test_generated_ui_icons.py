@@ -19,9 +19,11 @@ LOCKED_BRAND_ASSETS = {
         "6049d3252b8e7bbcc5d5d8ca5808aa8",
         "602e05ff61bfcd42fb66550bcee196d07",
     )),
+    # The seamless idle loop (scripts/generate_flow_pill_loop.py); the original
+    # drift-and-bridge sheet is archived at branding/the-pill/flow-pill-original-240.png.
     "flow_pill_240.png": "".join((
-        "c765dd32c83bbaa8a916f3832c7bacf8",
-        "a6586dc72bde5fe4175f283e9b697ecb",
+        "26ba4c7f24c0ae42fc356568a398fae1",
+        "f8195cef2e46c8d9f73dce5eb22beff3",
     )),
     "loading_pill_240.png": "".join((
         "ef78b0993e9ec7ccec17518ba4f97778",

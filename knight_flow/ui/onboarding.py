@@ -229,6 +229,26 @@ ROUTE_CARDS: dict[str, tuple[str, str, str]] = {
 }
 
 
+def pinned_route_label(route: object) -> str:
+    """The PINNED SWITCHES line names a speech route only when it is one that exists.
+
+    A setup saved before X-516 (no managed route any more) could resume with
+    "managed" in it and print "Speech: Cloud", a false word for an app that runs
+    no cloud; its "Auto" fallback named another retired route. Setup applies only
+    "local" or "byok" (_commit_voice_route), so anything else is "not chosen".
+    """
+    # Not a dict: ROUTE_CARDS stays the one place route copy is defined.
+    route = str(route or "").strip().lower()
+    return "Local" if route == "local" else "Your key" if route == "byok" else "not chosen"
+
+
+def resumed_route(saved: object, fallback: str) -> str:
+    """A resumed setup keeps its saved route only when that route still exists;
+    otherwise the route the config resolves to stands (X-516)."""
+    route = str(saved or "").strip().lower()
+    return route if route in ("local", "byok") else fallback
+
+
 def _rounded_rectangle(
     canvas: tk.Canvas,
     x1: float,
@@ -450,9 +470,7 @@ class OnboardingWizard:
             self.microphone_tested = flags.get("microphone_tested") is True
             self.hotkey_rehearsed = flags.get("hotkey_rehearsed") is True
             self.dictation_tested = flags.get("dictation_tested") is True
-            route = str(flags.get("route", "")).strip()
-            if route:
-                self.route_var.set(route)
+            self.route_var.set(resumed_route(flags.get("route"), self.route_var.get()))
             access = str(flags.get("access_choice", "")).strip()
             if access:
                 self.access_choice = access
@@ -3203,7 +3221,7 @@ class OnboardingWizard:
             anchor="w",
         ).grid(row=0, column=0, sticky="ew", padx=self.px(16), pady=(self.px(12), self.px(4)))
         current_route = self.route_var.get()
-        route_label = "Cloud" if current_route == "managed" else "Local" if current_route == "local" else "Your key" if current_route == "byok" else "Auto"
+        route_label = pinned_route_label(current_route)
         finish_label = "Executive" if str(self.config.get("cleanup", {}).get("format_intensity", "standard")) == "executive" else "Chill"
         tk.Label(
             panel,

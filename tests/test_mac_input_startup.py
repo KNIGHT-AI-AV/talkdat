@@ -19,6 +19,9 @@ class MacInputStartupTests(unittest.TestCase):
         self.controller=Mock()
         self.modules=patch.dict(sys.modules,{'HIServices':self.framework})
         self.modules.start();self.addCleanup(self.modules.stop)
+        # On a Mac, start() hands pynput's real listener module a layout reader; put pynput's back.
+        backend=sys.modules.get('pynput.keyboard._darwin')
+        if backend is not None:self.addCleanup(setattr,backend,'keycode_context',backend.keycode_context)
 
     def start(self,mac=True):
         def listener(**kwargs):

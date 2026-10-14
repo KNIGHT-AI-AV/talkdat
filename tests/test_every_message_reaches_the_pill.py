@@ -87,7 +87,17 @@ class TheOldNamesReachFlagTests(unittest.TestCase):
                 mock.patch.object(Overlay, "_wake_animation"):
             overlay.set_update_flag("red")
         self.assertEqual(overlay._update_flag, "red")
-        self.assertIsNotNone(overlay._pip_since, "the pip does not breathe when it arrives")
+        self.assertIsNotNone(overlay._pip_since, "the pip does not rise when it arrives")
+
+    def test_clearing_the_flag_lets_the_light_sink_back(self) -> None:
+        overlay = bare_overlay()
+        with mock.patch.object(Overlay, "_render_update_flag"), mock.patch.object(Overlay, "_represent_layered"), \
+                mock.patch.object(Overlay, "_wake_animation"), mock.patch.object(Overlay, "_motion_is_reduced", return_value=False):
+            overlay.set_update_flag("red")
+            overlay.set_update_flag("")
+        self.assertEqual(overlay._update_flag, "")
+        self.assertEqual(overlay._pip_leaving[0], "red", "the light vanished instead of sinking back")
+        self.assertIsNone(overlay._pip_since)
 
     def test_set_state_speaks_through_flag(self) -> None:
         source = ast.get_source_segment((ROOT / "overlay.py").read_text(encoding="utf-8"),

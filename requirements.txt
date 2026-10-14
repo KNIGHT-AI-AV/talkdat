@@ -1,6 +1,9 @@
 websockets>=14.0,<16.0
 sounddevice>=0.5.1
-pynput>=1.8.1
+# Exact: knight_flow/mac_support.py hands pynput's Mac key listener a layout
+# read on the main thread (macOS 27 traps it anywhere else). Any bump must
+# re-pass tests/test_mac_keyboard_layout_main_thread.py on a Mac first.
+pynput==1.8.2
 pyperclip>=1.9.0
 pyautogui>=0.9.54
 pystray>=0.19.5

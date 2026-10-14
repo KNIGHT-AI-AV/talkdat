@@ -354,8 +354,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "idle_frame_ms": 33,
         "resize_frame_ms": 8,
         "resize_steps": 22,
-        "active_loop_seconds": 2.6,
-        "idle_loop_seconds": 8.0,
+        # The Pill's idle loop (scripts/generate_flow_pill_loop.py) carries one
+        # whole warm -> deep blue -> warm colour cycle. At 8 s / 2.6 s the colour
+        # swept through at 65 px a second; 24 s / 7.8 s keeps the owner's calm
+        # drift (21.8 px a second, the flutes at the original pace). The phone
+        # (Pill.tsx), the keyboard (TalkDatPill.swift) and Setup (shell.css
+        # --t-pill-idle) play the same sheet on these same numbers.
+        "active_loop_seconds": 7.8,
+        "idle_loop_seconds": 24.0,
+        "pill_loop_timing_migrated": True,
         "bottom_margin": 24,
         "half_scale_migrated": True,
         "balanced_scale_migrated": True,
@@ -854,6 +861,33 @@ def _migrate_fullscreen_activation_visibility(config: dict[str, Any], loaded: di
         return
     overlay["show_session_over_fullscreen"] = True
     overlay["fullscreen_activation_visibility_migrated"] = True
+
+
+# The Pill's loop times before the seamless loop slowed them (idle 8 s -> 24 s,
+# active 2.6 s -> 7.8 s; 3.84 s was the active default until 2026-06 and was never
+# migrated). Every launch saves the whole config, so these sit in every existing
+# one, and the new defaults alone would reach nobody. A config holding an old
+# default never chose it, so it moves, once; any other value is a choice and stays.
+_OLD_PILL_LOOP_SECONDS = (
+    ("idle_loop_seconds", (8.0,), 24.0),
+    ("active_loop_seconds", (2.6, 3.84), 7.8),
+)
+
+
+def _migrate_pill_loop_timing(config: dict[str, Any], loaded: dict[str, Any]) -> None:
+    """Move untouched Pill loop times onto the seamless loop's slower ones, once."""
+    overlay = config.setdefault("overlay", {})
+    loaded_overlay = loaded.get("overlay", {}) if isinstance(loaded.get("overlay"), dict) else {}
+    if bool(loaded_overlay.get("pill_loop_timing_migrated", False)):
+        return
+    overlay["pill_loop_timing_migrated"] = True
+    for key, old_defaults, new in _OLD_PILL_LOOP_SECONDS:
+        try:
+            value = float(loaded_overlay.get(key, new))
+        except (TypeError, ValueError):
+            continue
+        if value in old_defaults:
+            overlay[key] = new
 
 
 def _migrate_paste_latency_default(config: dict[str, Any], loaded: dict[str, Any]) -> None:
@@ -1390,6 +1424,7 @@ def load_config(project_root: Path | None = None) -> dict[str, Any]:
     _migrate_legacy_hosts(config)
     _migrate_overlay_animation(config, loaded if isinstance(loaded, dict) else {})
     _migrate_fullscreen_activation_visibility(config, loaded if isinstance(loaded, dict) else {})
+    _migrate_pill_loop_timing(config, loaded if isinstance(loaded, dict) else {})
     _migrate_paste_latency_default(config, loaded if isinstance(loaded, dict) else {})
     _migrate_undo_replacement_default(config, loaded if isinstance(loaded, dict) else {})
     _migrate_local_formatter_default(config, loaded if isinstance(loaded, dict) else {})

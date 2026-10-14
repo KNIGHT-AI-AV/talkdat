@@ -279,6 +279,36 @@ class TheQueueTableTests(unittest.TestCase):
         queue.finished()
         self.assertEqual(queue.next(1000.0).message.title, "Talk DAT! is up to date")
 
+    def test_a_line_that_follows_waits_behind_the_line_it_follows(self) -> None:
+        """Review CL4-1 (2026-10-10): with Auto paste off, the formatting line follows
+        "Captured locally" (key "state"). It is an error, so it gets an error's
+        guarantees (a meeting, a withdrawn Pill, a requeue on the next press), and it
+        names the line it follows, so it waits behind that one instead of replacing it."""
+        queue = MessageQueue()
+        captured = msg("Captured locally. Auto paste is off.", "warn", key="state", origin="person")
+        queue.offer(captured, 0.0)
+        line = msg("Your text was formatted by the built-in rules, not the model.", "error",
+                   key="formatting", origin="person")
+        line.after_key = "state"
+        decision = queue.offer(line, 50.0)
+        self.assertEqual(decision.kind, "queue", "the line replaced the one it follows")
+        self.assertIs(queue.showing, captured)
+        queue.finished()
+        self.assertIs(queue.next(3000.0).message, line)
+
+    def test_a_line_that_follows_is_still_an_error_to_everything_else(self) -> None:
+        queue = MessageQueue()
+        queue.offer(msg("Talk DAT! is up to date", key="update"), 0.0)
+        line = msg("The line", "error", key="formatting", origin="person")
+        line.after_key = "state"
+        self.assertEqual(queue.offer(line, 50.0).kind, "replace")
+        self.assertIs(queue.showing, line)
+
+    def test_message_from_keeps_what_a_line_follows(self) -> None:
+        self.assertEqual(message_from("The line", tone="error", after_key="state").after_key, "state")
+        self.assertEqual(message_from("The line", after_key=None).after_key, "")
+        self.assertEqual(message_from("The line").after_key, "")
+
     def test_the_same_key_updates_in_place(self) -> None:
         queue = MessageQueue()
         queue.offer(msg("Installing 1.2.4", "warn", key="update", progress=0.1), 0.0)

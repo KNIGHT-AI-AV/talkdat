@@ -1,25 +1,66 @@
 """Pill-anchored menu geometry. Windows bounds are physical screen pixels."""
 
+#: The Pill menu's sizes in CSS pixels at 100% (2026-10-09 redesign). shell.css
+#: declares the same numbers as --menu-w, --menu-pad, --menu-header, --menu-row,
+#: --menu-update and --menu-sep; tests/test_the_menu_fits_its_window.py keeps the
+#: two in step, so the window is exactly as tall as its content.
+MENU_METRICS = {"width": 288, "pad": 6, "header": 44, "row": 40, "update": 64, "separator": 9}
 
-def pill_menu_bounds(pill, work_area, scale=1.0):
+
+def menu_height(rows, *, update=False, separators=1):
+    """The content height of a menu view with `rows` rows, at 100%."""
+    m = MENU_METRICS
+    return (2 * m["pad"] + m["header"] + (m["update"] if update else 0)
+            + int(rows) * m["row"] + int(separators) * m["separator"])
+
+
+def _room(pill, work_area, scale):
+    """Space for the menu above and below the Pill, after the margin and the gap."""
+    left, top, right, bottom = work_area
+    px, py, pw, ph = pill
+    margin, gap = round(8 * scale), round(10 * scale)
+    return py - top - margin - gap, bottom - (py + ph) - margin - gap
+
+
+def pill_menu_side(pill, work_area, scale=1.0, *, height=None):
+    """Which side of the Pill the menu opens on, chosen ONCE, at open, for Home.
+
+    Above when Home fits there (or at least 320 px does), else the roomier side.
+    Every later view keeps it (Overwatch's review B2, 2026-10-10: choosing again
+    from each view's own height moved a submenu to the other side of the Pill).
+    """
+    scale = max(1.0, min(4.0, float(scale)))
+    above, below = _room(pill, work_area, scale)
+    preferred = round((height if height else 552) * scale)
+    if above >= min(preferred, round(320 * scale)):
+        return "above"
+    return "below" if below > above else "above"
+
+
+def pill_menu_bounds(pill, work_area, scale=1.0, *, height=None, side=None):
+    """The menu's window on the given side of the Pill: against it, never over it.
+
+    A view taller than the room on that side is capped there (its list scrolls).
+    """
     left, top, right, bottom = work_area
     px, py, pw, ph = pill
     scale = max(1.0, min(4.0, float(scale)))
     margin, gap = round(8 * scale), round(10 * scale)
-    width = min(round(304 * scale), right-left-2*margin)
-    above = py-top-margin-gap
-    below = bottom-(py+ph)-margin-gap
-    preferred = round(552*scale)
-    if above >= min(preferred, round(320*scale)):
-        height = min(preferred, above)
+    width = min(round(MENU_METRICS["width"] * scale), right-left-2*margin)
+    above, below = _room(pill, work_area, scale)
+    preferred = round((height if height else 552)*scale)
+    if side not in ("above", "below"):
+        side = pill_menu_side(pill, work_area, scale, height=height)
+    if side == "above":
+        height = max(1, min(preferred, above))
         y = py-gap-height
-    elif below > above:
-        height = min(preferred, max(round(240*scale), below), bottom-top-2*margin)
-        y = min(py+ph+gap, bottom-margin-height)
     else:
-        height = min(preferred, bottom-top-2*margin)
-        y = max(top+margin, py-gap-height)
+        height = max(1, min(preferred, below))
+        y = py+ph+gap
     x = min(max(left+margin, round(px+pw/2-width/2)), right-margin-width)
+    # A Pill stranded where an unplugged monitor used to be still gets a menu on
+    # the screen Windows resolved for it (2026-10-09); on-screen Pills are unchanged.
+    y = min(max(y, top+margin), bottom-margin-height)
     return [int(x), int(y), int(width), int(height)]
 
 

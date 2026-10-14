@@ -11,8 +11,12 @@ ASSET_DIR = ROOT / "knight_flow" / "assets"
 BRAND_DIR = ROOT / "branding" / "the-pill"
 SOURCE = BRAND_DIR / "loading-spectrum-source.png"
 MASTER = BRAND_DIR / "loading-spectrum-master-4k.png"
-BASE_SHEET = ASSET_DIR / "flow_pill_240.png"
-BASE_META = ASSET_DIR / "flow_pill_240.json"
+# The loading pill takes its luminance and alpha from the ORIGINAL idle sheet, frame
+# for frame, as it always has. The idle loop itself is now generated from that
+# original (scripts/generate_flow_pill_loop.py); reading the archived master keeps
+# the loading pill's frames exactly what they were.
+BASE_SHEET = BRAND_DIR / "flow-pill-original-240.png"
+BASE_META = BRAND_DIR / "flow-pill-original-240.json"
 OUTPUT_SHEET = ASSET_DIR / "loading_pill_240.png"
 OUTPUT_META = ASSET_DIR / "loading_pill_240.json"
 

@@ -12,6 +12,7 @@ hot path, where a subprocess spawn per dictation is a visible cost.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 import threading
@@ -164,13 +165,61 @@ def prepare_input_bridge() -> None:
 
     Loading a function is not a permission check or permission request. The
     shared PyObjC metadata dictionary is consumed during first resolution;
-    resolving on the startup thread avoids concurrent metadata removal.
+    resolving on the startup thread avoids concurrent metadata removal. The
+    key listener's keyboard layout is read here too, for a different reason:
+    macOS 27 traps Carbon's Text Input Sources API anywhere but the main thread.
     """
     if IS_MAC:
         from HIServices import AXIsProcessTrusted
 
         if not callable(AXIsProcessTrusted):
             raise RuntimeError("Mac input support could not load.")
+        _read_key_listener_layout_on_main_thread()
+
+
+def _read_key_listener_layout_on_main_thread() -> None:
+    """Read the keyboard layout for pynput's key listener here, not on its thread.
+
+    pynput's Mac listener reads the layout through Carbon's Text Input Sources
+    API as its thread starts (keycode_context in its _run). macOS 27 traps that
+    API anywhere but the main queue: on 2026-10-09 the app died seconds after
+    launch with EXC_BREAKPOINT in islGetInputSourceListWithAdditions <-
+    TSMGetInputSourceProperty, on the listener thread. So the startup thread
+    reads it and the listener is handed the result.
+
+    pynput reads the layout once per listener start and never again, and so
+    does this: there is deliberately no re-read on a layout change, because
+    pynput never made one. Its listener stores the layout and does not consult
+    it to name keys, so hotkeys behave exactly as before.
+    """
+    backend = sys.modules.get("pynput.keyboard._darwin")
+    util = sys.modules.get("pynput._util.darwin")
+    if backend is None or util is None:
+        return
+    import logging
+
+    log = logging.getLogger(__name__)
+    # The listener never consults the layout, so it runs the same with the
+    # empty one pynput starts from whenever no layout can be read here.
+    layout = (None, None)
+    if threading.current_thread() is not threading.main_thread():
+        # Reading here would be the crash.
+        log.warning("key listener started off the main thread; keyboard layout not read")
+    else:
+        try:
+            with util.keycode_context() as layout:
+                pass
+        except Exception:
+            # Never fatal, and never a reason to return early: that would leave
+            # pynput's own reader in place, reading on the listener's thread.
+            log.exception("keyboard layout could not be read; the key listener gets none")
+            layout = (None, None)
+
+    @contextlib.contextmanager
+    def keycode_context():
+        yield layout
+
+    backend.keycode_context = keycode_context
 
 
 def has_accessibility_permission(prompt: bool = False) -> bool:

@@ -28,7 +28,7 @@
   --spring-key:linear(0,.07,.228,.414,.591,.741,.856,.938,.991,1.021,1.035,1.038,1.035,1.029,1.022,1.015,1.009,1.005,1);
   --focus-width:2px;--focus-offset:2px;--focus-inset:-3px;--accent-lift:#fff;
   --menu-origin:50% 100%;--menu-rise:8px;
-  --t-pill-idle:8s;--t-pill-step:calc(var(--t-pill-idle) / 24);
+  --t-pill-idle:24s;--t-pill-step:calc(var(--t-pill-idle) / 24);
   --t-press:60ms;--t-fade:120ms;--t-micro:90ms;--t-control:140ms;--t-exit:140ms;--t-page:220ms;--t-key:260ms;--t-sheet:380ms;--t-settle:470ms;
 }
 :root[data-mode=light]{--sh-k:.45;--edge-light:inset 0 1px 0 rgb(255 255 255/.55);--edge-shade:inset 0 -1px 0 rgb(0 0 0/.08);--scrim:rgb(20 24 24/.28)}
@@ -113,21 +113,65 @@ body.high-contrast .rail::before,body.high-contrast .theme-sample>img{display:no
 
 .plugin-tools{grid-column:1/-1;min-width:0}.plugin-tools p{color:var(--muted);font-size:var(--secondary)}.plugin-issues{max-height:16rem;overflow:auto;overflow-wrap:anywhere;font-size:var(--secondary);padding-left:22px;margin:12px 0}.plugin-tools button{min-height:44px}
 
-/* Pill menu: one column at every display scale; short screens page, never scroll. */
-.menu-view main{height:100%;display:flex;flex-direction:column;padding:8px 12px;overflow:hidden}
-.pill-menu-heading{display:flex;align-items:center;gap:6px;flex:0 0 44px;margin-bottom:8px;border-bottom:1px solid var(--stroke)}
-.pill-menu-heading h1{font-size:20px;flex:1;padding-left:8px}
-.pill-menu-heading button{padding:6px;min-width:36px;font-size:24px}
-.menu-view .menu-items{display:flex;flex-direction:column;gap:0;flex:1;min-height:0}
-.menu-view .menu-items .menu-row{display:flex;align-items:center;justify-content:flex-start;gap:8px;flex:0 0 54px;height:54px;padding:5px 8px;width:100%;border-radius:var(--r-sm)}
-.menu-row .nav-icon{display:block;width:32px;height:32px;flex:0 0 32px;color:var(--muted)}
-.menu-label{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
-.menu-label>span{font-size:var(--body);font-weight:500}
-.menu-label small{font-size:11.5px;line-height:1.2;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.menu-chevron{font-size:22px;color:var(--muted)}
-.menu-pagination{flex:0 0 44px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--stroke);margin-top:8px}
-.menu-pagination button{font-size:12px;padding:8px;min-width:65px}
-.menu-pagination span{font-size:11px}
+/* The Pill menu (2026-10-09, the owner: "janky, ugly, misshapen... hard to find").
+   A compact flyout: one 40 px line per row with its current value on the right, one
+   header, a symmetric 6 px inset, and a waiting update as the first row. Every size
+   below is mirrored by knight_flow/web_shell/menu_geometry.MENU_METRICS, which sizes
+   the window to this content (tests/test_the_menu_fits_its_window.py). */
+:root{--menu-w:288px;--menu-pad:6px;--menu-header:44px;--menu-row:40px;--menu-update:64px;--menu-sep:9px;--on-danger:#000;--muted-on-tint:var(--muted);--danger-text:var(--danger)}
+body.high-contrast{--on-danger:Canvas;--muted-on-tint:CanvasText;--danger-text:CanvasText}
+@media(forced-colors:active){body{--danger:CanvasText;--on-danger:Canvas;--muted-on-tint:CanvasText;--danger-text:CanvasText}}
+.menu-view main{height:100%;display:flex;flex-direction:column;padding:var(--menu-pad);overflow:hidden}
+:root[data-menu-anchor=bottom] .menu-view main{justify-content:flex-end}
+body.menu-view[data-menu-quiet] .menu-items .menu-row,body.menu-view[data-menu-quiet] .pill-menu-heading button{outline:0}
+.pill-menu-heading{display:flex;align-items:center;gap:2px;flex:0 0 var(--menu-header);height:var(--menu-header);margin:0;padding:0 2px 0 10px;border:0}
+.pill-menu-heading h1{flex:1;min-width:0;margin:0;padding:0;font-family:Knight,var(--ui-font,"Segoe UI"),serif;font-size:18px;font-weight:400;line-height:var(--menu-header);letter-spacing:.005em;color:var(--text);white-space:nowrap;overflow:visible;padding-left:3px}
+.pill-menu-heading .menu-back+h1{padding-left:4px}
+.pill-menu-heading button{min-height:0;width:30px;height:30px;flex:0 0 30px;padding:0;display:grid;place-items:center;border:0;border-radius:var(--r-sm);background:transparent;color:var(--muted)}
+.pill-menu-heading button:hover:not(:disabled){background:var(--select);color:var(--text)}
+.pill-menu-heading button:focus-visible{outline:var(--focus-width) solid var(--ring);outline-offset:var(--focus-inset)}
+.menu-glyph{display:block;width:16px;height:16px;background:currentColor;mask:no-repeat center/100% 100%;-webkit-mask:no-repeat center/100% 100%}
+.menu-glyph-close{mask-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.5' stroke-linecap='round'%3E%3Cpath d='M4.5 4.5l7 7M11.5 4.5l-7 7'/%3E%3C/svg%3E");-webkit-mask-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.5' stroke-linecap='round'%3E%3Cpath d='M4.5 4.5l7 7M11.5 4.5l-7 7'/%3E%3C/svg%3E")}
+.menu-glyph-back{mask-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 3.5L5.5 8l4.5 4.5'/%3E%3C/svg%3E");-webkit-mask-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 3.5L5.5 8l4.5 4.5'/%3E%3C/svg%3E")}
+.menu-glyph-help{mask-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='6.2'/%3E%3Cpath d='M6.3 6.2a1.8 1.8 0 1 1 2.6 1.6c-.6.3-.9.7-.9 1.3v.4'/%3E%3Ccircle cx='8' cy='11.4' r='.35' fill='white'/%3E%3C/svg%3E");-webkit-mask-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='6.2'/%3E%3Cpath d='M6.3 6.2a1.8 1.8 0 1 1 2.6 1.6c-.6.3-.9.7-.9 1.3v.4'/%3E%3Ccircle cx='8' cy='11.4' r='.35' fill='white'/%3E%3C/svg%3E")}
+.menu-view .menu-items{display:flex;flex-direction:column;flex:0 1 auto;min-height:0;gap:0;padding:0;overflow-x:hidden;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--stroke) transparent}
+.menu-view .menu-items .menu-row{display:flex;align-items:center;justify-content:flex-start;gap:11px;flex:0 0 var(--menu-row);height:var(--menu-row);min-height:0;width:100%;margin:0;padding:0 10px 0 9px;border:0;border-radius:var(--r-sm);background:transparent;box-shadow:none;background-image:none;text-align:left;font-size:14px;line-height:1.2;color:var(--text)}
+.menu-view .menu-items .menu-row .nav-icon{display:block;width:20px;height:20px;flex:0 0 20px;color:var(--muted)}
+.menu-view .menu-label{display:flex;flex-direction:column;justify-content:center;gap:1px;min-width:0;flex:1}
+.menu-view .menu-label>span{font-size:14px;font-weight:400;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.menu-view .menu-label small{font-size:12px;line-height:1.25;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.menu-value{flex:0 0 auto;font-size:12.5px;color:var(--muted);white-space:nowrap}
+.menu-chevron{flex:0 0 6px;width:6px;height:6px;margin:0 4px 0 1px;border-top:1.5px solid currentColor;border-right:1.5px solid currentColor;color:var(--muted);transform:rotate(45deg);opacity:.9}
+.menu-check{flex:0 0 16px;width:16px;height:16px;margin:0 1px 0 2px;background:currentColor;color:var(--accent);mask:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 8.4l2.9 2.9 6.1-6.6'/%3E%3C/svg%3E") no-repeat center/100% 100%;-webkit-mask:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 8.4l2.9 2.9 6.1-6.6'/%3E%3C/svg%3E") no-repeat center/100% 100%}
+.menu-view .menu-items .menu-row:hover:not(:disabled) .menu-check{color:var(--text)}
+.menu-sep{flex:0 0 var(--menu-sep);height:var(--menu-sep);display:flex;align-items:center;padding:0 10px}
+.menu-sep::before{content:"";flex:1;height:1px;background:var(--stroke)}
+.menu-view .menu-items .menu-row:hover:not(:disabled){background:var(--select)}
+.menu-view .menu-items .menu-row:hover:not(:disabled) .nav-icon,.menu-view .menu-items .menu-row:hover:not(:disabled) .menu-value,.menu-view .menu-items .menu-row:hover:not(:disabled) .menu-chevron{color:var(--muted-on-select)}
+.menu-view .menu-items .menu-row:active:not(:disabled){background:color-mix(in srgb,var(--select) 64%,var(--panel))}
+.menu-view .menu-items .menu-row:focus-visible{outline:var(--focus-width) solid var(--ring);outline-offset:var(--focus-inset);box-shadow:none}
+.menu-view .menu-items .menu-row.menu-row-update:focus-visible{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--update) 40%,transparent)}
+.menu-view .menu-items .menu-row.menu-row-update{--update:var(--accent);--on-update:var(--on-accent);flex:0 0 calc(var(--menu-update) - 8px);height:calc(var(--menu-update) - 8px);margin:0 0 8px;padding:0 9px 0 10px;gap:11px;border-radius:var(--r-md);background:color-mix(in srgb,var(--update) 13%,var(--panel));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--update) 40%,transparent)}
+.menu-view .menu-items .menu-row.menu-row-update:hover:not(:disabled){background:color-mix(in srgb,var(--update) 21%,var(--panel))}
+.menu-view .menu-items .menu-row.menu-row-update .menu-label>span{font-weight:600;font-synthesis:none}
+.menu-view .menu-items .menu-row.menu-row-update.required{--update:var(--danger);--on-update:var(--on-danger)}
+.update-mark{flex:0 0 28px;width:28px;height:28px;display:grid;place-items:center;border-radius:var(--r-full);background:radial-gradient(circle at 35% 30%,color-mix(in srgb,var(--update) 55%,#fff) 0%,var(--update) 55%,color-mix(in srgb,var(--update) 78%,#000) 100%);box-shadow:0 0 0 3px color-mix(in srgb,var(--update) 20%,transparent)}
+.menu-view .menu-items .menu-row.menu-row-update .update-mark .nav-icon.nav-icon-download{width:16px;height:16px;flex:0 0 16px;color:var(--on-update)}
+.update-cta{flex:0 0 auto;height:26px;padding:0 12px;display:grid;place-items:center;border-radius:var(--r-full);background:var(--update);color:var(--on-update);font-size:12.5px;font-weight:600;letter-spacing:.01em;font-synthesis:none}@media(forced-colors:active){.update-cta{forced-color-adjust:none}}
+/* A row's answer takes its whole label, the row's full height, two lines at most;
+   a message with no row says itself on the title line (shell.js sayInFooter). */
+.menu-view .menu-items .menu-row .menu-label{align-self:stretch}
+.menu-view .say-roll.say-line>span{display:flex;align-items:center}
+.menu-view .say-roll.say-line>span>span:last-child{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-family:var(--ui-font,"Segoe UI"),system-ui,sans-serif;font-size:12.5px;font-weight:500;line-height:1.25;letter-spacing:0;white-space:normal}
+.pill-menu-heading h1.say-host{background:none}
+.pill-menu-heading h1.say-error .say-roll-new,.menu-view .menu-items .menu-row.say-error .say-roll-new{color:var(--danger-text)}
+.menu-view .menu-items .menu-row.menu-row-update .menu-label small{color:var(--muted-on-tint)}
+/* Review R3 (2026-10-10): the menu's glyphs are masks painted with background:currentColor,
+   and forced colours turn any background that is not a system colour into Canvas, so they
+   vanished. In a button their ink is ButtonText; the update mark's lit disc is a gradient,
+   which forced colours drop, so it becomes a ring. */
+@media(forced-colors:active){.pill-menu-heading .menu-glyph,.menu-view .menu-items .menu-row .menu-check,.menu-view .menu-items .menu-row .nav-icon{background:ButtonText}.menu-view .menu-items .menu-row.menu-row-update .update-mark{background:none;border:1.5px solid ButtonText;box-shadow:none}}
+.nav-icon.nav-icon-download{mask-mode:alpha;mask-size:100% 100%;mask-position:center;-webkit-mask-size:100% 100%;mask-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 4v10.5'/%3E%3Cpath d='M7.5 10.5L12 15l4.5-4.5'/%3E%3Cpath d='M5 16.5v1.5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1.5'/%3E%3C/svg%3E");-webkit-mask-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 4v10.5'/%3E%3Cpath d='M7.5 10.5L12 15l4.5-4.5'/%3E%3Cpath d='M5 16.5v1.5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1.5'/%3E%3C/svg%3E")}
 /* X-684: the menu grows out of the Pill on the sheet spring: from the side facing the
    Pill (--menu-origin, set by the host from the pointer that right-clicked it), 4%
    smaller and 8px toward it. The whole surface moves as one, so every row keeps one

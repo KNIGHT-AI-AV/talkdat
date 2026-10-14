@@ -15,8 +15,11 @@ edges that appeared in one frame. Now:
 from __future__ import annotations
 
 import json
+import multiprocessing
 import re
+import sys
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 from tests import shell_css
@@ -128,6 +131,124 @@ class TheEntranceTests(unittest.TestCase):
         self.assertLess(script.index("--menu-origin"), script.index("window.TalkDat.navigate"))
         self.assertIn(json.dumps("50% 100%"), script)
         api._window.show.assert_called()
+
+    def test_the_host_tells_the_page_which_edge_stays_put(self):
+        # 2026-10-09: each view fits its own height and the window keeps the edge that
+        # faces the Pill; the page anchors its content to that edge (data-menu-anchor).
+        from knight_flow.web_shell import shell_host
+
+        for cursor, anchor in (((252, 770), "bottom"), ((252, 180), "top")):
+            api = shell_host._RendererApi(mock.Mock(), mode="menu")
+            api._window = mock.Mock()
+            api._ready.set()
+            api._place_menu = lambda bounds: None
+            messages = [{"command": "navigate", "page": "menu", "bounds": [100, 200, 304, 552]}]
+
+            def receive(_connection, messages=messages):
+                if messages:
+                    return messages.pop(0)
+                raise EOFError
+
+            with mock.patch.object(shell_host, "_receive", receive), \
+                 mock.patch.object(shell_host, "_cursor_position", lambda cursor=cursor: cursor):
+                api._read()
+            script = api._window.evaluate_js.call_args_list[0].args[0]
+            with self.subTest(anchor=anchor):
+                self.assertIn("dataset.menuAnchor=" + json.dumps(anchor), script)
+                self.assertLess(script.index("menuAnchor"), script.index("window.TalkDat.navigate"))
+
+    def test_the_side_the_app_chose_decides_the_anchor_not_the_pointer(self):
+        # Overwatch's review B2: a keyboard open leaves the pointer anywhere, so the
+        # facing edge comes from the side the app chose at open, when it is given.
+        from knight_flow.web_shell import shell_host
+
+        for side, cursor, anchor in (("below", (252, 900), "top"), ("above", (252, 120), "bottom")):
+            api = shell_host._RendererApi(mock.Mock(), mode="menu")
+            api._window = mock.Mock()
+            api._ready.set()
+            api._place_menu = lambda bounds: None
+            messages = [{"command": "navigate", "page": "menu", "bounds": [100, 200, 304, 552], "side": side}]
+
+            def receive(_connection, messages=messages):
+                if messages:
+                    return messages.pop(0)
+                raise EOFError
+
+            with mock.patch.object(shell_host, "_receive", receive), \
+                 mock.patch.object(shell_host, "_cursor_position", lambda cursor=cursor: cursor):
+                api._read()
+            script = api._window.evaluate_js.call_args_list[0].args[0]
+            with self.subTest(side=side):
+                self.assertIn("dataset.menuAnchor=" + json.dumps(anchor), script)
+
+    def test_with_no_pointer_the_side_still_decides_the_anchor(self):
+        # Review R-B2b (N05, 2026-10-10): a keyboard open with the pointer unreadable.
+        # The side the app chose still names the facing edge; with no side, nothing is set.
+        from knight_flow.web_shell import shell_host
+
+        def no_pointer():
+            raise OSError("the pointer is unavailable")
+
+        with mock.patch.object(shell_host, "_cursor_position", no_pointer):
+            for side, anchor in (("above", "bottom"), ("below", "top")):
+                with self.subTest(side=side):
+                    script = shell_host._menu_origin_js([100, 200, 304, 552], side)
+                    self.assertIn("dataset.menuAnchor=" + json.dumps(anchor), script)
+            self.assertEqual(shell_host._menu_origin_js([100, 200, 304, 552]), "")
+
+    def test_an_open_menu_is_sent_its_side(self):
+        # Review R-B2b (N06): ShellController.open on a live renderer sends navigate with
+        # the side, over a real pipe.
+        from knight_flow.web_shell import shell_host
+
+        here, there = multiprocessing.Pipe(duplex=True)
+        self.addCleanup(there.close)
+        self.addCleanup(here.close)
+        controller = shell_host.ShellController(ROOT / "knight_flow" / "web_shell" / "shell_assets",
+                                                lambda work: work(), lambda *_args: None, mode="menu")
+        controller.process, controller.connection = SimpleNamespace(is_alive=lambda: True), here
+        for side in ("above", "below"):
+            controller.open("menu", bounds=[100, 200, 288, 400], side=side)
+            with self.subTest(side=side):
+                self.assertEqual(shell_host._receive(there), {"command": "navigate", "page": "menu",
+                                                              "bounds": [100, 200, 288, 400], "side": side})
+
+    def test_the_first_open_tells_the_page_its_side(self):
+        # Review R-B2b (N07): a renderer started for the menu builds the first page's
+        # anchor from the side it was started with (ready, on the first load). pywebview
+        # is stood in for; the pipe is real.
+        from knight_flow.web_shell import shell_host
+
+        class Hook(list):
+            def __iadd__(self, handler):
+                self.append(handler)
+                return self
+
+        window = SimpleNamespace(events=SimpleNamespace(before_show=Hook(), closing=Hook(), loaded=Hook()),
+                                 evaluate_js=mock.Mock())
+        webview = SimpleNamespace(settings={}, create_window=lambda *_args, **_kwargs: window,
+                                  start=lambda **_kwargs: None)
+        asked = []
+        here, there = multiprocessing.Pipe(duplex=True)
+        self.addCleanup(here.close)
+        self.addCleanup(there.close)
+        # On the Mac, _run_window reaches webview.platforms.cocoa (shell_host.py); the stand-in pywebview
+        # is not a package, so the Cocoa side is stood in too, as the hidden-menu test above does.
+        mac = {"PyObjCTools": SimpleNamespace(AppHelper=SimpleNamespace(callAfter=lambda fn, *a, **k: fn(*a, **k))),
+               "webview.platforms.cocoa": SimpleNamespace(BrowserView=SimpleNamespace(app=mock.Mock()))}
+        with mock.patch.dict(sys.modules, {"webview": webview, **mac}), \
+             mock.patch.object(shell_host, "_install_mac_policy", lambda *_args, **_kwargs: None), \
+             mock.patch.object(shell_host, "_watch_session_end", lambda: None), \
+             mock.patch.object(shell_host._RendererApi, "_place_menu", lambda _self, _bounds: None), \
+             mock.patch.object(shell_host._RendererApi, "_show", lambda _self: None), \
+             mock.patch.object(shell_host, "_menu_origin_js", lambda *args: asked.append(args) or ""):
+            for side in ("above", "below"):
+                window.events.loaded.clear()
+                shell_host._run_window(here, "<html></html>", "menu", hidden=False, mode="menu",
+                                       bounds=[100, 200, 288, 400], side=side)
+                for ready in window.events.loaded:
+                    ready()
+        self.assertEqual(asked, [([100, 200, 288, 400], "above"), ([100, 200, 288, 400], "below")])
 
     def test_the_page_grows_from_that_origin_on_the_sheet_spring(self):
         opening = Element("div", ("workspace",), parent=Element("body", ("menu-view", "menu-opening")))

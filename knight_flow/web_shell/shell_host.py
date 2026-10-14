@@ -22,6 +22,12 @@ DISCONNECTED = 'disconnected'
 #: X-682: the Pill menu's page fades for one exit (--t-exit, 140 ms, in shell.css)
 #: before its window hides. Hiding at once cut every close to a single frame.
 MENU_EXIT_SECONDS = 0.14
+#: The page's requests the host forwards to the app; the rest (theme_asset,
+#: cancel_close, dismiss, close) it answers itself. One list, read by both
+#: checkpoints (the renderer's Api.request and the app's listener):
+#: menu_fit was missing from both copies and every resize would have been
+#: refused (tests/test_the_host_forwards_what_the_page_asks.py).
+FORWARDED_METHODS = frozenset({'state', 'save', 'action', 'menu_layout', 'menu_fit', 'workspace'})
 
 
 #: X-684: the menu window class's drop shadow. A frameless WinForms window has no
@@ -113,14 +119,28 @@ def _cursor_position():
     return point.x, point.y
 
 
-def _menu_origin_js(bounds):
-    """Script that tells the page where the Pill is, or nothing if that is unknown."""
+def _menu_origin_js(bounds, side=None):
+    """Script that tells the page where the Pill is, or nothing if that is unknown.
+
+    `side` is the side of the Pill the app chose at open ('above' or 'below'). When it
+    is given it decides the facing edge, so a keyboard open (the pointer anywhere) is
+    right too (review B2); the pointer then only places the growth across the menu.
+    """
     try:
         origin, rise = menu_origin(bounds, _cursor_position())
     except (OSError, ValueError, TypeError, AttributeError):
-        return ''
+        if side not in ('above', 'below'):
+            return ''
+        origin, rise = '50% 0%', '-8px'
+    if side in ('above', 'below'):
+        across = origin.split(' ')[0]
+        origin, rise = (across + ' 100%', '8px') if side == 'above' else (across + ' 0%', '-8px')
+    # The edge that faces the Pill stays put when a view changes the window's height
+    # (2026-10-09); the page anchors its content to it.
+    anchor = 'bottom' if origin.endswith(' 100%') else 'top'
     return ('document.documentElement.style.setProperty("--menu-origin",' + json.dumps(origin) + ');'
-            'document.documentElement.style.setProperty("--menu-rise",' + json.dumps(rise) + ');')
+            'document.documentElement.style.setProperty("--menu-rise",' + json.dumps(rise) + ');'
+            'document.documentElement.dataset.menuAnchor=' + json.dumps(anchor) + ';')
 
 
 #: X-688: the WebView2 context-menu items the Settings window keeps. Everything a
@@ -292,7 +312,7 @@ class _RendererApi:
             self._force_close = True
             threading.Timer(0.1, self._window.destroy).start()
             return {'ok': True, 'result': None}
-        if method not in {'state', 'save', 'action', 'menu_layout', 'workspace'} or not isinstance(payload, dict):
+        if method not in FORWARDED_METHODS or not isinstance(payload, dict):
             return {'ok': False, 'error': 'This action is unavailable.'}
         with self._requests_lock:
             if len(self._pending) >= 32:
@@ -401,7 +421,7 @@ class _RendererApi:
                         origin = ''
                         if self._mode == 'menu':
                             self._place_menu(message.get('bounds'))
-                            origin = _menu_origin_js(message.get('bounds'))
+                            origin = _menu_origin_js(message.get('bounds'), message.get('side'))
                         self._window.evaluate_js(origin + 'window.TalkDat.navigate(' + json.dumps(page) + ');true')
                         self._show()
                         if self._mode == 'menu':
@@ -490,7 +510,7 @@ def _watch_session_end():
         SystemEvents.SessionEnding += lambda _sender, _args: _SESSION_ENDING.set()
 
 
-def _run_window(connection, html, page, hidden=False, mode='settings', bounds=None):
+def _run_window(connection, html, page, hidden=False, mode='settings', bounds=None, side=None):
     import webview
     webview.settings['ALLOW_DOWNLOADS'] = False
     webview.settings['ALLOW_FILE_URLS'] = False
@@ -544,7 +564,7 @@ def _run_window(connection, html, page, hidden=False, mode='settings', bounds=No
     window.events.before_show += protect_navigation
     window.events.closing += api._closing
     def ready():
-        origin = _menu_origin_js(bounds) if mode == 'menu' and bounds is not None else ''
+        origin = _menu_origin_js(bounds, side) if mode == 'menu' and bounds is not None else ''
         window.evaluate_js(origin + 'window.TalkDat.navigate(' + json.dumps(page) + ');true')
         if mode == 'menu':
             api._place_menu(bounds)
@@ -588,16 +608,16 @@ class ShellController:
         self._close_request = None
         self._intentional_close = False
 
-    def open(self, page='general', *, hidden=False, bounds=None):
+    def open(self, page='general', *, hidden=False, bounds=None, side=None):
         with self.open_lock:
             if self.process is not None and self.process.is_alive():
-                _send(self.connection, self.send_lock, {'command': 'navigate', 'page': page, 'bounds': bounds})
+                _send(self.connection, self.send_lock, {'command': 'navigate', 'page': page, 'bounds': bounds, 'side': side})
                 return
             self._intentional_close = False
             context = multiprocessing.get_context('spawn')
             parent, child = context.Pipe(duplex=True)
             self.connection = parent
-            self.process = context.Process(target=_window_process, args=(child, bundled_html(self.assets), page, hidden, self.mode, bounds),
+            self.process = context.Process(target=_window_process, args=(child, bundled_html(self.assets), page, hidden, self.mode, bounds, side),
                                            name='TalkDatSettings', daemon=True)
             self.process.start()
             child.close()
@@ -611,7 +631,7 @@ class ShellController:
                     self.accept_event(message)
                     continue
                 request_id, method, payload = message.get('id'), message.get('method'), message.get('payload')
-                if type(request_id) is not int or method not in {'state', 'save', 'action', 'menu_layout', 'workspace'} or not isinstance(payload, dict):
+                if type(request_id) is not int or method not in FORWARDED_METHODS or not isinstance(payload, dict):
                     raise ValueError('Invalid shell request')
                 if not self.capacity.acquire(blocking=False):
                     _send(connection, self.send_lock, {'id': request_id, 'answer': {'ok': False, 'error': 'Talk DAT is busy.'}})

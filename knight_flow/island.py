@@ -356,7 +356,9 @@ def envelope(pill: Rect, placement: Placement, *, overshoot: float = 0.02) -> Re
 # ---------------------------------------------------------------------------
 
 CAP = 44
-FEATHER = 18
+#: The cap melts into the body over most of its width (2026-10-09: over only its last
+#: 18 px the Pill's art met the frosted body at a hard, sticker-like edge).
+FEATHER = 32
 TEXT_GAP = 14
 TRAIL = 22
 MAX_WIDTH = 480
@@ -611,6 +613,7 @@ class Message:
     hold_ms: int | None = None
     origin: str = "system"
     segment: str = ""  # "word" | "update" | "" : which hold a segment gets
+    after_key: str = ""  # the key of the line this one follows: it waits behind that line
     created_ms: float = 0.0
     seq: int = 0
     remaining_ms: int | None = None  # set when an interrupted message is re-queued
@@ -683,6 +686,9 @@ class MessageQueue:
     info never replaces an unread error (the priorities give that), and a
     word notice never replaces another word notice (X-631: the first keeps its
     undo), so a segment is only ever replaced by an error, and comes back.
+
+    A message that names the line it follows (after_key) waits behind that line
+    while it shows, instead of replacing it, then shows next by its own priority.
     """
 
     def __init__(self) -> None:
@@ -813,6 +819,11 @@ class MessageQueue:
                 return Decision(self._enqueue(message), message, "pace", due_ms=due)
             self._entered(message, now_ms)
             return Decision("show", message)
+        if message.after_key and message.after_key == showing.key and not showing.is_segment:
+            # Review CL4-1 (2026-10-10): a line that follows another (the formatting
+            # line after "Captured locally") waits behind it, whatever its priority,
+            # and keeps its own priority in the queue and on the Pill.
+            return Decision(self._enqueue(message), message, "after the line it follows")
         if message.is_segment and showing.is_segment:
             return Decision(self._enqueue(message), message, "a segment waits for the one showing")
         if showing.is_segment and message.tone != "error":
@@ -903,6 +914,7 @@ def message_from(
     hold: int | None = None,
     origin: str = "system",
     segment: str = "",
+    after_key: str = "",
 ) -> Message:
     tone = str(tone or "info").strip().lower()
     if tone not in TONES:
@@ -920,6 +932,7 @@ def message_from(
         hold_ms=None if hold is None else max(0, int(hold)),
         origin=origin,
         segment=segment,
+        after_key=str(after_key or ""),
     )
 
 

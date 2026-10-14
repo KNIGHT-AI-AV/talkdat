@@ -4,7 +4,11 @@
   "frame_width": 320,
   "frame_height": 58,
   "fps": 240,
-  "source": "wave_strip frames 0-50 with baked 240-frame transparent seamless bridge",
-  "bridge_start_frame": 184,
+  "source": "keyframe 25 of the original drift (branding/the-pill/flow-pill-original-240.png, frame 92) walked as a seamless one-direction palindrome by scripts/generate_flow_pill_loop.py",
+  "direction": "right-to-left",
+  "loop": "seamless: frame 240 is frame 0",
+  "colour_period_flutes": 66,
+  "glass_flutes_per_loop": 30,
+  "flute_pitch": 7.9162,
   "transparent_background": true
 }

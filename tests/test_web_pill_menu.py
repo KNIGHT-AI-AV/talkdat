@@ -67,7 +67,7 @@ def probe_window(connection, html, page, hidden, mode, bounds):
 
 
 class ProbeController(ShellController):
-    def open(self,page='general',*,hidden=False,bounds=None):
+    def open(self,page='general',*,hidden=False,bounds=None,side=None):
         if self.process and self.process.is_alive():return super().open(page,hidden=hidden,bounds=bounds)
         ctx=multiprocessing.get_context('spawn');parent,child=ctx.Pipe()
         self.connection=parent
@@ -119,7 +119,8 @@ class PillMenuNativeTests(unittest.TestCase):
             layout=reports['menu']['layout']
             self.assertLessEqual(layout['scroll'],layout['height'])
             self.assertEqual(len({row['x'] for row in layout['rows']}),1)
-            self.assertGreaterEqual(min(row['h'] for row in layout['rows']),44)
+            # 2026-10-09 redesign: single-line 40 px rows (Fluent's menu row height).
+            self.assertGreaterEqual(min(row['h'] for row in layout['rows']),40)
             # The menu's icons come from the line-art ATLAS, which is a luminance
             # mask. This probed `.nav-icon` -- the first one in the document --
             # until X-172 put Home at the top of the rail with a mask of its own,
@@ -143,7 +144,7 @@ class PillAnchorGeometryTests(unittest.TestCase):
                 x,y,w,h=pill_menu_bounds(pill,(-2560,0,0,1800),scale)
                 self.assertLessEqual(abs(x+w/2-(pill[0]+pill[2]/2)),.5)
                 self.assertEqual(y+h,pill[1]-round(10*scale))
-                self.assertEqual(w,round(304*scale))
+                self.assertEqual(w,round(288*scale))
     def test_top_edge_falls_below_without_crossing_work_area(self):
         x,y,w,h=pill_menu_bounds((700,10,200,50),(0,0,1920,1040),1.5)
         self.assertGreaterEqual(y,60)

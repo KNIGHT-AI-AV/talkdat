@@ -955,7 +955,7 @@
     "page": "appearance",
     "section": "Pill details",
     "advanced": true,
-    "default": 2.6,
+    "default": 7.8,
     "description": "How long one cycle of the dictating animation lasts."
   },
   {
@@ -968,7 +968,7 @@
     "page": "appearance",
     "section": "Pill details",
     "advanced": true,
-    "default": 8.0,
+    "default": 24.0,
     "description": "How long one cycle of the idle animation lasts."
   },
   {

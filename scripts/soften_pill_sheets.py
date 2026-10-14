@@ -2,9 +2,10 @@
 
 WHY: the pill material is a finely ribbed wave (branding/the-pill). On desktop
 it plays at a rate where the ribs fuse into a shimmer. The phone plays the same
-frames at ~15 fps idle (TalkDatPill.swift: 120 frames over 8 s), where each rib
-is a crisp stripe for 66 ms -- the flow reads as strobing corduroy, and the
-Reduce Motion / parked states freeze it outright. The owner's direction
+frames at ~15 fps idle (TalkDatPill.swift: 120 frames over 8 s; 5 fps since the
+seamless loop moved to 24 s), where each rib is a crisp stripe for 66 ms -- the
+flow reads as strobing corduroy, and the Reduce Motion / parked states freeze it
+outright. The owner's direction
 (2026-08-29): keep the design, make it read as well on the phone as it does on
 the desktop.
 
