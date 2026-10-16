@@ -81,12 +81,13 @@ class TheBuildSignsWithSomethingStableTests(unittest.TestCase):
             "the probe must run against the bundle that will be installed",
         )
 
-    def test_the_search_list_is_put_back(self) -> None:
-        """A build script that permanently rewrites a developer's keychain
-        search list has changed their machine, not built an app."""
+    def test_the_search_list_is_never_touched(self) -> None:
+        """A build script that rewrites a developer's keychain search list has
+        changed their machine, not built an app. 0.4.173: not even for the
+        signing; every codesign names the keychain with --keychain instead."""
         script = self.script()
         block = script[script.index("sign_with_local_identity() {"):][:2000]
-        self.assertGreaterEqual(block.count("list-keychains -d user -s"), 2)
+        self.assertNotIn("list-keychains", block)
 
 
 class TheInstalledAppKeepsItsPermissionsTests(unittest.TestCase):

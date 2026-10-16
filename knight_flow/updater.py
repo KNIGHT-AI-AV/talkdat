@@ -527,6 +527,39 @@ def _newest_release(payload: Any, *, channel: str) -> dict[str, Any]:
     return selected
 
 
+def _has_installer_for_this_platform(release: dict[str, Any]) -> bool:
+    assets = release.get("assets", [])
+    return isinstance(assets, list) and any(
+        isinstance(asset, dict) and _is_installer_for_this_platform(str(asset.get("name") or "")) for asset in assets
+    )
+
+
+def _release_this_platform_can_install(payload: dict[str, Any], timeout: float, channel: str) -> dict[str, Any] | None:
+    """0.4.173 (f): the release to offer this machine, or None when no release carries its installer.
+
+    The selected release is kept when it has this platform's installer. Otherwise the newest release that has one is
+    taken: before this, a Mac on 0.4.170 was offered 0.4.172, a Windows-only release ("update available", nothing to
+    install), and a Mac-only release would have failed every Windows client's check on its receipt.
+    """
+    if _has_installer_for_this_platform(payload):
+        return payload
+    try:
+        with urllib.request.urlopen(_request(_releases_api_url(_update_repository()), timeout), timeout=timeout) as response:
+            listed = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as error:
+        raise UpdateError(f"Could not read GitHub release information: {error}.") from error
+    candidates = [
+        release
+        for release in (listed if isinstance(listed, list) else [])
+        if isinstance(release, dict)
+        and not release.get("draft", False)
+        and release.get("tag_name")
+        and (channel == "beta" or not release.get("prerelease", False))
+        and _has_installer_for_this_platform(release)
+    ]
+    return _newest_release(candidates, channel=channel) if candidates else None
+
+
 def _notes_spanning_versions(current: str, latest: str, latest_body: str, timeout: float) -> str:
     """Notes for the whole gap, not only the newest release.
 
@@ -636,7 +669,17 @@ def release_severity(body: str) -> str:
 
 
 def check_for_update(current_version: str = APP_VERSION, timeout: float = 8.0, channel: str = "stable") -> UpdateInfo:
-    payload = _latest_release_payload(timeout, channel if channel in {"stable", "beta"} else "stable")
+    channel = channel if channel in {"stable", "beta"} else "stable"
+    selected = _latest_release_payload(timeout, channel)
+    payload = _release_this_platform_can_install(selected, timeout, channel)
+    if payload is None:
+        # No published release carries this platform's installer: nothing to offer, so up to date.
+        return UpdateInfo(
+            current_version=current_version, latest_version=current_version, available=False,
+            release_url=str(selected.get("html_url") or APP_RELEASES_URL), installer_url="",
+            installer_name=INSTALLER_ASSET_NAME, installer_size=0, installer_sha256="", checksum_url="",
+            published_at="", release_notes="",
+        )
     tag_name = str(payload.get("tag_name") or "").strip()
     latest_version = tag_name[1:] if tag_name.lower().startswith("v") else tag_name
     if not latest_version:

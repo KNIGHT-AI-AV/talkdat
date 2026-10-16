@@ -3,6 +3,14 @@
 All notable product changes to Talk DAT! are recorded here. The project uses beta
 versions while broader field verification remains in progress.
 
+## 0.4.173-beta
+
+On the Mac, local speech recognition runs on the processor, the update check offers only updates your computer can install, and a dictation that fails on the graphics card is finished on the processor.
+
+- On the Mac, local speech recognition runs on the processor instead of Core ML. It gets ready in seconds and needs far less memory.
+- The update check offers only an update your computer can install. Mac users on 0.4.170 may have seen an update offer they couldn't install; 0.4.173 fixes it.
+- When local speech recognition fails on the graphics card, your dictation is finished on the processor instead of failing, and the processor is used until you restart the app.
+
 ## 0.4.172-beta
 
 Formatting keeps the writing model's answer more often, Paste last transcript pastes again, and words in your dictionary come out the way you saved them.

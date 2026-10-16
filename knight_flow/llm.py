@@ -307,6 +307,10 @@ def _post_json(url: str, body: dict[str, Any], headers: dict[str, str], timeout:
 # an unmocked test would otherwise answer differently per PC. The parity
 # battery and the benchmarks clear it to measure the real engine on purpose.
 LOCAL_ENGINE_OFFLINE_ENV = "TALK_DAT_LOCAL_ENGINE_OFFLINE"
+# Set by build-mac.sh for its 20-second probe launch: the launch's formatter prepare does no engine work at all (no
+# query, warm-up or download), and nothing starts or opens an engine. 2026-10-15: the Store flavor's probe opened
+# Ollama.app on the build Mac, and Ollama's first run raised an administrator-password dialog there.
+NO_ENGINE_START_ENV = "TALK_DAT_NO_ENGINE_START"
 
 
 def _ollama_models(api_base: str, *, timeout: float = 0.35) -> set[str] | None:
@@ -1196,6 +1200,8 @@ def local_formatter_preparing(config: dict[str, Any]) -> bool:
 
 def prepare_local_formatter(config: dict[str, Any]) -> None:
     """Start, install, and warm the selected local formatter without blocking paste."""
+    if os.environ.get(NO_ENGINE_START_ENV) == "1":
+        return  # a build's probe launch: no engine work at all, not even a query of a running engine
     settings = llm_settings(config)
     if resolved_llm_provider(config) != "ollama":
         return

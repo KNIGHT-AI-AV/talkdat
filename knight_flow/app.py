@@ -6,6 +6,7 @@ import gc
 import json
 import queue
 import logging
+import os
 import sys
 import tempfile
 import threading
@@ -60,7 +61,7 @@ from .onboarding import (
 from .profiles import active_profile, apply_profile
 from .wake import WakeWordListener
 from .logger import configure_logging
-from .llm import keep_local_finisher_resident, prepare_local_formatter
+from .llm import NO_ENGINE_START_ENV, keep_local_finisher_resident, prepare_local_formatter
 from .licensing import LicenseError, LicenseManager
 from . import local_fallback
 from . import mac_support
@@ -6434,6 +6435,8 @@ class TalkDatApp:
         """
         if getattr(self, "_reset_in_progress", False) is True:
             return
+        if os.environ.get(NO_ENGINE_START_ENV) == "1":
+            return  # a build's probe launch loads no speech model
         model = model_to_warm(self.config)
         if model is None:
             return
@@ -6496,6 +6499,8 @@ class TalkDatApp:
         """
         if getattr(self, "_reset_in_progress", False) is True:
             return
+        if os.environ.get(NO_ENGINE_START_ENV) == "1":
+            return  # a build's probe launch downloads no model: its home has none, on purpose
 
         def say(message: str) -> None:
             if on_status is None:

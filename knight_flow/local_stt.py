@@ -515,10 +515,17 @@ def warm_engine(model: LocalModel) -> bool:
             import numpy as np
 
             sample_rate = 16000
-            for bucket in (GPU_BUCKETS_S[0], GPU_BUCKETS_S[1]):
-                _recognize_onnx(engine, np.zeros(bucket * sample_rate, dtype=np.float32), sample_rate)
-            started = time.perf_counter()
-            _recognize_onnx(engine, np.zeros(GPU_BUCKETS_S[0] * sample_rate, dtype=np.float32), sample_rate)
+            try:
+                for bucket in (GPU_BUCKETS_S[0], GPU_BUCKETS_S[1]):
+                    _recognize_onnx(engine, np.zeros(bucket * sample_rate, dtype=np.float32), sample_rate)
+                started = time.perf_counter()
+                _recognize_onnx(engine, np.zeros(GPU_BUCKETS_S[0] * sample_rate, dtype=np.float32), sample_rate)
+            except Exception:
+                # 0.4.173: a GPU that cannot even warm up would fail the first
+                # dictation too; the CPU engine is warmed in its place.
+                _give_up_on_the_gpu(model, "warm-up")
+                ensure_loaded(model)
+                return True
             warm_seconds = time.perf_counter() - started
             _GPU_STATE["warm_seconds"] = warm_seconds
             if warm_seconds > GPU_SLOW_WARM_SECONDS:
@@ -702,19 +709,42 @@ def _gpu_providers() -> list[str]:
         available = set(onnxruntime.get_available_providers())
     except Exception:
         return []
-    # CoreML is the Apple-silicon accelerator and belongs in this list. It was
-    # already doing the work by accident: with no CUDA or DirectML present this
-    # returned [], the caller then passed no providers at all, and onnxruntime's
-    # default order on macOS happens to put CoreML first. Measured on this
-    # machine, it takes 1,528 of Parakeet's 3,249 nodes. Naming it means the
-    # "use GPU" setting reports and controls what is actually happening instead
-    # of being a no-op that looks like one.
+    # CoreML is the Apple-silicon accelerator. It was already doing the work by
+    # accident: with no CUDA or DirectML present this returned [], the caller
+    # then passed no providers at all, and onnxruntime's default order on macOS
+    # puts CoreML first. Measured, it takes 1,528 of Parakeet's 3,249 nodes, in
+    # 319 partitions. Since 0.4.173 it is offered only with the opt-in: see
+    # _cpu_pinned.
     preferred = [
         name
         for name in ("CUDAExecutionProvider", "DmlExecutionProvider", "CoreMLExecutionProvider")
-        if name in available
+        if name in available and (name != "CoreMLExecutionProvider" or _coreml_allowed())
     ]
     return preferred + ["CPUExecutionProvider"] if preferred else []
+
+
+# 0.4.173 (RULING 2026-10-16T02:24:15Z): on a Mac, Parakeet runs on the CPU. On an
+# 8 GB Mac, compiling CoreML's 319 partitions pushed swap from 2.7 to 3.95 GiB
+# before a word was transcribed, and the warm-up hit "GetElementType is not
+# implemented"; the CPU warmed in 1.49 s and transcribed a 6.3 s sentence in
+# 0.19 s. CoreML stays reachable through this opt-in until it has its own proof.
+COREML_OPT_IN_ENV = "TALK_DAT_COREML"
+CPU_PROVIDERS = ["CPUExecutionProvider"]
+
+
+def _coreml_allowed() -> bool:
+    return sys.platform != "darwin" or os.environ.get(COREML_OPT_IN_ENV) == "1"
+
+
+def _cpu_pinned() -> bool:
+    """Whether every Parakeet and VAD load must name the CPU explicitly.
+
+    On a Mac without the opt-in. Given no providers, onnx_asr hands onnxruntime
+    every available one, CoreML first (onnx_asr 0.12's loader: `providers or
+    rt.get_available_providers()`), so gpu=False alone still ran CoreML in every
+    direct Mac build up to 0.4.170.
+    """
+    return not _coreml_allowed()
 
 # X-408: DirectML (any DirectX 12 GPU, no CUDA install) or CUDA when present.
 # The int8 graph already on disk is what runs there: measured on the founder's
@@ -725,14 +755,25 @@ def _gpu_providers() -> list[str]:
 # session, so GPU runs are serialised behind a lock.
 GPU_BUCKETS_S = (5, 10, 15, 20, 25)
 GPU_SLOW_WARM_SECONDS = 2.5
-_GPU_STATE: dict[str, Any] = {"slow": False, "warm_seconds": None}
+_GPU_STATE: dict[str, Any] = {"slow": False, "warm_seconds": None, "failed": False}
 _GPU_ENGINE_IDS: set[int] = set()
 _GPU_RUN_LOCK = threading.Lock()
 
 
 def gpu_available() -> bool:
     """Whether the GPU path is worth using on this machine right now."""
-    return bool(_gpu_providers()) and not _GPU_STATE["slow"]
+    return bool(_gpu_providers()) and not _GPU_STATE["slow"] and not _GPU_STATE.get("failed")
+
+
+def _give_up_on_the_gpu(model: LocalModel, during: str) -> None:
+    """A GPU run or warm-up raised: the rest of this session uses the CPU.
+
+    0.4.173, X-473's pattern for Parakeet: a slower transcript beats no
+    transcript, and paying for the same failure on every dictation is half a fix.
+    """
+    if not _GPU_STATE.get("failed"):
+        log.warning("GPU %s failed for %s; the CPU takes over for this session", during, model.id, exc_info=True)
+    _GPU_STATE["failed"] = True
 
 
 def gpu_default(extra: dict[str, Any] | None) -> bool:
@@ -853,6 +894,8 @@ def _load_onnx_asr(model: LocalModel, gpu: bool = False) -> Any:
     kwargs: dict[str, Any] = {"quantization": quantization}
     if providers:
         kwargs["providers"] = providers
+    elif _cpu_pinned():
+        kwargs["providers"] = list(CPU_PROVIDERS)  # 0.4.173: named, or onnx_asr picks CoreML first on a Mac
     try:
         import onnxruntime
 
@@ -1143,7 +1186,7 @@ def _recognize_onnx(engine: Any, audio: Any, sample_rate: int,
         try:
             import onnx_asr
 
-            vad = onnx_asr.load_vad("silero")
+            vad = onnx_asr.load_vad("silero", **({"providers": list(CPU_PROVIDERS)} if _cpu_pinned() else {}))
             chain = engine.with_vad(vad, **_VAD_OPTIONS)
             if confidence is not None and callable(getattr(chain, "with_timestamps", None)):
                 chain = chain.with_timestamps()
@@ -1313,6 +1356,18 @@ def transcribe(
             _GPU_ENGINE_IDS.add(id(adapted))
         try:
             return _recognize_onnx(adapted, audio, sample_rate, word_confidence)
+        except Exception:
+            if not is_gpu_engine(engine):
+                raise
+            # 0.4.173, X-473's fallback for Parakeet: a GPU run that raises
+            # (CoreML's "GetElementType is not implemented", a lost DirectML
+            # device) gives up on the GPU for the session and redoes this take
+            # on the CPU.
+            _give_up_on_the_gpu(model, "run")
+            if status_cb:
+                status_cb("transcribing")
+            cpu = with_transducer_bias(ensure_loaded(model, status_cb, gpu=False), vocabulary)
+            return _recognize_onnx(cpu, audio, sample_rate, word_confidence)
         finally:
             if registered:
                 _GPU_ENGINE_IDS.discard(id(adapted))

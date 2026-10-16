@@ -104,6 +104,12 @@ LOCAL_ID_NAME="Talk DAT Local Build"
 LOCAL_KEYCHAIN="$LOCAL_ID_DIR/talkdat-build.keychain"
 BUNDLE_ID="com.knightaiav.talkdat"
 
+# Passwords reach `security` on stdin through its interactive mode, never in
+# argv, where `ps` shows them to every user. The bash builtin printf puts the
+# line on the pipe without starting a process. (0.4.173; the Mac rules for
+# agent runs, 2026-10-15.)
+sec_i() { printf '%s\n' "$1" | security -i >/dev/null; }
+
 ensure_local_identity() {
     if [ -f "$LOCAL_KEYCHAIN" ] && [ -f "$LOCAL_ID_DIR/keychain.pass" ]; then
         return 0
@@ -142,28 +148,24 @@ CNF
         -out "$LOCAL_ID_DIR/identity.p12" -passout pass:x -name "$LOCAL_ID_NAME" 2>/dev/null
     chmod 600 "$LOCAL_ID_DIR"/key.pem "$LOCAL_ID_DIR"/identity.p12
 
-    security create-keychain -p "$pass" "$LOCAL_KEYCHAIN" 2>/dev/null || true
-    security unlock-keychain -p "$pass" "$LOCAL_KEYCHAIN"
+    sec_i "create-keychain -p \"$pass\" \"$LOCAL_KEYCHAIN\"" 2>/dev/null || true
+    sec_i "unlock-keychain -p \"$pass\" \"$LOCAL_KEYCHAIN\""
     security set-keychain-settings "$LOCAL_KEYCHAIN"   # no auto-lock timeout
     security import "$LOCAL_ID_DIR/identity.p12" -k "$LOCAL_KEYCHAIN" -P x \
         -T /usr/bin/codesign -A >/dev/null
     # Without this, codesign triggers a GUI password prompt on every use --
     # which is the exact thing this whole mechanism exists to stop.
-    security set-key-partition-list -S apple-tool:,apple:,codesign: \
-        -s -k "$pass" "$LOCAL_KEYCHAIN" >/dev/null 2>&1
+    sec_i "set-key-partition-list -S apple-tool:,apple:,codesign: -s -k \"$pass\" \"$LOCAL_KEYCHAIN\"" 2>/dev/null
     rm -f "$LOCAL_ID_DIR/identity.p12"
     echo "    $LOCAL_ID_DIR  (delete this directory to undo)"
 }
 
 sign_with_local_identity() {
+    # Every codesign below names the keychain with --keychain, so it never joins
+    # the user's search list (0.4.173; it used to be added for the signing and
+    # taken off again), and its password goes to security -i on stdin.
     local pass; pass="$(cat "$LOCAL_ID_DIR/keychain.pass")"
-    security unlock-keychain -p "$pass" "$LOCAL_KEYCHAIN"
-    # The keychain is put on the search list only for the duration of signing,
-    # and taken off again below. Leaving a developer's search list permanently
-    # altered by a build script is not this script's business.
-    local previous; previous="$(security list-keychains -d user | sed 's/"//g' | tr -d ' ' | tr '\n' ' ')"
-    # shellcheck disable=SC2086
-    security list-keychains -d user -s $previous "$LOCAL_KEYCHAIN"
+    sec_i "unlock-keychain -p \"$pass\" \"$LOCAL_KEYCHAIN\""
     local failed=0
     find "$BUNDLE" -type f \( -name "*.so" -o -name "*.dylib" \) -print0 2>/dev/null |
         while IFS= read -r -d '' item; do
@@ -174,8 +176,6 @@ sign_with_local_identity() {
         --sign "$LOCAL_ID_NAME" "$BUNDLE/Contents/MacOS/$APP_NAME" >/dev/null 2>&1 || failed=1
     codesign --force --keychain "$LOCAL_KEYCHAIN" --identifier "$BUNDLE_ID" \
         --sign "$LOCAL_ID_NAME" "$BUNDLE" >/dev/null 2>&1 || failed=1
-    # shellcheck disable=SC2086
-    security list-keychains -d user -s $previous
     return $failed
 }
 
@@ -319,15 +319,16 @@ echo "==> Probe launch"
 # The probe runs against its own app directory. Two reasons: the single-instance
 # lock lives there, so probing while the installed copy is running would exit
 # immediately and look like a crash; and a build should not write to the
-# developer's real config, history or audio spool. The model cache is linked
-# rather than copied so the probe warms from it instead of downloading 640MB.
+# developer's real config, history or audio spool.
+# The probe proves the app starts; it starts no engine and touches no model.
+# TALK_DAT_NO_ENGINE_START=1 keeps the launch from starting the local formatter
+# engine and from prefetching or warming a speech model. 2026-10-16: the probe
+# used to link the real model cache into its home, and the app's Parakeet load
+# writes a ready marker into the model folder (and removes one it finds
+# incomplete), so every build could rewrite or delete the owner's model.
 PROBE_HOME="$(mktemp -d)"
-REAL_HOME="$HOME/Library/Application Support/TalkDat"
-if [ -d "$REAL_HOME/models" ]; then
-    ln -s "$REAL_HOME/models" "$PROBE_HOME/models"
-fi
 trap 'rm -rf "$PROBE_HOME"' EXIT
-TALK_DAT_HOME="$PROBE_HOME" "$BUNDLE/Contents/MacOS/$APP_NAME" >build-mac/probe.log 2>&1 &
+TALK_DAT_HOME="$PROBE_HOME" TALK_DAT_NO_ENGINE_START=1 "$BUNDLE/Contents/MacOS/$APP_NAME" >build-mac/probe.log 2>&1 &
 probe_pid=$!
 sleep 20
 if kill -0 "$probe_pid" 2>/dev/null; then
