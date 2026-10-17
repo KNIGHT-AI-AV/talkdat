@@ -2585,10 +2585,11 @@ class TalkDatApp:
                 lambda: self.remind_about_update(TRIGGER_IDLE),
             )
         # Trailing audio is already handled downstream: the capture loop keeps
-        # the stream open and sleeps `dictation.tail_capture_ms` (520ms by
-        # default, adjustable in Settings) after the stop event, so the last
-        # word is still being recorded. Adding a second delay here would stack
-        # on that and give two knobs for one behaviour.
+        # the stream open for up to `dictation.tail_capture_ms` (520ms by
+        # default, adjustable in Settings) after the stop event, only while
+        # the word under way at the release is still coming (X-768), so the
+        # last word is still being recorded. Adding a second delay here would
+        # stack on that and give two knobs for one behaviour.
         session.stop()
 
     def abort_young_hold(self) -> None:

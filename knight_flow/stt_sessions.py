@@ -114,6 +114,10 @@ class BatchSTTSession:
         self._done_called = False
         self._heard_voice = False
         self._last_voice_at = 0.0
+        # X-768: the release tail's voice, judged on the RAW microphone level by the X-405 gate. The level after the
+        # front end never shows a pause on some PCs, so a tail judged on it always ran its whole budget.
+        self._speech_heard = False
+        self._last_speech_at = 0.0
         self._current_text = ""
         self._audio = bytearray()
         self._transport_lock = threading.Lock()
@@ -231,6 +235,11 @@ class BatchSTTSession:
                 channels=self.channels,
             )
 
+        # X-768: the release tail's own raw-level gate (the X-405 rule), apart from the planner's.
+        from .progressive import VoiceGate as TailGate
+
+        tail_gate = TailGate()
+
         def callback(indata: Any, frames: int, time_info: Any, status: Any) -> None:
             if self._cancel_event.is_set():
                 return
@@ -270,6 +279,9 @@ class BatchSTTSession:
             if level >= 0.025:
                 self._heard_voice = True
                 self._last_voice_at = time.monotonic()
+            if tail_gate.voiced(rms_level(raw_data)):
+                self._speech_heard = True
+                self._last_speech_at = time.monotonic()
             self._safe_audio(data, self.sample_rate, self.channels, self._heard_voice)
             # Raw dynamics scaled by the live gain: a quiet mic's wave stays
             # visible and a hot mic's syllables are not limiter-flattened.
@@ -395,10 +407,17 @@ class BatchSTTSession:
         real but uncommon; charging every dictation the worst case made it a
         quarter of the total time from key release to text on screen.
 
-        The capture stream is still running here, so _last_voice_at keeps
+        The capture stream is still running here, so _last_speech_at keeps
         updating while there is anything to hear. Waiting for a short silence
         instead of a fixed duration keeps the whole budget available when it is
         actually needed and returns almost immediately when it is not.
+
+        X-768: the silence is read on the raw microphone level (the X-405 gate),
+        not the level after the adaptive front end, which lifts every pause
+        toward speech loudness: judged on that, the quiet never came and every
+        release paid the whole budget, recording whatever the mic heard in it.
+        A take the raw gate never heard (a very quiet mic, or speech from the
+        first chunk without a pause) keeps the old rule, so no word is cut.
         """
         budget = max(0.0, self.tail_capture_ms / 1000.0)
         if budget <= 0:
@@ -408,10 +427,13 @@ class BatchSTTSession:
             now = time.monotonic()
             if now >= deadline or self._cancel_event.is_set():
                 return
+            if self._speech_heard:
+                if (now - self._last_speech_at) >= self.TAIL_QUIET_SECONDS:
+                    return
             # Only trust the silence test once we have heard the speaker at
             # all; otherwise a session that never picked up voice would exit
             # instantly and clip audio the meter simply never registered.
-            if self._heard_voice and (now - self._last_voice_at) >= self.TAIL_QUIET_SECONDS:
+            elif self._heard_voice and (now - self._last_voice_at) >= self.TAIL_QUIET_SECONDS:
                 return
             time.sleep(0.02)
 

@@ -3,6 +3,12 @@
 All notable product changes to Talk DAT! are recorded here. The project uses beta
 versions while broader field verification remains in progress.
 
+## 0.4.174-beta
+
+The microphone now closes when you let go of the key, or as soon as the word you were saying ends.
+
+- After you let go of the key, the microphone stays open only while you finish the word you were saying. Before, it often stayed open for about half a second after every dictation, and what it heard then could end up in your text.
+
 ## 0.4.173-beta
 
 On the Mac, local speech recognition runs on the processor, the update check offers only updates your computer can install, and a dictation that fails on the graphics card is finished on the processor.
