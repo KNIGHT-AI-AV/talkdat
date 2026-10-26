@@ -8,9 +8,12 @@ class ExplicitCorrectionLearningTests(unittest.TestCase):
         self.assertEqual(pair, ("May over", "Mayowa"))
         config = {"dictionary": {"terms": []}}
         self.assertTrue(remember_correction(*pair, config))
-        self.assertEqual(config["dictionary"]["terms"], [
+        # T4 (2026-10-21): every learned entry also says where it came from.
+        terms = config["dictionary"]["terms"]
+        self.assertEqual([{key: value for key, value in entry.items() if key != "provenance"} for entry in terms], [
             {"text":"Mayowa", "sounds_like":["May over"], "learned":True}
         ])
+        self.assertEqual(terms[0]["provenance"]["heard"], "May over")
         from knight_flow.recognition_bias import recognition_terms
         self.assertEqual(recognition_terms(config), ("Mayowa",))
 

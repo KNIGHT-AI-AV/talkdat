@@ -19,6 +19,7 @@ class WordsWorkspace:
         self.config, self.persist, self.applied, self.utility = config, persist, applied, utility
         self.key = secrets.token_bytes(32)
         self.pending_pack = None
+        self.pending_glossary = None
 
     def data(self):
         dictionary = self.config.get('dictionary', {})
@@ -172,6 +173,8 @@ class WordsWorkspace:
                 candidate.setdefault('dictionary', {})[key] = copy.deepcopy(pending[3]['dictionary'][key])
             candidate['snippets'] = copy.deepcopy(pending[3]['snippets'])
             result = self.save(candidate); self.pending_pack=None; return result
+        if operation in ('glossary_preview', 'glossary_apply', 'glossary_remove'):
+            return self.glossary(operation, payload)
         if operation in ('practice_start','practice_status','practice_cancel'):
             self.require(payload, {'id','revision'} if operation == 'practice_start' else set())
             if operation == 'practice_start':
@@ -241,3 +244,59 @@ class WordsWorkspace:
                 result['record'] = copy.deepcopy(saved['record'])
             return result
         raise ValueError('That vocabulary action is unavailable.')
+
+    # T5: a glossary file, previewed in full before anything is kept, imported as
+    # the accepted subset (tagged with its source), and removable exactly. The
+    # rows carry codes, not wording: the view words them.
+    GLOSSARY_REASONS = {
+        'a link': 'link', 'a file path': 'path', 'looks like a password or key': 'secret',
+        'a sentence, not a term': 'sentence', 'contains control characters': 'control',
+        'no letters or digits': 'no_letters', 'in the file twice': 'duplicate',
+        'already in your words': 'known', 'sounds like a word you already have': 'conflict',
+    }
+
+    def glossary(self, operation, payload):
+        from knight_flow.glossary_import import import_accepted, imports, preview, remove_import
+        from knight_flow.word_scopes import active_project, project_by_id
+        unavailable = 'That vocabulary action is unavailable.'
+        if operation == 'glossary_preview':
+            self.require(payload, {'source'})
+            if payload['source'] != 'file': raise ValueError(unavailable)
+            revision = self.revision()
+            picked = self.utility('glossary', 'file')
+            if picked is None: self.pending_glossary = None; return {'cancelled': True}
+            if self.revision() != revision: self.pending_glossary = None; raise ValueError(unavailable)
+            raw, name = picked
+            project = active_project(self.config)
+            plan = preview(self.config, raw, source_name=name, project=project)
+            token = secrets.token_urlsafe(24)
+            self.pending_glossary = (token, revision, time.monotonic(), plan, project['id'] if project else '')
+            rows = [{'text': row.text[:512], 'sounds_like': list(row.sounds_like)[:8], 'line': row.line,
+                     'status': row.status, 'reason': self.GLOSSARY_REASONS.get(row.reason, 'other' if row.reason else ''),
+                     'conflicts_with': row.conflicts_with[:512]} for row in plan.candidates[:self.MAX_ENTRIES]]
+            return {'token': token, 'source': plan.source_name[:256], 'project': project['id'] if project else '',
+                    'rows': rows}
+        if operation == 'glossary_apply':
+            self.require(payload, {'token', 'accepted', 'confirmed'})
+            pending = self.pending_glossary
+            accepted = payload['accepted']
+            if (not pending or payload['token'] != pending[0] or payload['confirmed'] is not True
+                    or type(accepted) is not list or any(type(text) is not str for text in accepted)
+                    or not 0 <= time.monotonic() - pending[2] <= 300 or pending[1] != self.revision()):
+                self.pending_glossary = None
+                raise ValueError(unavailable)
+            candidate = copy.deepcopy(self.config)
+            project = project_by_id(candidate, pending[4]) if pending[4] else None
+            if pending[4] and project is None: self.pending_glossary = None; raise ValueError(unavailable)
+            record = import_accepted(candidate, pending[3], accepted, project=project)
+            self.pending_glossary = None
+            if not record['count']: return {'imported': 0, 'revision': self.revision()}
+            return {**self.save(candidate), 'imported': record['count'], 'source_id': record['id']}
+        self.require(payload, {'source', 'revision'})
+        if payload['revision'] != self.revision() or type(payload['source']) is not str:
+            raise ValueError(unavailable)
+        if not any(record.get('id') == payload['source'] for record in imports(self.config)):
+            raise ValueError(unavailable)
+        candidate = copy.deepcopy(self.config)
+        removed = remove_import(candidate, payload['source'])
+        return {**self.save(candidate), 'removed': removed}

@@ -125,6 +125,9 @@ class ScaleArithmeticTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform.startswith("win"), "Windows DPI API only")
     def test_real_win64_locked_process_mode_is_detected(self) -> None:
         script = """
+import tests  # the guard and the audio stand-in; nothing in them touches DPI awareness
+from tests.audio_stand_in import report_at_exit
+report_at_exit()
 import ctypes
 from knight_flow import ui_scale
 ctypes.windll.shcore.SetProcessDpiAwareness(1)
@@ -143,6 +146,7 @@ raise SystemExit(0 if ui_scale.enable_dpi_awareness() else 7)
             0,
             f"locked Win64 DPI mode was not detected:\n{result.stdout}\n{result.stderr}",
         )
+        self.assertIn("portaudio check: clean", result.stderr, "the child ran without the test package's check")
 
     def test_config_override_wins_and_is_clamped(self) -> None:
         """The escape hatch for a display Windows misreports, bounded so a

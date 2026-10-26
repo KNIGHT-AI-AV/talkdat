@@ -31,6 +31,8 @@ timestamped persisted count that expires, not a plain counter.
 """
 from __future__ import annotations
 
+import sys
+import threading
 import types
 import unittest
 
@@ -40,6 +42,8 @@ from unittest import mock
 import knight_flow.app as app_module
 from knight_flow.mac_support import THIS_COMPUTER
 
+# Every tone the miss signal tried to play, heard by the stand-in instead.
+BEEPS: list[tuple] = []
 
 # 1000 ms of 16 kHz mono 16-bit audio: past the 250 ms floor the retry needs.
 PCM = b"\x01\x02" * 16000
@@ -123,6 +127,8 @@ def _fail_a_cloud_dictation(app: _FakeApp, *, at_seconds: float) -> str:
         mock.patch.object(
             app_module.local_fallback, "describe", lambda _m: f"on {platform_copy.THIS_COMPUTER}"
         ),
+        # The miss is signalled by two tones; a stand-in hears them, never the speaker.
+        mock.patch.dict(sys.modules, {"winsound": types.SimpleNamespace(Beep=lambda *tone: BEEPS.append(tone))}),
     ]
     for patch in patches:
         patch.start()
@@ -130,6 +136,10 @@ def _fail_a_cloud_dictation(app: _FakeApp, *, at_seconds: float) -> str:
         app_module.TalkDatApp.recover_transcript_if_needed(
             app, _Session(), "ptt", ""
         )
+        # The tones play on their own thread: let it finish inside the stand-in.
+        for thread in threading.enumerate():
+            if thread.name == "cloud-fail-beep":
+                thread.join(2.0)
     finally:
         for patch in patches:
             patch.stop()
@@ -196,6 +206,15 @@ class SustainedOutageReachesTheLocalRescueTests(unittest.TestCase):
         self.assertEqual(
             stale, "", "a failure from over a day ago is not evidence of a sick cloud"
         )
+
+    def test_a_miss_is_signalled_through_the_stand_in(self) -> None:
+        """The two tones still play on a miss, to the stand-in, never the speaker."""
+        BEEPS.clear()
+        app = _FakeApp()
+        self.assertEqual(_fail_a_cloud_dictation(app, at_seconds=10.0), "")
+        self.assertEqual(BEEPS, [(660, 110), (500, 110)])
+        self.assertNotIn("winsound", {name for name, module in sys.modules.items()
+                                      if isinstance(module, types.SimpleNamespace)})
 
 
 if __name__ == "__main__":

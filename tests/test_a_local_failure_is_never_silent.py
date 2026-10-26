@@ -5,6 +5,13 @@ its text. With the door shut, the same PC drops to the rules formatter, and
 without this the person would watch Chill and Executive do nothing with no
 reason offered anywhere. That is the same silence pointing the other way, and
 it is the fault the whole change exists to remove.
+
+2026-10-24, the owner called the reason said on the Pill after every dictation
+("Your text was formatted by the built-in rules, not the model. The local writing
+model was unavailable.") stupid, annoying and ugly. Every user without Ollama got
+it on every take. So the reason is no longer said on the Pill: it stays
+on the take's own History entry and in the log, and Settings > Writing > Formatting
+names it with the fix (tests/test_quiet_formatting_fallbacks.py).
 """
 from __future__ import annotations
 
@@ -51,26 +58,23 @@ class TheReasonSurvivesTheFallbackTests(unittest.TestCase):
         self.assertIsNotNone(block, "the refusal is no longer recorded at the local call site")
         self.assertIn("if not output:", block.group(0))
 
-    def test_the_app_says_it_before_it_says_anything_else(self) -> None:
-        """A reason the person can act on (no engine, too slow) is said before
-        anything else. Since 2026-10-09 (the owner) a per-take fallback, such
-        as the meaning check refusing the model's edit, is a normal take and
-        only logged: tests/test_quiet_formatting_fallbacks.py."""
+    def test_the_app_keeps_the_reason_on_the_take_and_says_it_nowhere_else(self) -> None:
+        """Read once per take, kept on the take's History entry and logged; never
+        the Pill's line (the owner, 2026-10-24). Behaviour:
+        tests/test_quiet_formatting_fallbacks.py."""
         self.assertIn("local_notice = take_local_finish_notice()", APP)
         block = APP[APP.index("local_notice = take_local_finish_notice()"):]
         block = block[: block.index("elif guided_sink_still_owned")]
-        self.assertIn("formatting_line = local_finish_feedback(local_notice)", block)
-        self.assertIn("if routine_success and formatting_line:\n            self.overlay.set_state(*formatting_line)", block)
+        self.assertIn('entry["format_note"] = local_finish_feedback(local_notice)[1]', block)
+        self.assertNotIn("formatting_line = local_finish_feedback(local_notice)", block)
         from knight_flow.app import local_finish_feedback
-        state, title, _ = local_finish_feedback("too_slow")
+        _state, title, _ = local_finish_feedback("model_unavailable")
         self.assertIn("Your text was formatted by the built-in rules, not the model.", title)
-        self.assertEqual(state, "error")
-        # It comes first on a routine take; the translation branch is an elif under it.
-        # Overwatch's review J-B1 (2026-10-10): a failed translation, like a failed
-        # insertion, is the take's own news, so the reason never takes its place
-        # (routine_success excludes it), and with Auto paste off the reason follows
-        # "Captured locally" (F1). Behaviour: tests/test_quiet_formatting_fallbacks.py.
-        self.assertRegex(block, r"elif translation_error(?: and not withheld and not partial_delivery)?:")
+
+    def test_settings_names_the_reason_with_its_fix(self) -> None:
+        overlay = (ROOT / "knight_flow" / "overlay.py").read_text(encoding="utf-8")
+        self.assertIn("Ollama is not installed, so dictation uses the built-in rules", overlay)
+        self.assertIn('text="Get / update Ollama"', overlay)
 
 
 if __name__ == "__main__":

@@ -316,7 +316,9 @@ class WakeSafetyTests(unittest.TestCase):
         callback = self.streams[0].kwargs["callback"]
         for _ in range(4):
             callback(b"\0\1" * 1280, 1280, None, None)
-        until = time.monotonic() + 1
+        # 3 s, not 1: at below-normal priority on a busy machine the listener
+        # thread was seen to miss a 1 s window (2026-10-21 guard proof r1).
+        until = time.monotonic() + 3
         while not self.model.predict.called and time.monotonic() < until:
             time.sleep(0.01)
         self.assertTrue(self.model.predict.called)

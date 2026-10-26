@@ -229,6 +229,23 @@ class AudioSafetyCapture:
             self._metadata["updated_at"] = time.time()
             self._write_metadata_locked()
 
+    def add_checkpoint(self, index: int, start: int, end: int, text: str, *, keep_words: bool = True) -> None:
+        """T8: one finished segment of a long take, next to its audio.
+
+        Recovery keeps the contiguous run of checkpoints whose audio reached the
+        disk and transcribes only what follows (take_checkpoints.py). With
+        ``keep_words`` False -- History off, or a field that may be a password --
+        only the byte range is written, never the text.
+        """
+        from .take_checkpoints import add_checkpoint
+
+        if self._closed.is_set() or self._discarded:
+            return
+        with self._metadata_lock:
+            self._metadata = add_checkpoint(self._metadata, index, start, end, text, keep_words=keep_words)
+            self._metadata["updated_at"] = time.time()
+            self._write_metadata_locked()
+
     def flush(self, timeout: float = 3.0) -> bool:
         if self._closed.is_set():
             return True
@@ -483,6 +500,39 @@ def update_safety_session(session_id: str, **changes: Any) -> dict[str, Any] | N
     persisted["updated_at"] = time.time()
     _atomic_write_json(metadata_path, persisted)
     return safety_session(session_id)
+
+
+#: Bumped whenever audio_spans' rules change, so a cached result is recomputed.
+SPANS_VERSION = 1
+
+
+def session_spans(session_id: str) -> list[dict[str, Any]]:
+    """T9: where this take's audio was clipped, silent or noisy, as spans in
+    milliseconds. Computed on first request and kept in the take's metadata;
+    the recording itself is only read."""
+    from .audio_spans import analyze_spans, as_metadata
+
+    metadata = safety_session(session_id)
+    if not metadata:
+        return []
+    cached = metadata.get("audio_spans")
+    if isinstance(cached, dict) and cached.get("version") == SPANS_VERSION and isinstance(cached.get("spans"), list):
+        return list(cached["spans"])
+    pcm16, sample_rate, channels = read_safety_audio(session_id)
+    spans = as_metadata(analyze_spans(pcm16, sample_rate=sample_rate, channels=channels))
+    update_safety_session(session_id, audio_spans={"version": SPANS_VERSION, "spans": spans})
+    return spans
+
+
+def span_audio_of(session_id: str, span: dict[str, Any], *, context_ms: int = 300) -> tuple[bytes, int, int]:
+    """T9: the audio of one span of a take (with context either side), for a
+    replay or a retry of just that part. A copy; the recording is unchanged."""
+    from .audio_spans import Span, span_audio
+
+    pcm16, sample_rate, channels = read_safety_audio(session_id)
+    part = span_audio(pcm16, Span(str(span.get("kind", "")), int(span["start_ms"]), int(span["end_ms"])),
+                      sample_rate=sample_rate, channels=channels, context_ms=context_ms)
+    return part, sample_rate, channels
 
 
 def read_safety_audio(session_id: str) -> tuple[bytes, int, int]:

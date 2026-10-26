@@ -272,6 +272,59 @@ REFUSAL_TOAST_SECONDS = 3.0
 # menu bar icon's on the Mac, whose Pill menu has no resume row (mac-port).
 RESUME_SURFACE_NAME = "the menu bar icon" if mac_support.IS_MAC else "the tray icon"
 LIVE_SESSION_CONTROLS = frozenset({"hold", "command_hold", "hands_free"})
+# T1: a take's History entry waits this long for its polish, then is written
+# without it. The polish itself gives up after verified_replace.MAX_AGE_SECONDS.
+POLISH_HISTORY_WAIT_SECONDS = 30.0
+# T9: span alternatives are read, changed and written back by span workers.
+_SPAN_ALTERNATIVES_LOCK = threading.Lock()
+
+
+class _PolishRecord:
+    """T1: one take's History entry and its polish's outcome meet here, and the
+    entry is written once, whichever arrives last -- or alone, if the polish
+    has not reported in POLISH_HISTORY_WAIT_SECONDS."""
+
+    def __init__(self, write: Callable[[dict[str, Any]], None],
+                 finish: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]) -> None:
+        self._lock = threading.Lock()
+        self._write, self._finish = write, finish
+        self._entry: dict[str, Any] | None = None
+        self._result: dict[str, Any] | None = None
+        self._written = False
+        self._timer: threading.Timer | None = None
+
+    def entry(self, entry: dict[str, Any]) -> None:
+        with self._lock:
+            self._entry = entry
+            if self._result is None:
+                self._timer = threading.Timer(POLISH_HISTORY_WAIT_SECONDS, self._give_up)
+                self._timer.daemon = True
+                self._timer.start()
+            self._flush()
+
+    def result(self, result: dict[str, Any]) -> None:
+        with self._lock:
+            self._result = result
+            self._flush()
+
+    def _give_up(self) -> None:
+        with self._lock:
+            if self._result is None:
+                self._result = {"replaced": False, "reason": "no_polish_in_time"}
+            self._flush()
+
+    def _flush(self) -> None:
+        if self._written or self._entry is None or self._result is None:
+            return
+        self._written = True
+        if self._timer is not None:
+            self._timer.cancel()
+        try:
+            entry = self._finish(self._entry, self._result)
+        except Exception:
+            log.exception("the polish outcome could not be added to the take's History entry")
+            entry = self._entry
+        self._write(entry)
 
 
 class TalkDatApp:
@@ -2198,8 +2251,18 @@ class TalkDatApp:
             # microphone opens: local is local, cloud is the user's cloud
             # leg, and auto picks the leg only when it can actually work.
             profile = copy.deepcopy(active_profile(self.config))
-            provider_id = resolve_route(self.config)
-            session_config = copy.deepcopy(self.config)
+            # T7: a take locked to this computer -- an app profile marked local
+            # only, or a one-shot request for the next take. The existing
+            # local-only switch is turned on for THIS take's config, so every
+            # resolver answers as on a local-only install, and the fence holds
+            # for the take whatever the global route says.
+            from . import net_fence
+            from .take_receipt import lock_take
+
+            take_locked = self._lock_for_this_take(profile)
+            route_config = lock_take(self.config) if take_locked else self.config
+            provider_id = resolve_route(route_config)
+            session_config = copy.deepcopy(route_config)
             route_notice = ""
             # X-480: the route resolved to local while the config still names
             # something else -- a provider without a key, or a name left over
@@ -2270,6 +2333,17 @@ class TalkDatApp:
             # without mutating global settings.
             session_config.setdefault("stt", {})["provider"] = provider_id
             session_config = apply_profile(session_config, profile)
+            # T3: the active project's words join the global ones for this take
+            # (engine hints included); with no project this changes nothing.
+            from .word_scopes import active_project, apply_word_scope
+
+            session_config = apply_word_scope(session_config, active_project(self.config, profile))
+            if take_locked:
+                # A fallback above may have rebuilt the config from the stored
+                # one; the lock is applied last so nothing can drop it.
+                session_config = lock_take(session_config)
+                provider_id = resolve_route(session_config)
+                session_config.setdefault("stt", {})["provider"] = provider_id
             provider = PROVIDER_BY_ID[provider_id]
             model_id = selected_model_id(session_config, provider_id)
             api_key = selected_stt_api_key(session_config, provider_id)
@@ -2289,6 +2363,12 @@ class TalkDatApp:
             token = object()
             self.session_token = token
             self._session_profile = (token, profile)
+            # T7: this take's view of the fence: it holds the fence up when the
+            # take is locked and records every content connection either way,
+            # for the take's receipt. A previous take's view ends here at the
+            # latest, so none outlives the next take.
+            self._end_take_view()
+            self._take_view = (token, net_fence.begin_take(locked=take_locked), take_locked)
             # X-623: what this flight is, for Esc once it is processing
             # (session_mode reads "processing" by then).
             self._flight_mode = (token, mode)
@@ -2369,7 +2449,8 @@ class TalkDatApp:
                 session._talkdat_config = copy.deepcopy(session_config)
                 session._talkdat_provider_id = selected_provider_id(session_config)
                 if mode == "dictation" and hasattr(session, "on_stable_update"):
-                    prepared_config = apply_profile(self.config, profile)
+                    prepared_config = apply_word_scope(apply_profile(self.config, profile),
+                                                       active_project(self.config, profile))
                     if self._screen_names:
                         prepared_config = {
                             **prepared_config,
@@ -2408,6 +2489,12 @@ class TalkDatApp:
             # Find-more P0-2: the capture carries the take's field read, so
             # every way this take can end keeps nothing from a password field.
             capture.field_probe = self._session_field[1]
+            if hasattr(session, "on_checkpoint"):
+                # T8: each finished segment of a long hold is kept beside the
+                # audio, so a crash resumes there instead of starting over.
+                session.on_checkpoint = lambda index, start, end, text, t=token: (
+                    self.on_session_checkpoint(t, index, start, end, text)
+                )
             # X-50b: the dead-mic ding must also cover the mic that never
             # OPENS (PaErrorCode -9999 in the field): zero audio callbacks
             # means the frame counter never runs, so a one-shot timer asks
@@ -3160,6 +3247,20 @@ class TalkDatApp:
         )
         log.error("protected voice writer stopped during an active session")
 
+    def on_session_checkpoint(self, token: object, index: int, start: int, end: int, text: str) -> None:
+        """T8: keep one finished segment beside the take's audio. Its words are
+        written only when History keeps words and the field is known not to be
+        a password; otherwise only the byte range is kept."""
+        with self.lock:
+            capture = self.safety_capture if token is self.safety_capture_token else None
+        if capture is None:
+            return
+        probe = getattr(capture, "field_probe", None)
+        secure = probe is None or bool(getattr(probe, "secure_or_pending", lambda: True)())
+        keep = self._keeps_words() and not secure
+        with contextlib.suppress(Exception):
+            capture.add_checkpoint(index, start, end, text, keep_words=keep)
+
     def on_session_error(self, token: object, error: str) -> None:
         if not self.is_current(token):
             return
@@ -3724,9 +3825,10 @@ class TalkDatApp:
         paste_method: str = "",
         paste_input_generation: int = 0,
         delivery_token: object = _DYNAMIC_GUIDED_SINK,
-    ) -> None:
+        verified: tuple[Any, Any, str, Any] | None = None,
+    ) -> _PolishRecord | None:
         """Run the model's formatting after the text is already on screen, and
-        correct in place if it is still safe to do so.
+        correct in place only where it is provably safe to do so.
 
         Every refusal path here leaves the locally formatted text alone, which
         is the text the product delivered before this existed. The failure mode
@@ -3737,12 +3839,183 @@ class TalkDatApp:
 
         # A successful Ctrl+Z followed by an indeterminate Ctrl+V can remove the
         # entire delivered dictation. No window, caret, or clipboard probe can
-        # prove an arbitrary editor's document state after that partial chord.
-        # Keep this compatibility entry point inert and deliver the fully
-        # formatted result once instead. The setting remains readable so older
-        # configs migrate without loss, but no automatic post-paste edit runs.
-        log.info("post-paste refinement skipped: safe single delivery is active")
-        return
+        # prove an arbitrary editor's document state after that partial chord,
+        # so that route is gone for good. Without T1's reads around the draft
+        # (``verified``: target, Draft, the formatted draft, the caret context)
+        # this compatibility entry point stays inert; the old setting remains
+        # readable so older configs migrate without loss.
+        if verified is None:
+            log.info("post-paste refinement skipped: safe single delivery is active")
+            return None
+        # T1: the draft's take owns this until its polish lands or gives up. A
+        # new take, a cancel or a newer deferred edit takes the claim away.
+        claim = self._reserve_deferred_delivery(delivery_token)
+        if claim is None:
+            return None
+        from . import net_fence
+
+        view = getattr(self, "_take_view", None)
+        locked = bool(view is not None and view[0] is delivery_token and view[2])
+        # The take's own fence view closes with its receipt, before the polish
+        # is done, so the polish gets one of its own: a locked take's polish
+        # stays on this computer, and its connection attempts are kept.
+        fence = net_fence.begin_take(locked=locked)
+        try:
+            polish_config = copy.deepcopy(config)
+        except Exception:
+            polish_config = dict(config)
+        record = _PolishRecord(self.add_history, self._polish_entry)
+        worker = threading.Thread(
+            target=self._verified_polish,
+            args=(record, raw_text, polish_config, verified, claim, fence),
+            name="verified-polish",
+            daemon=True,
+        )
+        try:
+            worker.start()
+        except Exception:
+            net_fence.end_take(fence)
+            self._release_deferred_delivery(claim)
+            log.exception("the verified polish could not start; the draft stays")
+            return None
+        return record
+
+    def _verified_polish(
+        self,
+        record: _PolishRecord,
+        raw_text: str,
+        config: dict[str, Any],
+        verified: tuple[Any, Any, str, Any],
+        claim: tuple[object, object | None],
+        fence: Any,
+    ) -> None:
+        """T1's worker: the full pipeline for a take whose instant draft is in
+        the field, then a replacement only where verified_replace proves the
+        draft is still exactly where it landed. Every other outcome keeps the
+        polish with the take in History, as an alternative."""
+        from . import net_fence
+        from .paste import drop_single_sentence_period
+        from .verified_replace import as_delivered, replace_if_proved
+
+        _reader, draft, formatted, caret = verified
+        result: dict[str, Any] = {"replaced": False, "reason": "newer_take", "polished": "", "route": ""}
+        try:
+            if self._deferred_delivery_is_current(claim):
+                started = time.perf_counter()
+                processed = process_dictation(raw_text, config)
+                self._note_model_format_ms((time.perf_counter() - started) * 1000.0)
+                polished = str(processed.text or "")
+                if polished and caret is not None:
+                    from .caret_context import apply_caret_context, join_at_caret
+
+                    polished = join_at_caret(apply_caret_context(polished, raw_text, caret, config), caret)
+                result.update(polished=polished, route=str(getattr(processed, "route", "") or ""))
+                shaped = as_delivered(polished, formatted, draft.text, drop_single_sentence_period)
+                adapter = None if shaped is None else self._verified_target(
+                    paste=lambda text: self._verified_paste(text, draft.route, claim))
+                if shaped is None:
+                    result["reason"] = "unknown_shaping"
+                elif adapter is None:
+                    result["reason"] = "unreadable"
+                else:
+                    current = draft.take if self._deferred_delivery_is_current(claim) else object()
+                    outcome = replace_if_proved(adapter, draft, shaped, now_s=time.monotonic(),
+                                                current_take=current, recording=self._recording_again(draft.take))
+                    result.update(replaced=outcome.replaced, reason=outcome.reason, steps=list(outcome.steps))
+                if result["replaced"]:
+                    with contextlib.suppress(Exception):
+                        from .meaning_report import meaning_report
+
+                        protected = config.get("dictionary", {}).get("protected") or []
+                        said = str(getattr(processed, "original", "") or raw_text)
+                        result["meaning"] = meaning_report(said, polished, protected=protected).as_dict()
+                    if self._deferred_delivery_is_current(claim):
+                        self.last_transcript = polished
+                        self.last_diff = unified_diff(getattr(self, "last_original", raw_text), polished)
+                        unsure = getattr(self, "_last_take_unsure", None)
+                        if unsure is not None and unsure[0] == formatted:
+                            self._last_take_unsure = (polished, unsure[1])
+        except Exception:
+            log.exception("the verified polish failed; the draft stays")
+            result["reason"] = "polish_failed"
+        finally:
+            net_fence.end_take(fence)
+            result["remote_attempts"] = list(getattr(fence, "attempts", []))
+            self._release_deferred_delivery(claim)
+        log.info("verified polish: replaced=%s reason=%s", result["replaced"], result["reason"])
+        record.result(result)
+
+    def _polish_entry(self, entry: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+        """T1: the take's History entry with its polish. When the polish replaced
+        the draft it is the text and the draft is kept beside it; otherwise the
+        draft stays the text and the polish is kept beside it. Routes and hosts
+        only in the record, never words."""
+        from .verified_replace import keep_alternative
+
+        entry = dict(entry)
+        entry["polish"] = {key: result[key] for key in ("replaced", "reason", "route", "remote_attempts")
+                           if key in result}
+        polished = str(result.get("polished") or "")
+        if result.get("replaced") and polished:
+            draft = str(entry.get("text") or "")
+            entry["text"] = polished
+            entry["alternatives"] = [*entry.get("alternatives", []), {"kind": "draft", "text": draft}]
+            if isinstance(result.get("meaning"), dict):
+                entry["meaning"] = result["meaning"]
+        elif polished and polished != entry.get("text") and result.get("reason") not in ("no_polish", "identical"):
+            entry = keep_alternative(entry, polished, str(result.get("reason") or ""))
+        return entry
+
+    def _verified_paste(self, text: str, route: str, claim: tuple[object, object | None]) -> bool:
+        """T1: the polish over the selected draft, by the clipboard route the
+        draft took and only while the take's claim holds; never typed. A chord
+        whose commit is unknown counts as sent, so the read-back decides."""
+        dictation = self.config.get("dictation", {}) if isinstance(self.config, dict) else {}
+        receipt = paste_text_with_receipt(
+            text,
+            paste_mode=route,
+            restore_clipboard=bool(dictation.get("restore_clipboard_after_paste", True)),
+            clipboard_paste_delay_ms=config_int(dictation.get("clipboard_paste_delay_ms"), 10),
+            keep_final_period=True,
+            allow_typing=False,
+            can_deliver=lambda: self._deferred_delivery_is_current(claim),
+        )
+        return bool((receipt.success and receipt.method == route) or receipt.method == "clipboard_commit_unknown")
+
+    def _verified_polish_on(self, config: dict[str, Any] | None = None) -> bool:
+        """T1 is opt-in -- ``dictation.verified_polish`` set to exactly True --
+        and Windows only, with automatic pasting through the clipboard. A
+        translated take keeps the single delivery: its polish would need
+        translating too."""
+        dictation = self.config.get("dictation", {}) if isinstance(self.config, dict) else {}
+        if not isinstance(dictation, dict) or dictation.get("verified_polish") is not True:
+            return False
+        if sys.platform != "win32" or not dictation.get("auto_paste", True):
+            return False
+        if str(dictation.get("paste_mode", "auto")) not in ("auto", "clipboard", "shift_insert"):
+            return False
+        return not (config is not None and auto_translation_enabled(config))
+
+    def _verified_target(self, paste: Callable[[str], bool] | None = None) -> Any:
+        """T1's accessibility adapter (verified_target.WindowsTarget, or
+        verified_target_mac.MacTarget on a Mac), or None where one cannot be
+        made. Reads only, unless given the polish's paste."""
+        try:
+            if sys.platform == "darwin":
+                from .verified_target_mac import MacTarget
+
+                return MacTarget(paste=paste or (lambda _text: False))
+            from .verified_target import WindowsTarget
+
+            return WindowsTarget(paste=paste or (lambda _text: False))
+        except Exception:
+            log.debug("verified polish: no UI Automation target", exc_info=True)
+            return None
+
+    def _recording_again(self, token: object) -> bool:
+        """T1: a newer take is recording (not the draft's own)."""
+        with self.lock:
+            return getattr(self, "session", None) is not None and getattr(self, "session_token", None) is not token
 
     def handle_dictation(
         self,
@@ -3801,6 +4074,16 @@ class TalkDatApp:
         else:
             profile = active_profile(self.config)
         effective_config = apply_profile(self.config, profile)
+        # T3: this take's words are the global ones plus the active project's.
+        from .word_scopes import active_project as _active_project, apply_word_scope as _apply_word_scope
+
+        effective_config = _apply_word_scope(effective_config, _active_project(self.config, profile))
+        take_view = getattr(self, "_take_view", None)
+        if explicit_flight and take_view is not None and take_view[0] is delivery_token and take_view[2]:
+            # T7: a locked take formats and translates on this computer too.
+            from .take_receipt import lock_take as _lock_take
+
+            effective_config = _lock_take(effective_config)
         if field in {PASSWORD, CONSOLE, SINGLE_LINE}:
             # Only these change the text, so only these change the config the
             # progressive formatter keyed its prepared result on.
@@ -3811,7 +4094,14 @@ class TalkDatApp:
         # later used Ctrl+Z/Ctrl+V to replace it. If Ctrl+Z committed but Ctrl+V
         # failed, the target document could be left empty with no reliable way
         # to inspect or repair an arbitrary editor.
-        speculative = False
+        # T1, verified polish (off by default): the instant local draft lands at
+        # once, and the model's polish replaces it later ONLY where an
+        # accessibility read proves the draft is still exactly where it landed
+        # (verified_replace.py), by selecting it and pasting over the selection
+        # -- never Ctrl+Z, never a count of backspaces. Every other outcome
+        # keeps the polish as an alternative of the take in History.
+        speculative = bool(explicit_flight and not guided_delivery_reserved
+                           and field not in {PASSWORD, CONSOLE} and self._verified_polish_on(effective_config))
         format_started = time.perf_counter()
         screen_names = list(getattr(self, "_screen_names", []) or [])
         if screen_names:
@@ -3959,6 +4249,10 @@ class TalkDatApp:
         delivery: dict[str, object]
         paste_started = time.perf_counter()
         paste_input_generation = 0
+        # T1: the reads around the draft's insertion, and what was delivered.
+        verified_target = verified_before = verified_after = verified_caret = None
+        verified_landed_at = 0.0
+        delivered_box: list = []
         delivery_cancelled = not flight_is_current()
         current_sink = getattr(self.overlay, "onboarding_test_sink", None)
         guided_sink_still_owned = guided_delivery_reserved and current_sink is reserved_sink
@@ -4115,7 +4409,25 @@ class TalkDatApp:
                 paste_options["typing_can_continue"] = typing_can_continue
                 # Include AX focus proof even for a delivery without a token.
                 paste_options["can_deliver"] = external_insertion_is_current
+            if speculative:
+                # T1: what the paste layer delivers, and the reads around it.
+                paste_options["delivered"] = delivered_box
+                verified_caret = caret if usable_context(caret) else None
+            if (speculative and not withheld and not processed.send_enter
+                    and paste_options["paste_mode"] in ("auto", "clipboard", "shift_insert")):
+                from .verified_replace import read_bound
+
+                verified_target = self._verified_target()
+                if verified_target is not None:
+                    # +8: room for the leading space the paste layer may add.
+                    verified_before = verified_target.read(read_bound(processed.text) + 8)
             receipt = paste_text_with_receipt(processed.text, **paste_options)
+            verified_landed_at = time.monotonic()
+            if verified_target is not None and delivered_box and receipt.success:
+                from .verified_replace import REPLACEABLE_ROUTES
+
+                if receipt.method in REPLACEABLE_ROUTES:
+                    verified_after = verified_target.read(read_bound(delivered_box[0][0]))
             delivery = receipt.as_dict()
             if receipt.success and receipt.method != "copy_only":
                 # A trailing Enter can be withheld after text already landed.
@@ -4224,8 +4536,24 @@ class TalkDatApp:
             # chooser (both onboarding's and the day-two prompt's A/B preview).
             self.last_raw_transcript = raw_text
         paste_ms = int(round((time.perf_counter() - paste_started) * 1000.0))
-        if speculative:
-            self._refine_after_paste(
+        polish_plan = None
+        if speculative and receipt is not None:
+            # T1: the draft as it landed. A draft with no reads around it, or one
+            # that went by typing or to the clipboard only, is never replaced:
+            # its polish is kept with the take instead.
+            from .verified_replace import Draft, TargetRead
+
+            unread = TargetRead(ok=False)
+            draft = Draft(
+                take=delivery_token,
+                text=delivered_box[0][0] if delivered_box else processed.text,
+                inserted_at=verified_landed_at or time.monotonic(),
+                before=verified_before or unread,
+                after=verified_after or unread,
+                route=str(receipt.method or ""),
+                succeeded=bool(receipt.success),
+            )
+            polish_plan = self._refine_after_paste(
                 raw_text,
                 effective_config,
                 pasted_text=processed.text,
@@ -4236,6 +4564,7 @@ class TalkDatApp:
                 paste_method=str(delivery.get("method") or ""),
                 paste_input_generation=paste_input_generation,
                 delivery_token=delivery_token,
+                verified=(verified_target, draft, processed.text, verified_caret),
             )
         log.info(
             "dictation processed: raw_chars=%s final_chars=%s format_ms=%s paste_ms=%s post_stt_ms=%s delivery=%s fallback=%s route=%s release_to_delivery_ms=%s",
@@ -4290,7 +4619,30 @@ class TalkDatApp:
             }
             if local_notice:
                 entry["format_note"] = local_finish_feedback(local_notice)[1]
-            self.add_history(entry)
+            # T2: which names, dates, numbers, units, negations and commitments
+            # the cleanup kept, and any it changed -- kept with the take, on
+            # this computer, like the take's own words.
+            with contextlib.suppress(Exception):
+                from .meaning_report import meaning_report
+
+                protected = effective_config.get("dictionary", {}).get("protected") or []
+                entry["meaning"] = meaning_report(processed.original, processed.text, protected=protected).as_dict()
+            # T7: the take's receipt -- routes, models and connection attempts,
+            # never words -- beside its text.
+            # (Its own name: ``receipt`` is the paste's, read again below.)
+            take_receipt = self._take_receipt(delivery_token, effective_config,
+                                              str(getattr(processed, "route", "") or ""))
+            if take_receipt is not None:
+                entry["receipt"] = take_receipt
+            if polish_plan is not None:
+                # T1: written once, with the polish's outcome, when it lands.
+                polish_plan.entry(entry)
+            else:
+                self.add_history(entry)
+        else:
+            # Nothing is kept for a password take or with History off; the
+            # take's fence view still ends with it.
+            self._take_receipt(delivery_token, effective_config, "")
 
         if not flight_is_current():
             return result
@@ -4312,21 +4664,21 @@ class TalkDatApp:
 
             self.overlay.set_state("captured", f"Typed into the terminal. Press {ENTER_KEY} to run it.", "", say=True)
             return result
-        # X-465: a local-only install has no cloud to quietly rescue a
-        # formatter that could not run, so a reason the person can act on is
-        # said out loud once. A per-take fallback (the meaning check refused
-        # the model's edit, a timeout) is a normal take: logged, and kept on
-        # the take's History entry (local_notice was read above).
+        # A take whose words came through the built-in rules is a normal take
+        # (the owner, 2026-10-09 and 2026-10-24): whatever the reason, X-465's (no
+        # engine, too slow) or a per-take one (the meaning check refused the
+        # model's edit, a timeout), it is logged and kept on the take's History
+        # entry (local_notice was read above), and Settings > Writing > Formatting
+        # names it with its fix. It is never the Pill's line.
         partial_delivery = receipt is not None and receipt.method == "direct_type_partial"
-        if local_notice and not local_finish_is_worth_saying(local_notice):
+        if local_notice:
             log.info("formatting kept rules formatting, not shown: %s", local_notice)
         stalled_code, stalled_takes, stalled_said = self._quiet_fallback_streak
         # Review J-B1 (2026-10-10): a formatting line may only take the place of the
         # routine "Inserted ... Mic off." line. Any other outcome (the words did not go
         # in, went to the clipboard only, auto paste is off, Setup took them, they were
-        # kept, a translation failed) is this take's own news and is said instead. The
-        # reason (X-465) comes back on the next take that lands, and an unsaid
-        # escalation stays due.
+        # kept, a translation failed) is this take's own news and is said instead. An
+        # unsaid escalation stays due.
         routine_success = (receipt is not None and receipt.success and not withheld and not partial_delivery
                            and not translation_error and not guided_sink_still_owned)
         # Review F1 (2026-10-10): with Auto paste off every take is captured and none is
@@ -4335,13 +4687,11 @@ class TalkDatApp:
         captured_locally = (receipt is None and delivery.get("method") == "local_capture" and not withheld
                             and not partial_delivery and not translation_error and not guided_sink_still_owned)
         formatting_line = None
-        if routine_success or captured_locally:
-            if local_notice and local_finish_is_worth_saying(local_notice):
-                formatting_line = local_finish_feedback(local_notice)
-            elif stalled_takes >= QUIET_FALLBACK_ESCALATES_AFTER and not stalled_said:
-                # Review B4: quiet per take, but said once when it keeps happening.
-                formatting_line = quiet_fallback_escalation(stalled_code)
-                self._quiet_fallback_streak = (stalled_code, stalled_takes, True)
+        if (routine_success or captured_locally) and stalled_takes >= QUIET_FALLBACK_ESCALATES_AFTER \
+                and not stalled_said:
+            # Review B4: quiet per take, but said once when it keeps happening.
+            formatting_line = quiet_fallback_escalation(stalled_code)
+            self._quiet_fallback_streak = (stalled_code, stalled_takes, True)
         if routine_success and formatting_line:
             self.overlay.set_state(*formatting_line)
         elif translation_error and not withheld and not partial_delivery:
@@ -4808,7 +5158,9 @@ class TalkDatApp:
             if bool(self.config.get("dictionary", {}).get("auto_learn", True)) and self.last_transcript:
                 import pyperclip
 
-                from .learned_words import forget, learn_spelling, note_fix_evidence
+                from .learned_words import (
+                    forget, learn_or_quarantine, learn_spelling, note_fix_evidence, release_quarantined,
+                )
 
                 from .paste import clipboard_is_private
 
@@ -4836,7 +5188,14 @@ class TalkDatApp:
                     # to do the same thing -- both called remember() and the
                     # difference reached the log alone, so the setting that was
                     # meant to ask never asked.
-                    if verdict == "learn" and learn_spelling(captured, self.config, delivered, unsure):
+                    # T4: the automatic path learns only a copy that fixes a word
+                    # the last take was unsure of; any other copy is HELD until
+                    # the person says yes. Either way the entry records where it
+                    # came from, and the active project (T3) keeps its own words.
+                    project = self._learning_project()
+                    outcome = (learn_or_quarantine(captured, self.config, delivered, unsure, project=project)
+                               if verdict == "learn" else "")
+                    if outcome == "learned":
                         self.save_settings()
                         log.info("learned a corrected word from the clipboard")
 
@@ -4847,19 +5206,80 @@ class TalkDatApp:
                         self.overlay.root.after(
                             0, lambda: self.overlay.show_learned_word(captured, reject)
                         )
+                    elif outcome == "quarantined":
+                        self.save_settings()
+                        log.info("held a copied word until it is accepted")
+
+                        def release(word: str = captured) -> None:
+                            if release_quarantined(word, self.config):
+                                self.save_settings()
+
+                        self.overlay.root.after(
+                            0, lambda: self.overlay.offer_learned_word(captured, release)
+                        )
                     elif verdict == "offer":
                         # Nothing is stored yet. The pop-over asks, and only a
                         # yes writes it to the dictionary.
                         log.info("offering a word from the clipboard")
 
-                        def accept(word: str = captured, delivered: str = delivered, unsure: dict = unsure) -> None:
-                            if learn_spelling(word, self.config, delivered, unsure):
+                        def accept(word: str = captured, delivered: str = delivered, unsure: dict = unsure,
+                                   project: str = project) -> None:
+                            if learn_spelling(word, self.config, delivered, unsure, how="accepted", project=project):
                                 self.save_settings()
 
                         self.overlay.root.after(
                             0, lambda: self.overlay.offer_learned_word(captured, accept)
                         )
         self.overlay.root.after(1100, self._clipboard_learn_tick)
+
+    def _lock_for_this_take(self, profile: dict[str, Any]) -> bool:
+        """T7: whether the take starting now stays on this computer: its app
+        profile is marked local only, or the person asked it of the next take
+        (a one-shot request, used up here)."""
+        privacy = self.config.get("privacy") if isinstance(self.config.get("privacy"), dict) else {}
+        one_shot = privacy.get("lock_next_take") is True
+        if one_shot:
+            privacy["lock_next_take"] = False
+        return one_shot or (isinstance(profile, dict) and profile.get("local_only") is True)
+
+    def _end_take_view(self) -> None:
+        """T7: close the last take's fence view, if one is open."""
+        view = getattr(self, "_take_view", None)
+        self._take_view = None
+        if view is not None:
+            from . import net_fence
+
+            net_fence.end_take(view[1])
+
+    def _take_receipt(self, token: object, config: dict[str, Any], format_route: str) -> dict[str, Any] | None:
+        """T7: what this take actually used: routes, models and every content
+        connection a helper asked for. Closes the take's fence view."""
+        view = getattr(self, "_take_view", None)
+        if view is None or view[0] is not token:
+            return None
+        from .take_receipt import finish_receipt, planned_routes
+
+        try:
+            receipt = finish_receipt(planned_routes(config), view[1], format_route=format_route)
+            receipt.locked = bool(view[2])
+            return receipt.as_dict()
+        except Exception:
+            log.debug("the take receipt could not be built", exc_info=True)
+            return None
+        finally:
+            self._end_take_view()
+
+    def _learning_project(self) -> str:
+        """T3/T4: the project a learned word belongs to ("" = the global words)."""
+        try:
+            from .word_scopes import active_project
+
+            project = active_project(self.config, active_profile(self.config))
+        except Exception:
+            # The word still goes somewhere a person can see and undo it.
+            log.debug("the active project could not be read; learning into the global words", exc_info=True)
+            return ""
+        return str(project.get("id", "")) if project else ""
 
     def toggle_auto_translation(self) -> None:
         """Flip automatic dictation translation from a hotkey, with a receipt.
@@ -5505,6 +5925,78 @@ class TalkDatApp:
 
         return recovery_sessions(5)
 
+    def _recovered_transcript(self, session_id: str, pcm16: bytes, sample_rate: int, channels: int) -> str:
+        """T8: the take's words from its checkpoints, then ONLY the audio after
+        them; a take with no verified checkpoint is transcribed whole, as before."""
+        return self._recover_words(session_id, pcm16, sample_rate, channels)[0]
+
+    def _recover_words(self, session_id: str, pcm16: bytes, sample_rate: int, channels: int) -> tuple[str, float]:
+        """_recovered_transcript, with the seconds its checkpoints kept (0.0 with none)."""
+        from .audio_spool import safety_session
+        from .take_checkpoints import resume, resume_plan
+
+        plan = resume_plan(safety_session(session_id) or {}, len(pcm16))
+        if not plan.kept:
+            # Exactly the old path: the whole recording, however short.
+            return transcribe_pcm(self.config, pcm16, sample_rate, channels).strip(), 0.0
+        text = resume(plan, pcm16, lambda part: transcribe_pcm(self.config, part, sample_rate, channels)).strip()
+        log.info("recovered %d checkpoints (%.1f s); transcribed the last %.1f s",
+                 len(plan.kept), plan.kept_seconds, plan.remainder_seconds)
+        return text, float(plan.kept_seconds)
+
+    @staticmethod
+    def _kept_line(kept_seconds: float) -> str:
+        """B8 (T8), the owner's wording, cleaned 2026-10-22: what Recover says when
+        a take resumed at its last checkpoint."""
+        whole = max(0, int(round(kept_seconds)))
+        return f"{whole // 60}:{whole % 60:02d} was kept from before it stopped; the rest was transcribed again."
+
+    def take_spans(self, session_id: str) -> list[dict[str, Any]]:
+        """T9: where a kept take's audio was clipped, silent or noisy (spans in
+        milliseconds), computed once and kept in its metadata; [] without audio."""
+        from .audio_spool import session_spans
+
+        try:
+            return session_spans(str(session_id or "").strip())
+        except (OSError, ValueError):
+            log.warning("the spans of a protected take could not be read", exc_info=True)
+            return []
+
+    def retranscribe_span(self, session_id: str, index: int) -> bool:
+        """T9: transcribe ONE failed span of a kept take again, on a worker, and
+        keep the result beside the take as an alternative. The recording, its
+        recovered text and History are never changed by this. A take that ran
+        on this computer is transcribed on this computer again. False when the
+        take has no such span."""
+        from .audio_spool import safety_session, span_audio_of
+
+        session_id = str(session_id or "").strip()
+        spans = self.take_spans(session_id)
+        if type(index) is not int or not 0 <= index < len(spans):
+            return False
+        span = dict(spans[index])
+        local = str((safety_session(session_id) or {}).get("provider") or "") == "local"
+
+        def worker() -> None:
+            from .take_receipt import lock_take
+
+            try:
+                part, rate, channels = span_audio_of(session_id, span)
+                config = lock_take(self.config) if local else self.config
+                text = transcribe_pcm(config, part, rate, channels).strip()
+            except Exception:
+                log.exception("a span of a protected take could not be transcribed again")
+                return
+            if not text or not self._keeps_words():
+                return  # History off keeps audio only (find-more P0-6): no words are written
+            with _SPAN_ALTERNATIVES_LOCK:
+                alternatives = dict((safety_session(session_id) or {}).get("span_alternatives") or {})
+                alternatives[str(index)] = {"start_ms": span["start_ms"], "end_ms": span["end_ms"], "text": text}
+                update_safety_session(session_id, span_alternatives=alternatives)
+
+        threading.Thread(target=worker, name="TalkDatSpanAgain", daemon=True).start()
+        return True
+
     def recover_audio_session(self, session_id: str) -> None:
         session_id = str(session_id or "").strip()
         if not session_id:
@@ -5541,7 +6033,7 @@ class TalkDatApp:
 
             try:
                 pcm16, sample_rate, channels = read_safety_audio(session_id)
-                raw_text = transcribe_pcm(self.config, pcm16, sample_rate, channels).strip()
+                raw_text, kept_seconds = self._recover_words(session_id, pcm16, sample_rate, channels)
                 if not raw_text:
                     raise RuntimeError("The selected speech model returned no transcript.")
                 profile = active_profile(self.config)
@@ -5606,7 +6098,8 @@ class TalkDatApp:
                     if copied
                     else "Protected speech recovered in History. Clipboard is unavailable."
                 )
-                schedule_state("captured", message, preview(final_text, 112))
+                schedule_state("captured", message,
+                               self._kept_line(kept_seconds) if kept_seconds > 0 else preview(final_text, 112))
             except Exception as exc:
                 error_message = str(exc)
                 update_safety_session(session_id, status="recovery_failed", error=error_message)
@@ -7221,12 +7714,14 @@ def local_finish_advice(notice: str) -> str:
 #: 2026-10-09, the owner, shown "Your text was formatted by the built-in rules,
 #: not the model": "This should just happen." A take whose words arrived
 #: through the rules formatter because the model's edit was refused, ran out of
-#: time or came back empty is a normal take, so these go to the log only. A
-#: reason the person can act on is still said once (X-465).
-QUIET_LOCAL_FINISH = frozenset({
-    "model_safety_fallback", "polish_safety_fallback", "timeout",
-    "budget_exceeded", "invalid_response", "preparing",
-})
+#: time or came back empty is a normal take, so these go to the log only.
+#: 2026-10-24, the owner again, shown the same line for a missing engine after
+#: every dictation (he had uninstalled Ollama), called it stupid, annoying and
+#: ugly. Every user without Ollama got it on every take. So a reason the person
+#: can act on (X-465: no engine, too slow) goes the
+#: same way: the log, the take's History entry, and Settings > Writing >
+#: Formatting, which names it with its fix. No formatter reason is said on the
+#: Pill; only the escalation below, once, when stalls keep happening.
 
 
 #: Quiet per take, but never quiet for ever (Overwatch's review B4, 2026-10-10). A
@@ -7269,12 +7764,6 @@ def quiet_fallback_streak(streak: tuple[str, int, bool], notice: str) -> tuple[s
 def quiet_fallback_escalation(code: str) -> tuple[str, str, str]:
     """The one line said when a stalling fallback keeps happening."""
     return "error", "Formatting isn't being applied.", STALLING_LOCAL_FINISH.get(code, local_finish_advice(code))
-
-
-def local_finish_is_worth_saying(notice: str) -> bool:
-    """Whether a formatter notice goes on the Pill, or only to the log."""
-    code = " ".join(str(notice or "").split()).lower()
-    return bool(code) and code not in QUIET_LOCAL_FINISH
 
 
 def local_finish_feedback(notice: str) -> tuple[str, str, str]:

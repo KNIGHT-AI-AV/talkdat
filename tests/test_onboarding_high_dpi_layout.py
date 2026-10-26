@@ -224,6 +224,10 @@ class OnboardingHighDpiLayoutTests(unittest.TestCase):
 
         script = textwrap.dedent(
             """
+            import tests  # the guard and the audio stand-in, as in every test process
+            from tests.audio_stand_in import report_at_exit
+            report_at_exit()
+
             import json
             import time
             import tkinter as tk
@@ -290,6 +294,7 @@ class OnboardingHighDpiLayoutTests(unittest.TestCase):
             timeout=25,
         )
         self.assertEqual(completed.returncode, 0, completed.stderr[-3000:])
+        self.assertIn("portaudio check: clean", completed.stderr, "the child ran without the test package's check")
         result = json.loads(completed.stdout.strip().splitlines()[-1])
         self.assertLess(result["elapsed"], 12.0)
         self.assertLessEqual(result["button"], 30)

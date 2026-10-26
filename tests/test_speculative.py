@@ -389,10 +389,11 @@ class UndoReplacementIsConstantTimeTests(unittest.TestCase):
         self.assertIn('hotkey(EDIT_MODIFIER, "z")', body)
 
     def test_undo_is_refused_when_the_text_was_typed_rather_than_pasted(self) -> None:
-        """The shipped app no longer invokes undo replacement for any route."""
+        """The shipped app no longer invokes undo replacement for any route.
+        (T1's opt-in draft route replaces by a proved selection, never by undo.)"""
         from pathlib import Path
         source = (Path(__file__).resolve().parents[1] / "knight_flow" / "app.py").read_text(encoding="utf-8")
-        self.assertIn("speculative = False", source)
+        self.assertIn("and self._verified_polish_on(effective_config))", source)
         self.assertNotIn("replace_by_undo", source)
 
     def test_the_refine_worker_is_told_how_the_text_was_delivered(self) -> None:
@@ -574,8 +575,9 @@ class UndoIsSpentOnlyWhereItBuysSomethingTests(unittest.TestCase):
                 self.assertFalse(decision.use_undo)
 
     def test_the_caller_acts_on_the_decision_rather_than_the_setting(self) -> None:
-        """The shipped caller must not perform any post-paste correction."""
+        """The shipped caller performs no post-paste correction by default, and
+        with T1 switched on only the proved one (test_verified_polish_wiring)."""
         from pathlib import Path
         source = (Path(__file__).resolve().parents[1] / "knight_flow" / "app.py").read_text(encoding="utf-8")
-        self.assertIn("speculative = False", source)
+        self.assertIn("and self._verified_polish_on(effective_config))", source)
         self.assertNotIn("replace_by_undo", source)

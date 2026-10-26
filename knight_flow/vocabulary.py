@@ -276,7 +276,10 @@ DEFAULT_TERMS: tuple[Term, ...] = (
                      "tock dat", "talk debt", "talkdat",
                      # 2026-09-22: these matched only by fuzzy key before the
                      # defaults were limited to their listed hearings.
-                     "talkdad", "talk dad", "tokdat"),
+                     "talkdad", "talk dad", "tokdat",
+                     # 2026-10-23, his own dictation: "usually using talk TAT,
+                     # so always scan" (the T heard for the D).
+                     "talk tat"),
         not_before=(
             "over", "through", "out", "about", "away", "up", "down",
             "later", "more", "again", "first", "now", "to", "with",

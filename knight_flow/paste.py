@@ -1257,12 +1257,19 @@ def strip_messenger_trailing_period(text: str, *, keep: bool = False) -> str:
     ("sounds good period"); a period somebody asked for is never taken off."""
     if keep:
         return text
+    dropped = drop_single_sentence_period(text)
+    if dropped == text or foreground_process_name() not in MESSENGER_PROCESSES:
+        return text
+    return dropped
+
+
+def drop_single_sentence_period(text: str) -> str:
+    """X-118's text rule alone, without the messenger check: one sentence loses
+    its trailing period. T1 shapes a polish with it the way its draft was."""
     trimmed = text.rstrip()
     if not trimmed.endswith(".") or trimmed.endswith(".."):
         return text
     if len(re.findall(r"[.!?]", trimmed)) != 1 or chr(10) in trimmed:
-        return text
-    if foreground_process_name() not in MESSENGER_PROCESSES:
         return text
     return trimmed[:-1]
 
@@ -1761,6 +1768,8 @@ def paste_text_with_receipt(
     can_deliver: Callable[[], bool] | None = None,
     keep_final_period: bool = False,
     typing_can_continue: Callable[[], bool] | None = None,
+    delivered: list | None = None,
+    allow_typing: bool = True,
 ) -> PasteReceipt:
     if not text and not send_enter:
         return PasteReceipt(False, str(paste_mode or "auto"), "none", ())
@@ -1810,6 +1819,16 @@ def paste_text_with_receipt(
         mode = "clipboard"
     if preserve_rich_clipboard:
         mode = "type"
+    if delivered is not None:
+        # T1: the exact text and route this call delivers, for a later verified
+        # replacement. Kept in the caller's memory only; the receipt stays
+        # free of text.
+        delivered.append((text, mode))
+    if text and mode == "type" and not allow_typing:
+        # T1: a replacement over a selection is pasted whole or not made.
+        # Typed characters can stop part-way, and the draft they replace is gone.
+        attempts.append("typing_refused")
+        return PasteReceipt(False, requested_mode, "typing_refused", tuple(attempts))
 
     if text and mode == "copy_only":
         attempts.append("copy_only")
@@ -1934,7 +1953,9 @@ def paste_text_with_receipt(
                     fallback_used=attempts[0] != clipboard_method,
                 )
 
-        if text:
+        if text and not allow_typing:
+            attempts.append("typing_refused")
+        elif text:
             if not _delivery_is_allowed(can_deliver):
                 return cancelled_receipt()
             attempts.append("direct_type")

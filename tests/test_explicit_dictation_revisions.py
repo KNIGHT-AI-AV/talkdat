@@ -136,8 +136,11 @@ class ExplicitLearningSafetyTests(unittest.TestCase):
         self.assertEqual(pair, ('May over', 'Mayowa'))
         config = {'dictionary': {'terms': []}}
         self.assertTrue(remember_correction(*pair, config))
-        self.assertEqual(config['dictionary']['terms'],
+        # T4 (2026-10-21): every learned entry also says where it came from.
+        self.assertEqual([{k: v for k, v in entry.items() if k != 'provenance'}
+                          for entry in config['dictionary']['terms']],
                          [{'text': 'Mayowa', 'sounds_like': ['May over'], 'learned': True}])
+        self.assertIn('provenance', config['dictionary']['terms'][0])
         self.assertTrue(forget('Mayowa', config))
         self.assertEqual(config['dictionary']['terms'], [])
         self.assertFalse(remember_correction(*pair, config))

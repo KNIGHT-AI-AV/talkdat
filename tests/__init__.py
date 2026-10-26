@@ -41,10 +41,49 @@ os.environ.setdefault("TALK_DAT_PLAIN_CLIPBOARD", "1")
 # initialises COM there, not on the main thread the native tests use).
 os.environ.setdefault("TALK_DAT_FIELD_READ_OFF", "1")
 
+# 2026-10-20: and for every device the person is using. No test may reach a real
+# microphone, speaker, clipboard, keyboard, mouse, screen, another program or
+# the network; a forgotten fake now fails closed instead of reaching them. See
+# tests/device_guard.py. Installed before anything below imports the product.
+from tests.device_guard import install as _guard_devices
+_guard_devices()
+
+# 2026-10-22: the guard stops audio STREAMS; listing the devices was still real.
+# Importing sounddevice, or building a pyaudiowpatch.PyAudio, starts PortAudio,
+# which lists every audio device the person has while their audio work runs
+# (coordinator RULING 2026-10-22T02:22:41Z). The real libraries are refused,
+# stand-ins with one fixed device list take their place, and every run ends
+# with a check that no PortAudio module is loaded. See tests/audio_stand_in.py.
+from tests.audio_stand_in import install as _stand_in_audio, refuse_real_audio as _refuse_real_audio
+_refuse_real_audio()
+_stand_in_audio()
+
 # A separate data folder does not isolate Windows Credential Manager or the
 # Mac keychain. Reset and save tests must never use the person's actual vault.
 from tests.credential_sandbox import install as _isolate_credentials
 _isolate_credentials()
+
+# 2026-10-22: nor what else the person has open. The meeting check
+# (knight_flow.meeting_quiet) asks tasklist whether a conferencing app is
+# running; with Zoom open on the PC, every Pill message that was not an error
+# was held back and four GUI tests failed. Tests read no process list; one that
+# needs a meeting fakes it (tests/test_the_suite_reads_no_running_programs.py).
+from knight_flow import meeting_quiet as _meeting_quiet
+
+
+def _no_running_programs() -> set[str]:
+    return set()
+
+
+_meeting_quiet._running_process_names = _no_running_programs
+_meeting_quiet._running_bundle_ids_mac = _no_running_programs
+
+# 2026-10-22: and the processes the product starts. A plugin's worker is a fresh
+# interpreter; its entry point now comes through this package, so the worker has
+# the guard and the audio stand-in before any plugin code runs.
+# tests/child_isolation.py.
+from tests.child_isolation import install as _isolate_children
+_isolate_children()
 
 # 2026-09-24: Tk's garbage dies on the main thread. Twice in three full runs the
 # suite aborted inside Tcl ("async handler deleted by the wrong thread", no

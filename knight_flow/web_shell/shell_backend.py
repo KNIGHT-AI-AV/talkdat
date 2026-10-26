@@ -339,6 +339,11 @@ class ShellBackend:
         if method == 'action':
             if set(payload) != {'name'} or not isinstance(payload['name'], str):
                 raise ValueError('This action is not available from this window.')
+            if self.models is not None and payload['name'] in ('model_bench', 'model_bench_status'):
+                # T6: the measured comparison, started only from here (the person's request).
+                result = self.models.bench() if payload['name'] == 'model_bench' else {'bench': self.models.bench_status()}
+                result['models'] = self.models.snapshot()
+                return result
             if self.models is not None and payload['name'].startswith(('model_download:', 'model_delete:')):
                 operation, identifier = payload['name'].split(':',1)
                 result = self.models.request(operation.removeprefix('model_'), identifier)

@@ -64,17 +64,65 @@ def local_only() -> bool:
     return _LOCAL_ONLY.is_set()
 
 
+class TakeNet:
+    """T7: one take's view of the fence. ``locked`` holds the fence up for this
+    take whatever the global route says; ``attempts`` records every outbound
+    connection a content helper asked for while the take was open -- the host,
+    which helper, and whether it was refused -- for the take's receipt."""
+
+    def __init__(self, locked: bool) -> None:
+        self.locked = bool(locked)
+        self.attempts: list[dict[str, object]] = []
+
+
+_TAKES: list[TakeNet] = []
+_TAKES_LOCK = threading.Lock()
+
+
+def begin_take(*, locked: bool) -> TakeNet:
+    """Open a take's fence view. Takes are sequential, but a cancelled take can
+    still be finishing while the next one starts, so every open view counts:
+    the fence holds while ANY open take is locked."""
+    take = TakeNet(locked)
+    with _TAKES_LOCK:
+        _TAKES.append(take)
+    return take
+
+
+def end_take(take: TakeNet) -> None:
+    with _TAKES_LOCK:
+        if take in _TAKES:
+            _TAKES.remove(take)
+
+
+def take_locked() -> bool:
+    with _TAKES_LOCK:
+        return any(take.locked for take in _TAKES)
+
+
+def _is_this_machine(host: str) -> bool:
+    return host in _LOCAL_HOSTS or host.endswith(".localhost")
+
+
 def assert_cloud_allowed(target: str, what: str) -> None:
     """Raise unless the fence is down or ``target`` is this machine.
 
     ``target`` may be a full URL or a bare host. Call this at the entry of
     every helper that opens an outbound connection carrying user content.
+    The fence is up when the Local route is on OR an open take is locked
+    (T7), and every open take records the attempt either way.
     """
-    if not _LOCAL_ONLY.is_set():
-        return
     host = (urlparse(str(target)).hostname or str(target) or "").lower()
-    if host in _LOCAL_HOSTS or host.endswith(".localhost"):
-        return
-    raise LocalOnlyBlocked(
-        f"{what} was blocked: the Local route is on, and {host or 'that host'} is not this machine."
-    )
+    local = _is_this_machine(host)
+    fenced = _LOCAL_ONLY.is_set() or take_locked()
+    refused = fenced and not local
+    if not local:
+        with _TAKES_LOCK:
+            for take in _TAKES:
+                take.attempts.append({"host": host, "what": what, "refused": refused})
+    if refused:
+        raise LocalOnlyBlocked(
+            f"{what} was blocked: this take is local only, and {host or 'that host'} is not this machine."
+            if take_locked() and not _LOCAL_ONLY.is_set() else
+            f"{what} was blocked: the Local route is on, and {host or 'that host'} is not this machine."
+        )

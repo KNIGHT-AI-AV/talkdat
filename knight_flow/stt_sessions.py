@@ -107,6 +107,9 @@ class BatchSTTSession:
         self.on_error = on_error
         self.on_audio = on_audio
         self.on_stable_update: Callable[[str], None] | None = None
+        # T8: (index, start byte, end byte, text) for each segment closed and
+        # transcribed during a long hold, so the safety capture can keep it.
+        self.on_checkpoint: Callable[[int, int, int, str], None] | None = None
 
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -266,6 +269,23 @@ class BatchSTTSession:
                         future.add_done_callback(
                             lambda done: self._publish_stable_pieces(progressive["futures"])
                         )
+
+                        # T8: a finished segment is a checkpoint of the take. The
+                        # planner's spans are contiguous byte ranges of the same
+                        # audio the safety capture writes, in the same order.
+                        def checkpoint_landed(done, index=len(progressive["futures"]) - 1,
+                                              start=start, end=end) -> None:
+                            callback = getattr(self, "on_checkpoint", None)
+                            if not callable(callback) or self._cancel_event.is_set():
+                                return
+                            if done.cancelled() or done.exception() is not None:
+                                return
+                            try:
+                                callback(index, start, end, str(done.result()))
+                            except Exception:
+                                log.debug("a take checkpoint could not be kept", exc_info=True)
+
+                        future.add_done_callback(checkpoint_landed)
                         if live is not None:
                             index = len(progressive["futures"]) - 1
 

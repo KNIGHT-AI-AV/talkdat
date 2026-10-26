@@ -20,6 +20,8 @@ path = [
     "knight_flow/assets/favicon.png",
     "knight_flow/assets/flow_pill_240.png",
     "knight_flow/assets/flow_pill_240.json",
+    "branding/the-pill/flow-pill-original-240.png",
+    "branding/the-pill/flow-pill-original-240.json",
     "knight_flow/assets/loading_pill_240.png",
     "knight_flow/assets/loading_pill_240.json",
     "knight_flow/assets/ui/processing-spectrum-loop-4k.png",

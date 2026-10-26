@@ -91,7 +91,7 @@ class Workspaces:
             from .home_workspace import HomeUpdates, HomeWorkspace
             return HomeWorkspace(self.config,self.app._cross_thread_calls.put,updates=HomeUpdates(self.app))
         if area=="stats":
-            return StatsWorkspace(self.config,self.app._cross_thread_calls.put)
+            return StatsWorkspace(self.config,self.app._cross_thread_calls.put,record=self.record_editing_task)
         if area=='scribe':
             return ScribeWorkspace(self.config,self.persist,ScribeActions(self.app,self.copy,self.open_path,self.busy),self.app._cross_thread_calls.put)
         if area=='ramble':
@@ -113,7 +113,8 @@ class Workspaces:
             from knight_flow.config import scratchpad_tabs_path,scratchpad_path
             return NotesWorkspace(scratchpad_tabs_path(),scratchpad_path(),self.copy,
                 import_file=self.import_note,export_file=self.export_note,fonts=self.fonts,set_font=self.set_font)
-        return RecoveryWorkspace(self.sessions,self.recover,self.play_recording,self.copy)
+        return RecoveryWorkspace(self.sessions,self.recover,self.play_recording,self.copy,
+                                 spans=self.app.take_spans,retranscribe=self.retranscribe_span)
 
     def close(self):
         for service in self.services.values():
@@ -153,6 +154,14 @@ class Workspaces:
                 dictionary.setdefault('terms',[]);dictionary.setdefault('replacements',[]);candidate.setdefault('snippets',[])
                 counts={'words':len(fresh),'replacements':0,'snippets':0}
             return candidate,counts
+        if action=='glossary':
+            # T5: one plain text or CSV file the person picks. The picker keeps
+            # the pack import's existing title until the glossary has its own words.
+            if value!='file':raise ValueError('That vocabulary action is unavailable.')
+            filename=filedialog.askopenfilename(parent=self.app.overlay.root,title='Import vocabulary pack')
+            if not filename:return None
+            from knight_flow.glossary_import import read_file
+            return read_file(filename)
         if action.startswith('practice_'):
             if action=='practice_start':
                 if self.busy():raise ValueError('Finish the current dictation before pronunciation practice.')
@@ -178,6 +187,21 @@ class Workspaces:
     def recover(self, identifier):
         if self.busy():raise ValueError('Finish the current dictation before recovering a recording.')
         self.app.recover_audio_session(identifier)
+
+    def retranscribe_span(self, identifier, index):
+        # T9: one failed part of a kept take, transcribed again beside it.
+        if self.busy():raise ValueError('Finish the current dictation before recovering a recording.')
+        return self.app.retranscribe_span(identifier,index)
+
+    def record_editing_task(self, mode, words, seconds, corrections):
+        # T10: one practice task, counts and times only, once the measurement is on.
+        from knight_flow.config import _SAVE_LOCK
+        from knight_flow.editing_measure import record_task
+        with _SAVE_LOCK:
+            candidate=copy.deepcopy(self.config)
+            if record_task(candidate,mode,words,seconds,corrections) is None:return False
+            self.persist(candidate);self.config.clear();self.config.update(candidate)
+        return True
 
     def play_recording(self, row):
         from knight_flow.audio_spool import audio_spool_dir

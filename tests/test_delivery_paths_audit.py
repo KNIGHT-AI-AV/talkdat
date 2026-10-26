@@ -22,14 +22,25 @@ class EveryDeliveryPathRunsTheVocabularyTests(unittest.TestCase):
         self.assertIn("Talk DAT!", result.text)
 
     def test_single_final_delivery_uses_the_full_pipeline_and_never_refines_in_place(self) -> None:
-        """Vocabulary runs before the one delivery; no later document edit runs."""
+        """Vocabulary runs before the one delivery; no later document edit runs
+        unless T1's verified polish is switched on, and then only one kind.
+
+        (Until T1 this pinned the literal ``speculative = False``. The draft
+        route is now opt-in, off by default -- test_verified_polish_wiring
+        proves the default take is formatted in full and delivered once.)"""
         source = (ROOT / "knight_flow" / "app.py").read_text(encoding="utf-8")
         handle = source.split("def handle_dictation", 1)[1].split("\n    def ", 1)[0]
         refine = source.split("def _refine_after_paste", 1)[1].split("\n    def ", 1)[0]
-        self.assertIn("speculative = False", handle)
+        worker = source.split("def _verified_polish(", 1)[1].split("\n    def ", 1)[0]
+        self.assertIn("and self._verified_polish_on(effective_config))", handle)
         self.assertIn("process_dictation(raw_text, effective_config, local_only=speculative)", handle)
         self.assertNotIn("process_dictation", refine)
         self.assertIn("safe single delivery is active", refine)
+        # The polish runs the full pipeline too, and its only edit is the proved one.
+        self.assertIn("process_dictation(raw_text, config)", worker)
+        self.assertIn("replace_if_proved(", worker)
+        for forbidden in ("replace_by_undo", "replace_typed_text", "hotkey", "backspace", "paste_text_with_receipt"):
+            self.assertNotIn(forbidden, worker)
 
     def test_streaming_partials_are_previews_not_pastes(self) -> None:
         """on_session_update must never deliver text — partials bypass the

@@ -433,7 +433,28 @@ def history_stats(config):
         'dictated_words': dictated_words, 'unknown_dates': unknown_dates,
         'daily': week, 'capped': capped, 'limit': 20000,
         'dictation_active_days': len(spoken_days),
+        # T10: the measured saving, from the person's own timed practice tasks,
+        # beside the estimate above (which stays an estimate); None until there
+        # are enough tasks to say anything.
+        'minutes_saved_measured': _measured_minutes_saved(config, dictated_words),
     }
+
+
+def _measured_minutes_saved(config, dictated_words):
+    try:
+        from .editing_measure import Task, measure
+
+        raw = (config.get('editing_measure') or {}).get('tasks') or []
+        tasks = [Task(str(item['mode']), int(item['words']), float(item['seconds']), int(item.get('corrections', 0)))
+                 for item in raw if isinstance(item, dict) and item.get('mode') in ('typing', 'dictation')]
+        result = measure(tasks)
+    except Exception:
+        log.debug('measured saving could not be read', exc_info=True)
+        return None
+    if not result.enough:
+        return None
+    return {'minutes': round(result.minutes_saved(dictated_words), 1), 'median_change': round(result.median_change, 3),
+            'tasks': result.typing_tasks + result.dictation_tasks}
 
 
 

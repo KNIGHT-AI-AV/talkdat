@@ -61,7 +61,10 @@ class AnOfferIsAQuestionNotADecisionTests(unittest.TestCase):
     def test_the_caller_only_remembers_on_learn(self) -> None:
         tick = re.search(r"def _clipboard_learn_tick.*?\n    def ", APP, re.S).group(0)
         # X-608: learn_spelling is remember() plus the misheard alias, if any.
-        self.assertIn('if verdict == "learn" and learn_spelling(captured, self.config, delivered, unsure):', tick)
+        # T4: the learn path learns a proved correction and holds any other copy
+        # (learn_or_quarantine); it still runs on "learn" alone.
+        self.assertRegex(tick, r'learn_or_quarantine\(captured, self\.config, delivered, unsure, project=project\)'
+                               r'\s*if verdict == "learn" else ""')
         self.assertNotIn('if verdict != "ignore"', tick,
                          "an offer is being stored before anybody is asked")
 
@@ -69,7 +72,7 @@ class AnOfferIsAQuestionNotADecisionTests(unittest.TestCase):
         tick = re.search(r"def _clipboard_learn_tick.*?\n    def ", APP, re.S).group(0)
         branch = tick[tick.index('elif verdict == "offer":'):]
         self.assertIn("def accept(", branch)
-        self.assertIn("learn_spelling(word, self.config, delivered, unsure)", branch)
+        self.assertIn('learn_spelling(word, self.config, delivered, unsure, how="accepted", project=project)', branch)
         self.assertIn("offer_learned_word(captured, accept)", branch)
 
     def test_the_pop_over_asks_rather_than_announces(self) -> None:

@@ -31,6 +31,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CF_UNICODETEXT = 13
 
+# 2026-10-22: each of this station's processes runs under the suite's guard and
+# audio stand-in, like every test process (coordinator, after full suite r3). The
+# guard allows the clipboard and input on the private station and refuses them on
+# the person's; the environment the package would default is already this run's.
+# Every process reports its PortAudio check, and the test asserts each one.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+import tests  # noqa: E402,F401
+from tests.audio_stand_in import check_line  # noqa: E402
+
 
 def _user32():
     user32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -118,6 +128,7 @@ def monitor(ready: Path) -> None:
     while user32.GetClipboardSequenceNumber() == seen and time.monotonic() < deadline:
         time.sleep(0.001)
     read_clipboard(user32, hwnd)
+    ready.with_name(ready.name + ".check").write_text(check_line(), encoding="utf-8")
 
 
 def target(delay_ms: int, ready: Path, signal: Path, result: Path) -> None:
@@ -128,10 +139,11 @@ def target(delay_ms: int, ready: Path, signal: Path, result: Path) -> None:
     while not signal.exists() and time.monotonic() < deadline:
         time.sleep(0.005)
     if delay_ms < 0:
-        result.write_text(json.dumps({"read": None}), encoding="utf-8")
+        result.write_text(json.dumps({"read": None, "portaudio_check": check_line()}), encoding="utf-8")
         return
     time.sleep(delay_ms / 1000)
-    result.write_text(json.dumps({"read": read_clipboard(user32, hwnd)}), encoding="utf-8")
+    read = read_clipboard(user32, hwnd)
+    result.write_text(json.dumps({"read": read, "portaudio_check": check_line()}), encoding="utf-8")
 
 
 # -- inside the private window station ---------------------------------------------
@@ -171,13 +183,18 @@ def inside(delay_ms: int, report: Path, early: bool = False) -> None:
     process.wait(20)
     if watcher is not None:
         watcher.wait(20)
-    read = json.loads(result.read_text(encoding="utf-8"))["read"] if result.exists() else "no result"
+    outcome = json.loads(result.read_text(encoding="utf-8")) if result.exists() else {"read": "no result"}
+    checks = {"inside": check_line(), "target": outcome.get("portaudio_check", "no check reported")}
+    if early:
+        monitor_check = work / "monitor-ready.check"
+        checks["monitor"] = monitor_check.read_text(encoding="utf-8") if monitor_check.exists() else "no check reported"
     report.write_text(json.dumps({
-        "target_read": read,
+        "target_read": outcome["read"],
         "clipboard_after": read_clipboard(user32),
         "success": receipt.success,
         "method": receipt.method,
         "elapsed_s": round(elapsed, 3),
+        "portaudio_checks": checks,
     }), encoding="utf-8")
 
 
@@ -249,7 +266,9 @@ def run(delay_ms: int, early: bool = False) -> dict:
             kernel32.CloseHandle(info.hProcess)
         if not report.exists():
             return {"error": "the paste inside the private window station wrote no report"}
-        return json.loads(report.read_text(encoding="utf-8"))
+        outcome = json.loads(report.read_text(encoding="utf-8"))
+        outcome.setdefault("portaudio_checks", {})["station"] = check_line()
+        return outcome
     finally:
         if desktop:
             user32.CloseDesktop(desktop)

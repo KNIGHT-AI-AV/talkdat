@@ -11,6 +11,7 @@ import struct
 import sys
 import tempfile
 import time
+import types
 import unittest
 import wave
 from pathlib import Path
@@ -32,22 +33,31 @@ class TheFilmMicrophoneTests(unittest.TestCase):
     def test_production_never_reaches_the_hook(self) -> None:
         source = Path(audio_input.__file__).read_text(encoding="utf-8")
         self.assertEqual(source.count('os.environ.get("TALK_DAT_MIC_WAV"'), 1)
-        device_backend = mock.Mock()
-        with (
-            mock.patch.dict(os.environ, {"TALK_DAT_MIC_WAV": ""}),
-            mock.patch.dict(sys.modules, {"sounddevice": device_backend}),
-            mock.patch.object(audio_input, "_ranked_device_candidates", return_value=[None]),
-            mock.patch.object(audio_input, "_candidate_rates", return_value=[16000]),
-            mock.patch.object(audio_input, "_WavInputStream", side_effect=AssertionError("hook reached")),
-        ):
+        # 2026-10-20: a stand-in sounddevice. This used to open the machine's
+        # REAL default input stream (and walk every fallback rate) to prove a
+        # point that needs no hardware at all; the device guard caught it.
+        opened: list[dict] = []
+
+        class Stream:
+            def __init__(self, **kwargs):
+                opened.append(kwargs)
+
+            def close(self) -> None:
+                pass
+
+        sounddevice = types.ModuleType("sounddevice")
+        sounddevice.RawInputStream = Stream
+        with mock.patch.dict(os.environ, {"TALK_DAT_MIC_WAV": ""}), \
+                mock.patch.dict(sys.modules, {"sounddevice": sounddevice}), \
+                mock.patch.object(audio_input, "_ranked_device_candidates", return_value=[None]), \
+                mock.patch.object(audio_input, "_candidate_rates", return_value=[16000]), \
+                mock.patch.object(audio_input, "_WavInputStream", side_effect=AssertionError("hook reached")):
             stream, rate, channels, device = audio_input.open_raw_input_stream(
                 samplerate=16000, channels=1, callback=lambda *a: None, device=None
             )
-        # Prove the normal device path was used without opening a real mic
-        # or waiting for a macOS permission dialog in an unattended suite.
-        device_backend.RawInputStream.assert_called_once()
-        self.assertIs(stream, device_backend.RawInputStream.return_value)
+        self.assertIsInstance(stream, Stream)
         self.assertEqual((rate, channels, device), (16000, 1, None))
+        self.assertEqual(len(opened), 1)
 
     def test_the_wav_arrives_through_the_callback_and_silence_follows(self) -> None:
         heard: list[bytes] = []

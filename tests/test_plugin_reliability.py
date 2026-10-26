@@ -200,3 +200,17 @@ class PluginReliabilityTests(unittest.TestCase):
         self.install("def register(api):\n    for _ in range(129):api.add_text_filter(lambda t,c:t+'!')\n")
         self.assertEqual(self.filtered(),'Keep every word.')
         self.assertTrue(plugins.load_errors())
+
+    def test_the_worker_has_the_guard_and_no_portaudio(self):
+        # A plugin's worker is a fresh interpreter running product code: it has the
+        # test package (tests/child_isolation.py) before the plugin's code runs.
+        self.install(
+            "import sys\n"
+            "ISOLATED = all(name in sys.modules for name in ('tests.device_guard', 'tests.audio_stand_in'))\n"
+            "def probe(text, config):\n"
+            "    from tests import audio_stand_in, device_guard\n"
+            "    return 'isolated=%s guard=%s %s' % (ISOLATED, device_guard.installed(), audio_stand_in.check_line())\n"
+            "def register(api):\n    api.add_transform('probe', probe)\n"
+        )
+        reply = plugins.plugin_transform("probe", "anything", self.config)
+        self.assertTrue(str(reply).startswith("isolated=True guard=True portaudio check: clean"), reply)

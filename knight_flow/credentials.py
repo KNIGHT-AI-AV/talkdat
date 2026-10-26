@@ -341,8 +341,9 @@ class MacKeychainStore:
     process on the machine can read argv out of `ps`. What is stored here is a
     signed entitlement bound to this device id, which limits the damage, but
     limits is not none. So this store is the LAST resort: when `keyring` is
-    importable it is used instead (the same library the Mac port ships), and
-    this class only runs where keyring is absent.
+    importable AND its backend is the macOS Keychain it is used instead (the
+    same library the Mac port ships), and the tool runs only where keyring is
+    absent or cannot reach the Keychain (_macos_keyring).
     """
 
     account = "talkdat"
@@ -358,13 +359,9 @@ class MacKeychainStore:
         self.available = sys.platform == "darwin" and os.path.exists(self._tool)
         self._keyring: Any = None
         if runner is None and sys.platform == "darwin":
-            try:
-                import keyring  # the Security framework directly; no argv
-
-                self._keyring = keyring
+            self._keyring = _macos_keyring()  # the Security framework directly; no argv
+            if self._keyring is not None:
                 self.description = "Secrets are stored in your macOS Keychain."
-            except Exception:
-                self._keyring = None
 
     def read(self, target: str) -> str:
         if not self.available or not target:
@@ -412,6 +409,37 @@ class MacKeychainStore:
             return False
         # 44 is "not found": deleting twice is idempotent, as on Windows.
         return done.returncode in (0, 44)
+
+
+def _macos_keyring() -> Any:
+    """keyring, but only when its backend is the macOS Keychain; otherwise None, and the `security` tool is used.
+
+    Polylane iss_166dd7d14001b2pzwfznwqhj: an importable keyring is not enough.
+    In a frozen app keyring can import and still resolve to its fail or null
+    backend, and then every read was "" and every write False, with no fallback:
+    sign-in could not finish on the Mac and provider keys stayed in config.json.
+    """
+    try:
+        import keyring
+
+        backend = keyring.get_keyring()
+    except Exception:
+        return None
+    return keyring if _is_macos_keychain(backend) else None
+
+
+def _is_macos_keychain(backend: Any) -> bool:
+    """The macOS backend itself, or keyring's chainer with it among its backends."""
+    def macos(item: Any) -> bool:
+        kind = type(item)
+        return kind.__name__ == "Keyring" and kind.__module__ in {"keyring.backends.macOS", "keyring.backends.OS_X"}
+
+    if macos(backend):
+        return True
+    try:
+        return any(macos(item) for item in getattr(backend, "backends", ()) or ())
+    except Exception:
+        return False
 
 
 def credential_store() -> CredentialStore:

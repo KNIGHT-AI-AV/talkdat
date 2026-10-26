@@ -3,6 +3,18 @@
 All notable product changes to Talk DAT! are recorded here. The project uses beta
 versions while broader field verification remains in progress.
 
+## 0.4.175-beta
+
+Recover keeps the part of a long dictation that was already transcribed, and transcribes only the rest.
+
+- When a long dictation stops before it finishes, Recover now keeps the part Talk DAT! had already transcribed and transcribes only the audio after it. The message says how much was kept, for example "2:05 was kept from before it stopped; the rest was transcribed again."
+- The Talk DAT! Companion browser extension now sends your local control token, so Alt+Shift+V and its toolbar button insert your last dictation. You paste the token once in the Companion's options. When a request fails, the toolbar button shows a "!" and says why.
+- On the Mac, sign-in finishes and provider keys are saved in the Keychain even when Talk DAT!'s usual route to the Keychain is not available; it uses the Mac's own security tool instead. Before, sign-in could not finish there and provider keys stayed in the settings file.
+- The anonymous first-open and first-dictation counts from a Mac now say Mac. Before, they were counted as Windows.
+- A question that starts with a clause, such as "If you have a minute, could you look at this", now ends with a question mark. Before, it often ended with a period.
+- The app's name is now written correctly when speech recognition hears it as "talk tat".
+- When the local writing model can't run, for example because Ollama isn't installed, Talk DAT! no longer shows a red message after every dictation. Your text is formatted with the built-in rules, Settings > Writing > Formatting says why, and without Ollama the text arrives up to 0.7 seconds sooner.
+
 ## 0.4.174-beta
 
 The microphone now closes when you let go of the key, or as soon as the word you were saying ends.

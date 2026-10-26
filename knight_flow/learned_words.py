@@ -115,13 +115,37 @@ def already_known(token: str, config: dict) -> bool:
     return False
 
 
-def remember(token: str, config: dict) -> bool:
+def _now_iso() -> str:
+    import time as _time
+
+    return _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
+
+
+def _provenance(how: str, heard: str = "", project: str = "") -> dict:
+    """T4: where a learned spelling came from. Local only, like the word itself;
+    no dictated text rides along, only the word it replaced."""
+    import uuid
+
+    return {"id": uuid.uuid4().hex[:12], "at": _now_iso(), "how": how, "heard": heard, "project": project}
+
+
+def _target_terms(config: dict, project: str = "") -> list:
+    """The term list a learned spelling joins: the active project's when one is
+    named (T3), otherwise the global one."""
+    if project:
+        for entry in config.setdefault("dictionary", {}).get("projects") or []:
+            if isinstance(entry, dict) and entry.get("id") == project:
+                return entry.setdefault("terms", [])
+    return config.setdefault("dictionary", {}).setdefault("terms", [])
+
+
+def remember(token: str, config: dict, *, how: str = "automatic", project: str = "") -> bool:
     """Add the word to the live dictionary. Returns whether anything changed."""
     token = str(token or "").strip()
     if not token or already_known(token, config):
         return False
-    terms = config.setdefault("dictionary", {}).setdefault("terms", [])
-    terms.append({"text": token, "sounds_like": [], "learned": True})
+    _target_terms(config, project).append(
+        {"text": token, "sounds_like": [], "learned": True, "provenance": _provenance(how, "", project)})
     return True
 
 
@@ -156,15 +180,17 @@ def correction_candidate(before: str, after: str, instruction: str) -> tuple[str
     return old, new
 
 
-def remember_correction(misheard: str, spelling: str, config: dict) -> bool:
+def remember_correction(misheard: str, spelling: str, config: dict, *, how: str = "automatic",
+                        project: str = "") -> bool:
     """Persist an accepted spelling and its exact misheard alias."""
     from .recognition_bias import clean_terms
     if (not clean_terms((misheard,)) or not clean_terms((spelling,))
             or already_known(spelling, config) or tombstoned(spelling, config)
             or misheard.casefold() == spelling.casefold()):
         return False
-    terms = config.setdefault("dictionary", {}).setdefault("terms", [])
-    terms.append({"text": spelling, "sounds_like": [misheard], "learned": True})
+    _target_terms(config, project).append(
+        {"text": spelling, "sounds_like": [misheard], "learned": True,
+         "provenance": _provenance(how, misheard, project)})
     return True
 
 
@@ -191,12 +217,121 @@ def misheard_form(spelling: str, delivered: str, unsure: object) -> str:
     return found.pop() if len(found) == 1 else ""
 
 
-def learn_spelling(spelling: str, config: dict, delivered: str = "", unsure: object = None) -> bool:
+def learn_spelling(spelling: str, config: dict, delivered: str = "", unsure: object = None, *,
+                   how: str = "automatic", project: str = "") -> bool:
     """remember(), and when the fix names what it replaced, remember that too."""
     misheard = misheard_form(spelling, delivered, unsure)
-    if misheard and remember_correction(misheard, spelling, config):
+    if misheard and remember_correction(misheard, spelling, config, how=how, project=project):
         return True
-    return remember(spelling, config)
+    return remember(spelling, config, how=how, project=project)
+
+
+# --- T4: explain, quarantine and undo what was learned ------------------------
+
+#: Learned on sight but not yet trusted: kept apart, never applied, shown in
+#: Words & Phrases for one click either way. The dictionary readers never look
+#: here, so an uncertain rule cannot change a single dictation.
+QUARANTINE_KEY = "quarantine"
+
+
+def learn_or_quarantine(spelling: str, config: dict, delivered: str = "", unsure: object = None, *,
+                        project: str = "") -> str:
+    """The automatic path, made reversible. A copied spelling that fixes a word
+    the last take was unsure of is a correction: learned, with provenance. Any
+    other copy is only a shape that looked like one -- a name copied off a web
+    page, an address, a code -- and waits in quarantine for the person's yes.
+    Returns "learned", "quarantined" or "ignored"."""
+    spelling = str(spelling or "").strip()
+    if not spelling or already_known(spelling, config) or tombstoned(spelling, config):
+        return "ignored"
+    if looks_like_a_secret(spelling):
+        return "ignored"
+    # The evidence is the pairing, not the shape: a copy that fixes a word the
+    # take was unsure of is a correction whatever it looks like.
+    misheard = misheard_form(spelling, delivered, unsure)
+    if misheard and remember_correction(misheard, spelling, config, how="automatic", project=project):
+        return "learned"
+    if not looks_learnable(spelling):
+        return "ignored"
+    held = config.setdefault("dictionary", {}).setdefault(QUARANTINE_KEY, [])
+    if any(isinstance(item, dict) and str(item.get("text", "")).casefold() == spelling.casefold() for item in held):
+        return "quarantined"
+    held.append({"text": spelling, "sounds_like": [], "provenance": _provenance("quarantined", "", project)})
+    return "quarantined"
+
+
+def quarantined(config: dict) -> list[dict]:
+    dictionary = config.get("dictionary", {}) if isinstance(config, dict) else {}
+    return [item for item in dictionary.get(QUARANTINE_KEY) or [] if isinstance(item, dict) and item.get("text")]
+
+
+def release_quarantined(spelling: str, config: dict) -> bool:
+    """The person said yes: the word joins the dictionary, its provenance kept."""
+    for item in quarantined(config):
+        if str(item["text"]).casefold() == str(spelling or "").strip().casefold():
+            config["dictionary"][QUARANTINE_KEY].remove(item)
+            project = str((item.get("provenance") or {}).get("project") or "")
+            return remember(str(item["text"]), config, how="accepted from quarantine", project=project)
+    return False
+
+
+def drop_quarantined(spelling: str, config: dict) -> bool:
+    """The person said no: gone, and never offered again."""
+    for item in quarantined(config):
+        if str(item["text"]).casefold() == str(spelling or "").strip().casefold():
+            config["dictionary"][QUARANTINE_KEY].remove(item)
+            add_tombstone(str(item["text"]), config)
+            return True
+    return False
+
+
+def learned_entries(config: dict) -> list[dict]:
+    """Every learned spelling with where it came from, newest first. An entry
+    learned before provenance existed says so rather than pretending."""
+    dictionary = config.get("dictionary", {}) if isinstance(config, dict) else {}
+    holders = [("", dictionary.get("terms") or [])]
+    holders += [(str(project.get("id") or ""), project.get("terms") or [])
+                for project in dictionary.get("projects") or [] if isinstance(project, dict)]
+    rows = []
+    for project, terms in holders:
+        for entry in terms:
+            if not (isinstance(entry, dict) and entry.get("learned")):
+                continue
+            provenance = entry.get("provenance") if isinstance(entry.get("provenance"), dict) else {}
+            heard = provenance.get("heard") or ((entry.get("sounds_like") or [""])[0] if entry.get("sounds_like") else "")
+            rows.append({"text": str(entry.get("text", "")), "heard": str(heard or ""),
+                         "at": str(provenance.get("at") or ""), "how": str(provenance.get("how") or "earlier"),
+                         "project": str(provenance.get("project") or project), "id": str(provenance.get("id") or "")})
+    return sorted(rows, key=lambda row: row["at"], reverse=True)
+
+
+def rollback(config: dict, provenance_id: str) -> dict | None:
+    """Undo one learned spelling exactly: the entry goes, its alias with it, and
+    a tombstone keeps it from coming back. Returns what was removed."""
+    dictionary = config.get("dictionary", {}) if isinstance(config, dict) else {}
+    holders = [dictionary.get("terms") or []]
+    holders += [project.get("terms") or [] for project in dictionary.get("projects") or [] if isinstance(project, dict)]
+    for terms in holders:
+        for entry in list(terms):
+            provenance = entry.get("provenance") if isinstance(entry, dict) else None
+            if isinstance(provenance, dict) and provenance.get("id") == provenance_id and entry.get("learned"):
+                terms.remove(entry)
+                add_tombstone(str(entry.get("text", "")), config)
+                return entry
+    return None
+
+
+def affected_takes(history: list, spelling: str, *, limit: int = 20) -> list[dict]:
+    """The recent History entries a learned spelling shows up in, for the
+    "what did this change" view. Read locally, never stored with the word."""
+    pattern = re.compile(rf"(?<!\w){re.escape(str(spelling or '').strip())}(?!\w)")
+    found = []
+    for entry in history or []:
+        if isinstance(entry, dict) and pattern.search(str(entry.get("text", ""))):
+            found.append(entry)
+            if len(found) >= limit:
+                break
+    return found
 
 
 def forget(token: str, config: dict) -> bool:
@@ -205,15 +340,19 @@ def forget(token: str, config: dict) -> bool:
     reach into decisions."""
     lowered = str(token or "").strip().lower()
     add_tombstone(lowered, config)
-    terms = config.get("dictionary", {}).get("terms", [])
-    for entry in list(terms):
-        if (
-            isinstance(entry, dict)
-            and entry.get("learned")
-            and str(entry.get("text", "")).lower() == lowered
-        ):
-            terms.remove(entry)
-            return True
+    dictionary = config.get("dictionary", {})
+    # T4: a word learned inside a project (T3) lives in that project's terms.
+    holders = [dictionary.get("terms", [])]
+    holders += [project.get("terms") or [] for project in dictionary.get("projects") or [] if isinstance(project, dict)]
+    for terms in holders:
+        for entry in list(terms):
+            if (
+                isinstance(entry, dict)
+                and entry.get("learned")
+                and str(entry.get("text", "")).lower() == lowered
+            ):
+                terms.remove(entry)
+                return True
     return False
 
 

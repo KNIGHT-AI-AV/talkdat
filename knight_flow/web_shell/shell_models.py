@@ -1,17 +1,77 @@
 """Existing local model operations, with bounded UI actions and async progress."""
 from __future__ import annotations
+import logging
 import threading
 
 from knight_flow.local_stt import available_local_models, delete_model, download_model, is_downloaded, model_dir, models_dir, CUSTOM_MODEL_PREFIX
 
+log = logging.getLogger(__name__)
+
 
 class ModelManager:
-    def __init__(self, config, capture_busy, *, start_worker=None, serialize_delete=None):
+    def __init__(self, config, capture_busy, *, start_worker=None, serialize_delete=None, bench_tools=None):
         self.config, self.capture_busy = config, capture_busy
         self.status = {}
         self.lock = threading.Lock()
         self.start_worker = start_worker or (lambda work: threading.Thread(target=work, name='TalkDatModelDownload', daemon=True).start())
         self.serialize_delete = serialize_delete or (lambda operation: operation())
+        # T6: what the bench reads and runs (fakes in tests): the process list,
+        # the passage renderer and the local engine.
+        self.bench_tools = bench_tools
+        self.bench_state = {'state': 'idle'}
+
+    def tools(self):
+        if self.bench_tools is not None:
+            return self.bench_tools
+        from knight_flow import local_stt, model_bench
+        return {'process_names': model_bench.running_process_names, 'render': model_bench.render_passage,
+                'transcribe': local_stt.transcribe}
+
+    def bench(self):
+        """T6: every downloaded model measured on the rendered passage -- only on
+        the person's request, never during a take, never over audio work.
+        Codes and numbers only; the view words them."""
+        import shutil
+        import sys
+        import tempfile
+
+        from knight_flow.model_bench import bench_gate, run_bench
+        with self.lock:
+            if self.bench_state.get('state') == 'working':
+                return {'bench': dict(self.bench_state)}
+        tools = self.tools()
+        refusal = bench_gate(take_active=bool(self.capture_busy()), process_names=tools['process_names']())
+        if refusal:
+            return {'bench': {'state': 'refused', 'reason': refusal}}
+        installed = [model.id for model in available_local_models(self.config) if is_downloaded(model)]
+        if not installed:
+            return {'bench': {'state': 'refused', 'reason': 'no_installed_model'}}
+        with self.lock:
+            self.bench_state = {'state': 'working'}
+        def worker():
+            folder = tempfile.mkdtemp(prefix='talkdat-bench-')
+            try:
+                summary = run_bench(installed, render=lambda: tools['render'](sys.platform, folder),
+                                    transcribe=tools['transcribe'])
+                state = {'state': 'ready', 'result': summary}
+            except Exception:
+                log.exception('the model bench could not run')
+                state = {'state': 'error'}
+            finally:
+                shutil.rmtree(folder, ignore_errors=True)
+            with self.lock:
+                self.bench_state = state
+        try:
+            self.start_worker(worker)
+        except Exception:
+            with self.lock:
+                self.bench_state = {'state': 'error'}
+            raise ValueError('That model action is not available.') from None
+        return {'bench': {'state': 'working'}}
+
+    def bench_status(self):
+        with self.lock:
+            return dict(self.bench_state)
 
     def snapshot(self):
         with self.lock:

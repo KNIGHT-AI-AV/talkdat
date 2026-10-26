@@ -30,8 +30,10 @@ def load_statistics(config):
 
 
 class StatsWorkspace:
-    def __init__(self, config, dispatch, loader=load_statistics):
+    def __init__(self, config, dispatch, loader=load_statistics, record=None):
         self.config, self.dispatch, self.loader = config, dispatch, loader
+        # T10: the practice pair's data source (counts and times, never text).
+        self.record = record
         self.data = None
         self.phase = 'idle'
         self.message = ''
@@ -39,6 +41,13 @@ class StatsWorkspace:
         self.revision = 0
 
     def handle(self, payload):
+        if type(payload) is dict and payload.get('operation') == 'record_task':
+            # T10: one timed task from the practice pair. Refused unless the
+            # person turned the measurement on (record_task checks).
+            if set(payload) != {'operation', 'mode', 'words', 'seconds', 'corrections'} or self.record is None:
+                raise ValueError('That activity action is unavailable.')
+            recorded = self.record(payload['mode'], payload['words'], payload['seconds'], payload['corrections'])
+            return {'recorded': bool(recorded)}
         if type(payload) is not dict or set(payload) != {'operation'} or payload['operation'] not in {'status', 'refresh'}:
             raise ValueError('That activity action is unavailable.')
         if self.closed:

@@ -7,18 +7,27 @@ happen. We don't need to tell people that we formatted it slightly better."
 So when the words arrived through the rules formatter because the model's edit
 was refused by the meaning check, timed out, overran the budget, came back
 empty or the model was still warming up, the Pill says nothing extra and the
-reason goes to the log. A reason the person can act on (the model is missing,
-this PC is too slow for the budget, an unknown refusal) is still said once:
-that is X-465 (tests/test_a_local_failure_is_never_silent.py), and without it
-Chill and Executive would quietly do nothing on a machine that cannot run them.
+reason goes to the log.
+
+2026-10-24, the owner again, shown the same line for a missing engine ("Your text
+was formatted by the built-in rules, not the model. The local writing model was
+unavailable.") after EVERY dictation, as an error (he had uninstalled Ollama),
+called it stupid, annoying and ugly. A reason the person can act on (the engine is missing, this PC is too slow for the budget, an unknown
+refusal) was X-465's to say on every take that landed, and every user without
+Ollama got it on every dictation. So no formatter reason is said on the Pill any
+more. Each one still goes to the log and to the take's own History entry, and
+Settings > Writing > Formatting names it with the way to fix it (Ollama not
+installed, not running, the model not downloaded), which is where X-465's person
+looks when Chill or Executive seems to do nothing. The escalation after three
+stalls in a row is unchanged.
 """
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from knight_flow.app import local_finish_is_worth_saying
 from knight_flow.formatting import note_local_finish_refusal, take_local_finish_notice
 from knight_flow.paste import PasteReceipt
 from tests.test_esc_while_processing_keeps_the_words import processing_app
@@ -33,7 +42,6 @@ FAILED_LINE = ("error", "Insertion and clipboard unavailable. Transcript kept fo
 
 CAPTURED_LINE = ("captured", "Captured locally. Auto paste is off.")
 TRANSLATION_LINE = ("error", "Translation unavailable; the original text was kept safely.")
-BUILT_IN_RULES = "Your text was formatted by the built-in rules, not the model"
 
 
 def answers(receipts):
@@ -55,9 +63,12 @@ def translation(fails: bool):
     stack.enter_context(patch("knight_flow.app.translate_text",
                               side_effect=TranslationError("model_missing", "The translation model is not installed.")))
     return stack
-SAID = ("too_slow", "model_unavailable", "the local model is not running")
+#: Reasons the person can act on. Until 2026-10-24 these were said on every take that landed.
+ACTIONABLE = ("too_slow", "model_unavailable", "the local model is not running")
+ALL = QUIET + ACTIONABLE
 FALLBACK_WORDS = ("built-in rules", "meaning check", "Executive polish was skipped", "kept in Chill",
-                  "kept with rules formatting")
+                  "kept with rules formatting", "writing model", "formatting time budget", "Settings > Writing")
+OVERLAY = (Path(__file__).resolve().parents[1] / "knight_flow" / "overlay.py").read_text(encoding="utf-8")
 
 
 def assert_the_line_follows_the_take(test: unittest.TestCase, events: list[dict], title: str) -> None:
@@ -105,68 +116,51 @@ class QuietFallbackTests(unittest.TestCase):
             result = app.handle_dictation("the words", delivery_token=token, guided_sink=None)
         return app, result
 
-    def test_with_auto_paste_off_the_reason_follows_the_take(self) -> None:
-        # Review F1 (2026-10-10): with Auto paste off every take is captured, never
-        # pasted, so none ever ended on the routine line and the reason was never said.
-        # The take's own line stays; the reason follows it on the Pill.
-        for code in SAID:
+    def test_no_formatter_reason_is_said_on_the_pill(self) -> None:
+        # 2026-10-24, the owner: the missing engine's line after every dictation.
+        for code in ALL:
+            with self.subTest(code=code):
+                app, result = self.deliver(code)
+                said = [message for _state, message in app.overlay.states] + list(app.overlay.toasts)
+                self.assertFalse([m for m in said if any(word in m for word in FALLBACK_WORDS)], said)
+                self.assertNotIn("error", [state for state, _message in app.overlay.states])
+                self.assertTrue(result["delivery"]["success"])
+                self.assertEqual(take_local_finish_notice(), "", "the notice is used up, not left for the next take")
+
+    def test_with_auto_paste_off_nothing_follows_the_take(self) -> None:
+        # Review F1/CL4-2 (2026-10-10) made the reason follow "Captured locally" as a flag;
+        # with no reason said, the take's own line is the last thing the Pill is handed.
+        for code in ALL:
             with self.subTest(code=code):
                 app, result = self.deliver(code, auto_paste=False)
                 self.assertTrue(result["delivery"]["success"])
                 self.assertEqual(app.overlay.states[-1], CAPTURED_LINE)
-                self.assertTrue(any(toast.startswith(BUILT_IN_RULES) for toast in app.overlay.toasts), app.overlay.toasts)
-
-    def test_with_auto_paste_off_the_pill_is_handed_the_takes_line_then_the_reason(self) -> None:
-        # Review CL4-2 (2026-10-10): the round 4 fake kept states and flags apart and
-        # dropped tone, key and origin, so a line that hid "Captured locally" (tone warn
-        # or error, key "state") or was flagged before it passed every test.
-        for code in SAID:
-            with self.subTest(code=code):
-                app, _result = self.deliver(code, auto_paste=False)
-                assert_the_line_follows_the_take(self, app.overlay.events, BUILT_IN_RULES)
+                self.assertFalse([event for event in app.overlay.events if event["kind"] == "flag"],
+                                 app.overlay.events)
 
     def test_a_failed_translation_keeps_its_own_line(self) -> None:
-        # Review F2/T3-1: a translation that failed is this take's own news, so the
-        # reason does not take its place either.
-        for code in SAID:
+        # Review F2/T3-1: a translation that failed is this take's own news.
+        for code in ALL:
             with self.subTest(code=code):
                 app, _result = self.deliver(code, translation_fails=True)
                 self.assertEqual(app.overlay.states[-1], TRANSLATION_LINE)
 
-    def test_a_reason_worth_saying_never_hides_a_failed_insertion(self) -> None:
-        # Review J-B1 (2026-10-10): the X-465 line came before every delivery outcome,
-        # so a take whose words never went in said only "formatted by the built-in
-        # rules". The take's own outcome comes first; the reason is said on a take that
-        # landed (it recurs: the model is still missing).
-        for code in SAID:
+    def test_a_formatter_reason_never_hides_a_failed_insertion(self) -> None:
+        # Review J-B1 (2026-10-10): a take whose words never went in says so.
+        for code in ALL:
             with self.subTest(code=code):
                 app, result = self.deliver(code, receipts=(FAILED, FAILED))
                 self.assertFalse(result["delivery"]["success"])
                 self.assertEqual(app.overlay.states[-1], FAILED_LINE)
 
-    def test_a_per_take_fallback_says_nothing_extra(self) -> None:
-        for code in QUIET:
-            with self.subTest(code=code):
-                app, result = self.deliver(code)
-                said = [message for _state, message in app.overlay.states]
-                self.assertFalse([m for m in said if any(word in m for word in FALLBACK_WORDS)], said)
-                self.assertTrue(result["delivery"]["success"])
-                self.assertEqual(take_local_finish_notice(), "", "the notice is used up, not left for the next take")
-
-    def test_a_reason_the_person_can_act_on_is_still_said_once(self) -> None:
-        for code in SAID:
-            with self.subTest(code=code):
-                app, _result = self.deliver(code)
-                self.assertIn(("error", "Your text was formatted by the built-in rules, not the model."),
-                              app.overlay.states)
-
-    def test_the_quiet_codes_are_exactly_the_per_take_ones(self) -> None:
-        for code in QUIET:
-            self.assertFalse(local_finish_is_worth_saying(code), code)
-            self.assertFalse(local_finish_is_worth_saying(f"  {code.upper()} "), code)
-        for code in SAID:
-            self.assertTrue(local_finish_is_worth_saying(code), code)
-        self.assertFalse(local_finish_is_worth_saying(""))
+    def test_settings_names_the_missing_engine_and_the_way_to_fix_it(self) -> None:
+        # Where X-465's reason lives now: the Formatting page reads the engine itself.
+        # The Mac line names each platform's own download page (OLLAMA_DOWNLOAD_URL), not Windows'.
+        for line in ("Ollama is not installed, so dictation uses the built-in rules",
+                     "f\"Install it from {OLLAMA_DOWNLOAD_URL.split('//')[1]}.\"",
+                     "Ollama is installed but not running, so dictation uses the built-in rules",
+                     "is not downloaded yet, so dictation uses the built-in rules"):
+            self.assertIn(line, OVERLAY)
 
     def test_the_takes_history_entry_keeps_what_the_pill_no_longer_says(self) -> None:
         # Overwatch's review, 2026-10-09: hiding the notice must not hide the fact. If
@@ -174,7 +168,7 @@ class QuietFallbackTests(unittest.TestCase):
         # so, in the words the Pill used to say it.
         wording = ("Your text was formatted by the built-in rules, not the model.",
                    "Executive polish was skipped. Your text was kept in Chill.")
-        for code in QUIET + SAID:
+        for code in ALL:
             with self.subTest(code=code):
                 app, _result = self.deliver(code)
                 self.assertIn(app.history[-1].get("format_note", ""), wording,
@@ -184,10 +178,12 @@ class QuietFallbackTests(unittest.TestCase):
         app, _result = self.deliver("")
         self.assertNotIn("format_note", app.history[-1])
 
-    def test_a_quiet_fallback_still_reaches_the_log(self) -> None:
-        with self.assertLogs("knight_flow.app", level="INFO") as logs:
-            self.deliver("model_safety_fallback")
-        self.assertTrue(any("model_safety_fallback" in line for line in logs.output), logs.output)
+    def test_every_formatter_reason_reaches_the_log(self) -> None:
+        for code in ALL:
+            with self.subTest(code=code):
+                with self.assertLogs("knight_flow.app", level="INFO") as logs:
+                    self.deliver(code)
+                self.assertTrue(any(code in line for line in logs.output), logs.output)
 
 
 class RepeatedFallbacksEscalateTests(unittest.TestCase):
@@ -360,12 +356,12 @@ class RepeatedFallbacksEscalateTests(unittest.TestCase):
             self.assertEqual(quiet_fallback_streak(("another_new_stall", 2, False), "a_new_stall"),
                              ("a_new_stall", 1, False))
 
-    def test_every_stalling_code_is_quiet_per_take(self) -> None:
-        # Review CL4-5: a stalling code that the Pill said on every take would be said
-        # again by its escalation. Each one is quiet per take; the escalation is its line.
-        from knight_flow.app import QUIET_LOCAL_FINISH, STALLING_LOCAL_FINISH
-
-        self.assertLessEqual(set(STALLING_LOCAL_FINISH), set(QUIET_LOCAL_FINISH))
+    def test_a_missing_engine_never_escalates(self) -> None:
+        # 2026-10-24: the engine being away is not a stall (Settings names it), so even a
+        # whole evening of takes without Ollama says nothing on the Pill.
+        for code in ACTIONABLE:
+            with self.subTest(code=code):
+                self.assertEqual(self.takes([code] * 5), [False] * 5)
 
     def test_the_stalls_that_share_a_cause_count_together(self) -> None:
         # Review R-B4b (2026-10-10): a model too slow for the time budget times out on a

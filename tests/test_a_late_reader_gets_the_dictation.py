@@ -49,6 +49,12 @@ class ALateReaderGetsTheDictation(unittest.TestCase):
         report = json.loads(output.splitlines()[-1])
         self.assertNotIn("error", report, report)
         self.assertTrue(report["success"], report)
+        # Every process of the station ran under the test package: its PortAudio check is clean.
+        checks = report.get("portaudio_checks", {})
+        expected = {"station", "inside", "target"} | ({"monitor"} if "early" in extra else set())
+        self.assertEqual(set(checks), expected, report)
+        unclean = {name: line for name, line in checks.items() if not str(line).startswith("portaudio check: clean")}
+        self.assertEqual(unclean, {}, "a station process did not report a clean PortAudio check")
         return report
 
     def test_c085_neg_a_target_that_reads_900_ms_late_gets_the_dictation(self) -> None:

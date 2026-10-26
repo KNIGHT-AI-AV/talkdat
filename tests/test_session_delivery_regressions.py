@@ -63,7 +63,9 @@ class QueuedTranscriptTests(unittest.TestCase):
 
 
 class DeliveryBoundaryTests(unittest.TestCase):
-    def test_fresh_formatter_notice_remains_visible_on_normal_delivery(self):
+    def test_fresh_formatter_notice_stays_with_the_take_on_normal_delivery(self):
+        # 2026-10-24 (the owner): the notice is no longer the Pill's line; the take keeps it
+        # on its History entry (tests/test_quiet_formatting_fallbacks.py).
         from knight_flow.formatting import note_local_finish_refusal
         app, token = processing_app()
         def format_current(*_args, **_kwargs):
@@ -75,7 +77,8 @@ class DeliveryBoundaryTests(unittest.TestCase):
                 True, "clipboard", "clipboard", ("clipboard",))),
         ):
             app.handle_dictation("the words", delivery_token=token, guided_sink=None)
-        self.assertIn("built-in rules", app.overlay.states[-1][1])
+        self.assertEqual(app.overlay.states[-1][1], "Inserted via clipboard. Mic off.")
+        self.assertIn("built-in rules", app.history[-1].get("format_note", ""))
 
     def test_current_formatter_notice_does_not_hide_esc_recovery(self):
         from knight_flow.formatting import note_local_finish_refusal

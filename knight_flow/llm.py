@@ -313,17 +313,40 @@ LOCAL_ENGINE_OFFLINE_ENV = "TALK_DAT_LOCAL_ENGINE_OFFLINE"
 NO_ENGINE_START_ENV = "TALK_DAT_NO_ENGINE_START"
 
 
+# 2026-10-24, the owner's PC with Ollama uninstalled: every take spent about
+# 0.7 s on two 0.35 s /api/tags timeouts (the GPU inventory, then the ready
+# check) before the built-in rules formatted it anyway. On Windows a loopback
+# port nobody listens on does not refuse at once, so each probe costs its whole
+# timeout. An engine that did not answer is remembered for a minute, and the
+# takes in that minute decline without asking. The background checks (the
+# residency check at every dictation start, the launch's prepare, the Settings
+# status) still ask, and the first answer clears it.
+_ENGINE_AWAY_S = 60.0
+_ENGINE_AWAY: dict[str, float] = {}
+
+
+def _engine_away(api_base: str) -> bool:
+    """Whether this engine failed to answer in the last minute."""
+    since = _ENGINE_AWAY.get(api_base.rstrip("/").lower())
+    return since is not None and time.monotonic() - since < _ENGINE_AWAY_S
+
+
 def _ollama_models(api_base: str, *, timeout: float = 0.35) -> set[str] | None:
     if os.environ.get(LOCAL_ENGINE_OFFLINE_ENV) == "1":
         return None
     from .net_fence import loopback_ipv4
 
     request = urllib.request.Request(loopback_ipv4(api_base.rstrip("/") + "/api/tags"), method="GET")
+    away_key = api_base.rstrip("/").lower()
     try:
         with urllib.request.urlopen(request, timeout=max(0.05, timeout)) as response:
             payload = json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError):
+    except (urllib.error.URLError, TimeoutError, OSError):
+        _ENGINE_AWAY[away_key] = time.monotonic()
         return None
+    except ValueError:  # an answer that is not JSON: the engine is there, but not usable
+        return None
+    _ENGINE_AWAY.pop(away_key, None)
     models: set[str] = set()
     for item in payload.get("models", []):
         if not isinstance(item, dict):
@@ -348,6 +371,8 @@ def _ollama_ready(
     cached = _OLLAMA_READY_CACHE.get(key)
     if cached is not None and now - cached[0] < max(0.0, cache_ttl):
         return cached[1]
+    if cache_ttl > 0 and _engine_away(api_base):
+        return False  # a take inside the minute: the engine did not answer, so do not ask again
     models = _ollama_models(api_base, timeout=timeout)
     wanted = model.strip().lower()
     ready = models is not None and (
@@ -501,6 +526,7 @@ def _ollama_loaded_on_gpu(api_base: str, model: str, *, timeout: float = 0.35) -
             payload = json.loads(response.read().decode("utf-8"))
     except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError):
         return None
+    _ENGINE_AWAY.pop(api_base.rstrip("/").lower(), None)  # it answered: the engine is back
     wanted = model.strip().lower()
     for item in payload.get("models", []):
         if not isinstance(item, dict):
@@ -625,7 +651,8 @@ def local_finish_target(config: dict[str, Any], *, executive: bool) -> tuple[str
     upgradeable = (
         on_gpu and configured.lower() == LOCAL_FORMATTER_MODEL.lower() and mac_support.gpu_model_fits()
     )
-    installed = (_ollama_models(api_base) or set()) if upgradeable else set()
+    # 2026-10-24: and not while the engine is away (it did not answer in the last minute).
+    installed = (_ollama_models(api_base) or set()) if upgradeable and not _engine_away(api_base) else set()
     chosen = choose_local_model(
         configured, executive=executive, installed=installed, on_gpu=on_gpu
     )

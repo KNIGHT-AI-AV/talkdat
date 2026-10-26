@@ -1,8 +1,8 @@
 """Review CL4-1 (2026-10-10): with Auto paste off, the formatting line reaches the Pill.
 
 With Auto paste off a take ends on "Captured locally. Auto paste is off." (a warn),
-and the formatting line (the X-465 reason, or the escalation after three stalls)
-follows it. Round 4 sent that line as an info nobody caused. Through the real
+and the formatting line (the escalation after three stalls; until 2026-10-24 also
+the X-465 reason, which the owner had taken off the Pill) follows it. Round 4 sent that line as an info nobody caused. Through the real
 message queue it was never shown while a meeting app was running or the Pill was
 withdrawn, and the next press cut it for good. Everywhere else the same line is an
 error the person caused, and it gets through all of these.
@@ -38,8 +38,9 @@ from tests.test_esc_while_processing_keeps_the_words import processing_app
 CAPTURED = "Captured locally. Auto paste is off."
 REASON = "Your text was formatted by the built-in rules, not the model"
 ESCALATION = "Formatting isn't being applied"
-#: Which takes say which line: the reason on its own take, the escalation on the third stall.
-LINES = {"the reason": (["model_unavailable"], REASON), "the escalation": (["timeout"] * 3, ESCALATION)}
+#: Which takes say which line: the escalation on the third stall. (The reason on its own
+#: take was said until 2026-10-24; test_a_missing_engine_adds_nothing_after_the_take.)
+LINES = {"the escalation": (["timeout"] * 3, ESCALATION)}
 
 GROW_MS = max(island.settle_ms(*island.GROW_LENGTH), island.settle_ms(*island.GROW_HEIGHT))
 CONTRACT_MS = island.CONTRACT_DELAY_MS + island.settle_ms(*island.CONTRACT)
@@ -334,6 +335,14 @@ class TheFormattingLineReachesThePillTests(unittest.TestCase):
                 back = landed + 20_000.0
                 self.assertEqual(pill.read(landed, until_ms=back), [], "something was said over the video")
                 self.assert_read_once(pill, back, title)
+
+    def test_a_missing_engine_adds_nothing_after_the_take(self) -> None:
+        # 2026-10-24, the owner: the reason after every dictation without Ollama.
+        pill, landed = self.run_takes(["model_unavailable"] * 3)
+        self.assertFalse([read for read in pill.read() if read.startswith(REASON)], pill.log)
+        self.assertEqual(pill.read(landed), [CAPTURED], pill.log)
+        pill, _landed = self.run_takes(["model_unavailable"] * 3, meeting=True)  # errors get through a meeting
+        self.assertFalse([read for read in pill.read() if read.startswith(REASON)], pill.log)
 
     def test_the_next_press_never_cuts_the_line_for_good(self) -> None:
         # Overwatch measured the line cut, and not requeued, by a press 4-8 s later. Every

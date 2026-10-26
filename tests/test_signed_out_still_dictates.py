@@ -133,6 +133,21 @@ class _FakeApp:
     def begin_activation_guards(self) -> None:
         pass
 
+    # T7: the take's lock and its fence view.
+    def _lock_for_this_take(self, profile: dict) -> bool:
+        from knight_flow.app import TalkDatApp
+        return TalkDatApp._lock_for_this_take(self, profile)
+
+    def _end_take_view(self) -> None:
+        from knight_flow.app import TalkDatApp
+        TalkDatApp._end_take_view(self)
+
+    # T1: handle_dictation (test_app_profiles_session drives it on this fake)
+    # asks whether the verified polish is on.
+    def _verified_polish_on(self, config: dict | None = None) -> bool:
+        from knight_flow.app import TalkDatApp
+        return TalkDatApp._verified_polish_on(self, config)
+
 
 class _Session:
     def __init__(self) -> None:
@@ -176,6 +191,8 @@ def _run_start_session(app: _FakeApp, *, model_on_disk: bool):
     finally:
         for p in patches:
             p.stop()
+        # The take never lands here, so its fence view (T7) is closed by hand.
+        app._end_take_view()
     return captured if captured else None
 
 

@@ -138,16 +138,21 @@ class AHandFixTeachesTheMishearingTests(unittest.TestCase):
         self.assertEqual(misheard_form("Kaelyn", "Can you forward this to Kalen?", {"kalen": 0.54}), "kalen")
         config: dict = {}
         self.assertTrue(learn_spelling("Kaelyn", config, "Can you forward this to Kalen?", {"kalen": 0.54}))
-        self.assertEqual(config["dictionary"]["terms"],
+        # T4 (2026-10-21): every learned entry also says where it came from.
+        self.assertEqual([{k: v for k, v in entry.items() if k != "provenance"}
+                          for entry in config["dictionary"]["terms"]],
                          [{"text": "Kaelyn", "sounds_like": ["kalen"], "learned": True}])
+        self.assertEqual(config["dictionary"]["terms"][0]["provenance"]["heard"], "kalen")
 
     def test_a_word_it_was_sure_of_is_never_made_an_alias(self):
         self.assertEqual(misheard_form("Kaelyn", "Please clean the kitchen.", {"clean": 1.0}), "")
         self.assertEqual(misheard_form("Kaelyn", "Please clean the kitchen.", {}), "")
         config: dict = {}
         self.assertTrue(learn_spelling("Kaelyn", config, "Please clean the kitchen.", {"clean": 1.0}))
-        self.assertEqual(config["dictionary"]["terms"],
+        self.assertEqual([{k: v for k, v in entry.items() if k != "provenance"}
+                          for entry in config["dictionary"]["terms"]],
                          [{"text": "Kaelyn", "sounds_like": [], "learned": True}])
+        self.assertEqual(config["dictionary"]["terms"][0]["provenance"]["heard"], "")
 
     def test_two_candidates_are_one_too_many(self):
         self.assertEqual(misheard_form("Kaelyn", "Kalen and Kaylin", {"kalen": 0.5, "kaylin": 0.5}), "")

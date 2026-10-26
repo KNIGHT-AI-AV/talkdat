@@ -275,6 +275,36 @@ def _strip_terminal(sentence: str) -> tuple[str, str]:
     return sentence, ""
 
 
+# His own dictation, 2026-10-23: "When someone says things in a different tone, are we able to actually detect that"
+# ended on a period, because the wh-word rule below stops at "When" + a subject (a fronted clause) and never read the
+# clause after it. A fronted clause is not the question; what follows it is. With its comma, the clause after the comma
+# is judged on its own. Without one, an auxiliary inverted over a pronoun later in the sentence ("... tone are we able")
+# is the tell, unless a pronoun just before the auxiliary makes it a statement ("because we can we should", "when I did
+# it was fine") or it is the filler "you know".
+_FRONTING = frozenset(
+    "when whenever where wherever if unless before after while whilst since because once until till as although "
+    "though".split())
+_INVERTED_SUBJECTS = frozenset("i we you they he she it there".split())
+_DECLARATIVE_SUBJECTS = frozenset("i we you they he she".split())
+
+
+def _asks_after_a_fronted_clause(lowered: str, words: list[str]) -> bool:
+    if not words or words[0] not in _FRONTING:
+        return False
+    if "," in lowered:
+        main = lowered.split(",", 1)[1].strip()
+        return bool(main) and is_question(main)
+    for i in range(2, len(words) - 1):
+        if words[i] not in _AUX_WORDS or words[i + 1] not in _INVERTED_SUBJECTS:
+            continue
+        if words[i - 1] in _DECLARATIVE_SUBJECTS:
+            continue
+        if words[i + 1] == "you" and words[i + 2:i + 3] == ["know"] and words[i] != "do":
+            continue
+        return True
+    return False
+
+
 def is_question(sentence: str) -> bool:
     body = sentence.strip()
     if not body:
@@ -308,6 +338,8 @@ def is_question(sentence: str) -> bool:
     first = words[0]
     # Tag questions: "..., right", "..., correct", "..., okay".
     if re.search(r",\s*(right|correct|okay|ok|yeah|no)$", lowered):
+        return True
+    if _asks_after_a_fronted_clause(lowered, words):
         return True
     if first in _WH_WORDS:
         # Fronted adverbial clauses are statements wearing a question's hat:

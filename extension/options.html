@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Talk DAT! Companion</title>
+  <style>
+    body { font: 14px system-ui, sans-serif; margin: 16px; max-width: 28rem; }
+    label { display: block; font-weight: 600; margin-bottom: 4px; }
+    input { box-sizing: border-box; padding: 6px; width: 100%; }
+    p { color: #444; }
+    #status { margin-left: 8px; }
+  </style>
+</head>
+<body>
+  <label for="token">Local control token</label>
+  <input id="token" type="password" autocomplete="off" spellcheck="false">
+  <p>Use the same token as remote.token in Talk DAT!'s config. It is kept in this browser only.</p>
+  <button id="save" type="button">Save</button>
+  <span id="status" role="status"></span>
+  <script src="options.js"></script>
+</body>
+</html>

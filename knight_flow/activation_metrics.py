@@ -9,7 +9,8 @@ metric anywhere.
 Privacy shape, deliberately narrower than everything else in the product:
   * a random install id, generated here, tied to nothing -- not the machine,
     not an email, not a licence;
-  * two timestamps and their difference, the app version, and "windows";
+  * two timestamps and their difference, the app version, and the platform
+    ("windows" or "mac", read where it runs);
   * never any text, ever (X-37), and never anything that identifies a person.
 
 Sent once. If the network is down it retries on later launches until the
@@ -101,7 +102,7 @@ def report_install(config: dict[str, Any], save, api_base: str) -> None:
         "stage": "install",
         "firstRunAt": int(metrics.get("first_run_at") or 0),
         "version": _app_version(),
-        "platform": "windows",
+        "platform": _platform_name(),
         "internal": is_internal(config),
     }
     if not payload["installId"]:
@@ -289,7 +290,7 @@ def _send(config: dict[str, Any], save, api_base: str) -> None:
         "secondsToFirstDictation": int(metrics.get("seconds_to_first_dictation") or 0),
         "firstRunAt": int(metrics.get("first_run_at") or 0),
         "version": _app_version(),
-        "platform": "windows",
+        "platform": _platform_name(),
     }
     if not payload["installId"]:
         return
