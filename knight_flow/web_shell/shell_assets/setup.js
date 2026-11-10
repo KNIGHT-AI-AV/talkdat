@@ -32,15 +32,17 @@ window.TalkDatSetup=({container,el,request,notice,changed})=>{
     for(const p of data.permissions)section.append(el("div",{class:"setup-permission"},[el("div",{},[el("strong",{text:p.label}),el("span",{class:"secondary",text:labels[p.state]||labels.unknown})]),manage("Review "+p.label,()=>run("permission",{value:p.id}))]));
     section.append(manage("Refresh permissions",()=>run("state")));return section;
   }
-  // Owner decision 2026-09-23: the anonymous usage counts are mentioned once, here, as a line and
-  // the toggle, with no nag. data.usage_counts is null in a build that cannot send them.
+  // Owner decision 2026-09-23: the usage counts are mentioned once, here, with no nag. 0.4.176 (TEAM KNIGHT,
+  // consent before capture): an explicit question with two equal answers, neither chosen until the person picks
+  // one. Nothing is sent before a Share. data.usage_counts is null in a build that cannot send them.
+  const usagePressed=(value)=>String(Boolean(data.usage_counts?.answered)&&Boolean(data.usage_counts?.on)===value);
   function usageRow(){
     if(!data.usage_counts)return null;
-    const toggle=el("button",{class:"switch",type:"button",role:"switch","aria-checked":Boolean(data.usage_counts.on),"aria-labelledby":"setup-usage-label","aria-describedby":"setup-usage-help"});
-    toggle.dataset.setupAction="true";
-    toggle.onclick=()=>run("usage",{revision:data.revision,value:toggle.getAttribute("aria-checked")!=="true"});
-    return el("section",{class:"setup-usage","aria-label":"Anonymous usage counts"},[el("div",{},[el("strong",{id:"setup-usage-label",text:"Share anonymous usage counts"}),
-      el("p",{id:"setup-usage-help",text:"First open, first dictation, still in use, day 7. Never your audio or text. Change it any time in Settings, Privacy."})]),toggle]);
+    const answer=(text,value)=>{const b=el("button",{type:"button",text,"aria-pressed":usagePressed(value)});
+      b.dataset.setupAction="true";b.dataset.usage=String(value);b.onclick=()=>run("usage",{revision:data.revision,value});return b;};
+    return el("section",{class:"setup-usage","aria-labelledby":"setup-usage-label"},[el("div",{},[el("strong",{id:"setup-usage-label",text:"Share usage counts?"}),
+      el("p",{id:"setup-usage-help",text:"First open, first dictation, still in use, day 7, with a random install ID, not linked to you or your account. Never your audio or text. Nothing is sent unless you choose Share. Change it any time in Settings, Privacy."})]),
+      el("div",{class:"segmented setup-usage-choice",role:"group","aria-labelledby":"setup-usage-label","aria-describedby":"setup-usage-help"},[answer("Share",true),answer("Don't share",false)])]);
   }
   // Smart formatting: the local writing model. Optional, never part of Finish setup.
   function formattingCard(){
@@ -113,7 +115,7 @@ window.TalkDatSetup=({container,el,request,notice,changed})=>{
     const result=body.querySelector(".setup-result");if(result&&result.value!==data.practice.text)result.value=data.practice.text;
     const receipts=body.querySelector(".setup-receipts");if(receipts)receipts.replaceChildren(...[["microphone_tested","Microphone measured"],["hotkey_rehearsed","Trigger detected"],["dictation_tested","Practice words received"]].map(([key,label])=>el("li",{text:label+": "+(data.flags[key]?"checked":"not checked"),class:data.flags[key]?"checked":""})));
     formattingCard();
-    const usage=body.querySelector(".setup-usage .switch");if(usage&&data.usage_counts)usage.setAttribute("aria-checked",String(Boolean(data.usage_counts.on)));
+    if(data.usage_counts)for(const b of body.querySelectorAll(".setup-usage-choice button"))b.setAttribute("aria-pressed",usagePressed(b.dataset.usage==="true"));
     const note=body.querySelector(".setup-formatting-note");
     if(note){const f=data.formatting;const downloading=f?.state==="downloading";note.hidden=!downloading;
       note.textContent=downloading?`Smart formatting is still getting ready (${f.label}). Until then your practice uses the built-in rules.`:"";}

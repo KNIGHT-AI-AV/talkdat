@@ -64,6 +64,11 @@ def child_save(connection,evidence,html):
                     if window.evaluate_js("document.getElementById('save-strip').hidden"):break
                     time.sleep(0.05)
                 window.evaluate_js("window.TalkDat.navigate('model-guide');true")
+                # The page draws at once now (0.4.177: the owner's reference sidebar moves nothing on
+                # navigation); waiting for it, like every navigation above, still holds.
+                while time.monotonic()<deadline:
+                    if window.evaluate_js("!!document.getElementById('model-guide-search')"):break
+                    time.sleep(0.05)
                 guide = window.evaluate_js("""(() => {
                     const search=document.getElementById('model-guide-search');
                     const location=document.getElementById('model-guide-location');

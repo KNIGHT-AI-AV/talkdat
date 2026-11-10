@@ -1266,10 +1266,13 @@ def transform_with_ollama(text: str, instruction: str, config: dict[str, Any]) -
     }
     data = json.dumps(payload).encode("utf-8")
     try:
-        from .net_fence import loopback_ipv4
+        # X-338: the local-route fence, as every other formatter request.
+        from .net_fence import assert_cloud_allowed, loopback_ipv4
 
+        url = str(ollama.get("url", "http://localhost:11434/api/generate"))
+        assert_cloud_allowed(url, "The formatter")
         request = urllib.request.Request(
-            loopback_ipv4(str(ollama.get("url", "http://localhost:11434/api/generate"))),
+            loopback_ipv4(url),
             data=data,
             headers={"Content-Type": "application/json"},
             method="POST",

@@ -27,7 +27,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from knight_flow import menu_anchor
-from knight_flow.web_shell.menu_geometry import pill_menu_bounds, pill_menu_side
+from knight_flow.web_shell.menu_geometry import menu_height, pill_menu_bounds, pill_menu_side
 
 #: (monitor rect, scale) per layout, in the physical pixels Windows reports.
 LAYOUTS = {
@@ -116,9 +116,13 @@ class PlacementMatrixTests(unittest.TestCase):
                 self.assertLessEqual(y + h, 1032)
 
 
-#: The real heights of the menu's views at 100% (menu_geometry.menu_height).
-VIEW_HEIGHTS = {"Home": 385, "Home with an update": 449, "Speech": 136, "Formatting": 185,
-                "App controls": 256, "Tools": 296}
+#: Heights of the menu's views at 100% (menu_geometry.menu_height). 0.4.177 IA phase 2: Home is thirteen rows
+#: behind three separators; in place (no submenu window), Speech and Writing style are three rows behind one and Tools
+#: four, each under its heading. The 385 and 449 these tests were written with stay as the older, shorter Homes.
+VIEW_HEIGHTS = {"Home": 385, "Home with an update": 449, "Home 0.4.177": menu_height(13, separators=3),
+                "Home 0.4.177 with an update": menu_height(13, update=True, separators=3),
+                "Speech": menu_height(3, separators=1, header=True), "Writing style": menu_height(3, separators=1, header=True),
+                "Tools": menu_height(4, separators=0, header=True)}
 
 
 class TheSideStaysPutTests(unittest.TestCase):
@@ -142,8 +146,9 @@ class TheSideStaysPutTests(unittest.TestCase):
             left, top, right, bottom = area
             pw, ph = round(200 * scale), round(48 * scale)
             gap, margin = round(10 * scale), round(8 * scale)
-            for home in (VIEW_HEIGHTS["Home"], VIEW_HEIGHTS["Home with an update"]):
-                views = [home] + [VIEW_HEIGHTS[name] for name in ("Speech", "Formatting", "App controls", "Tools")]
+            for home in (VIEW_HEIGHTS["Home"], VIEW_HEIGHTS["Home with an update"], VIEW_HEIGHTS["Home 0.4.177"],
+                         VIEW_HEIGHTS["Home 0.4.177 with an update"]):
+                views = [home] + [VIEW_HEIGHTS[name] for name in ("Speech", "Writing style", "Tools")]
                 for py in range(top + round(4 * scale), bottom - ph - round(4 * scale) + 1, max(1, round(4 * scale))):
                     pill = ((left + right - pw) // 2, py, pw, ph)
                     side = pill_menu_side(pill, area, scale, height=home)
@@ -179,6 +184,9 @@ class TheSideStaysPutTests(unittest.TestCase):
         self.assertEqual(pill_menu_side(pill, area, 1.0, height=VIEW_HEIGHTS["Home"]), "above")
         self.assertEqual(pill_menu_bounds(pill, area, 1.0, height=VIEW_HEIGHTS["Home"], side="above"),
                          [772, 8, 288, 330])
+        # 0.4.177 IA phase 3: a menu widened to its widest row (344 px) keeps the side and the edge, centred on the Pill.
+        self.assertEqual(pill_menu_bounds(pill, area, 1.0, height=VIEW_HEIGHTS["Home"], side="above", width=344),
+                         [744, 8, 344, 330])
         # 319 px is not: the roomier side, below, wins.
         self.assertEqual(pill_menu_side((816, 337, 200, 48), area, 1.0, height=VIEW_HEIGHTS["Home"]), "below")
 

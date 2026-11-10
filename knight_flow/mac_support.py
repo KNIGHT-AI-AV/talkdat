@@ -482,7 +482,13 @@ def gpu_model_fits() -> bool:
 # vault, the system default microphone, and the place the app's menu lives.
 CREDENTIAL_VAULT_NAME = "your macOS Keychain" if IS_MAC else "Windows Credential Manager"
 SYSTEM_DEFAULT_MIC_LABEL = "System default microphone" if IS_MAC else "Windows default microphone"
-MENU_SURFACE_NAME = "the menu bar icon" if IS_MAC else "the tray"
+def menu_surface_name(is_mac: bool) -> str:
+    """Where the app's menu lives: the tray on Windows, the menu bar icon on a Mac (0.4.177: Pause listening
+    lives there and in the Pill menu, so the pause messages name it)."""
+    return "the menu bar icon" if is_mac else "the tray"
+
+
+MENU_SURFACE_NAME = menu_surface_name(IS_MAC)
 APP_DATA_LABEL = "Application Support" if IS_MAC else "AppData"
 
 

@@ -8,11 +8,11 @@ of app:
   ``OFFICIAL = True`` into ``knight_flow/_build_flags.py`` (written by
   ``scripts/write_build_flags.py``; the file is generated, never committed).
   These builds use Knight's services: the optional account at api.talkdat.app,
-  the anonymous app counts, the feedback inbox, preference sync, and the update
+  the usage counts, the feedback inbox, preference sync, and the update
   check against the ``KNIGHT-AI-AV/talk-dat-releases`` GitHub releases.
 * SOURCE: everything else. A checkout started with ``run.ps1``, an app you
   built yourself, a fork. By default a source build contacts NONE of those
-  services. Sign-in, feedback upload, preference sync, the anonymous counts
+  services. Sign-in, feedback upload, preference sync, the usage counts
   and the update check are all off. Dictation is unaffected: it never needed
   any of them.
 
@@ -32,12 +32,12 @@ Pointing a build at your own endpoints (documented in docs/NETWORK.md):
 ``TALKDAT_NO_PHONE_HOME=1`` turns every one of these connections off, in any
 build.
 
-The anonymous usage counts have their own setting, ``privacy.share_usage_counts``
-(Settings > Privacy, "Share anonymous usage counts"; owner decision
-2026-09-23). It is on by default in an official build and off, always, in a
-source build. Local-only privacy (``privacy.local_only``) governs what a person
-dictates -- audio, text and their own provider keys -- and does NOT decide the
-counts, which carry none of that.
+The usage counts have their own setting, ``privacy.share_usage_counts``
+(Settings > Privacy, "Share usage counts"; owner decision 2026-09-23). It is
+off, always, in a source build. Local-only privacy (``privacy.local_only``)
+governs what a person dictates -- audio, text and their own provider keys --
+and does NOT decide the counts, which carry none of that. Each report carries
+a random install ID, not linked to the person or their account.
 
 Pure stdlib, no tkinter, importable by tests and by the build scripts.
 """
@@ -74,12 +74,45 @@ UPDATES_OFF = (
 # The owner's words for the switch (2026-09-23). Settings > Privacy and
 # first-run setup show exactly these; settings-fields.json and setup.js carry
 # the same text and tests/test_usage_counts_setting.py keeps them equal.
-USAGE_COUNTS_LABEL = "Share anonymous usage counts"
-USAGE_COUNTS_DETAIL = "First open, first dictation, still in use, day 7. Never your audio or text."
-USAGE_COUNTS_LINE = (
-    "Share anonymous usage counts: first open, first dictation, still in use, day 7. "
-    "Never your audio or text."
+# 0.4.176 (TEAM KNIGHT's privacy audit ruling (a), 2026-10-27): every report
+# carries a random install ID, so the switch is no longer called anonymous and
+# says what the reports carry.
+USAGE_COUNTS_LABEL = "Share usage counts"
+USAGE_COUNTS_DETAIL = (
+    "First open, first dictation, still in use, day 7, with a random install ID, "
+    "not linked to you or your account. Never your audio or text."
 )
+USAGE_COUNTS_LINE = (
+    "Share usage counts: first open, first dictation, still in use, day 7, with a random install ID, "
+    "not linked to you or your account. Never your audio or text."
+)
+# 0.4.176 (TEAM KNIGHT, consent before capture): setup and Home ask, with two
+# equal answers and neither chosen; setup.js and home.js carry these words.
+USAGE_COUNTS_QUESTION = "Share usage counts?"
+USAGE_COUNTS_ASK = "Nothing is sent unless you choose Share. Change it any time in Settings, Privacy."
+USAGE_COUNTS_SHARE = "Share"
+USAGE_COUNTS_DECLINE = "Don't share"
+
+
+def usage_counts_saved_message(share: bool) -> str:
+    """What setup and Home say once the person answered."""
+    return ("Usage counts are on." if share else "Usage counts are off.") + " Change it any time in Settings, Privacy."
+
+
+# 0.4.176 (TEAM KNIGHT's retention ruling (c)): Settings, Privacy shows the
+# install ID, so a person can ask for its records to be deleted, as the privacy
+# notice says. settings-fields.json carries the same words.
+USAGE_COUNTS_ID_LABEL = "Install ID"
+USAGE_COUNTS_ID_DETAIL = (
+    "The random ID your usage counts carry. To have the records for this ID deleted, "
+    "send it to Build@KnightAIAV.com."
+)
+
+
+def install_id(config: dict[str, Any] | None) -> str:
+    """This install's random ID (metrics.install_id), or "" before the first launch made it."""
+    metrics = config.get("metrics") if isinstance(config, dict) else None
+    return str(metrics.get("install_id") or "") if isinstance(metrics, dict) else ""
 
 _OFF_WORDS = {"off", "none", "0", "false", "no"}
 _ON_WORDS = {"1", "true", "yes", "on"}
@@ -187,23 +220,21 @@ def service_url(config: dict[str, Any] | None, path: str) -> str:
     return base + "/" + str(path or "").lstrip("/")
 
 
-def share_usage_counts(config: dict[str, Any] | None) -> bool:
-    """The person's "Share anonymous usage counts" choice, as saved.
+def usage_counts_answered(config: dict[str, Any] | None) -> bool:
+    """Whether the person has answered the usage counts question.
 
-    ``privacy.share_usage_counts``: on unless they turned it off (an absent key
-    is the default, on). A privacy section that is not a dict, or a value that
-    is not a recognisable yes, reads as OFF: failing towards sending nothing.
-    This is only the choice; activation_api_base() also needs an official
-    build and no kill switch.
+    0.4.176 (TEAM KNIGHT's ruling under the owner's "safe and fair" order:
+    consent before capture): ``privacy.usage_counts_asked`` is True once the
+    person chose, in setup, on Home, or by turning the switch in Settings,
+    Privacy. Until then nothing is sent, whatever share_usage_counts holds.
     """
-    if not isinstance(config, dict) or "privacy" not in config:
-        return True
-    privacy = config.get("privacy")
-    if not isinstance(privacy, dict):
+    if not isinstance(config, dict):
         return False
-    if "share_usage_counts" not in privacy:
-        return True
-    value = privacy.get("share_usage_counts")
+    privacy = config.get("privacy")
+    return isinstance(privacy, dict) and privacy.get("usage_counts_asked") is True
+
+
+def _reads_yes(value: Any) -> bool:
     if isinstance(value, bool):
         return value
     if isinstance(value, int):
@@ -211,6 +242,56 @@ def share_usage_counts(config: dict[str, Any] | None) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in _ON_WORDS
     return False
+
+
+def share_usage_counts(config: dict[str, Any] | None) -> bool:
+    """The person's "Share usage counts" answer, as saved: True only for a yes.
+
+    ``privacy.share_usage_counts`` counts only once usage_counts_answered()
+    says the person answered. Unanswered reads as OFF, and so does a privacy
+    section that is not a dict or a value that is not a recognisable yes:
+    failing towards sending nothing. This is only the choice;
+    activation_api_base() also needs an official build and no kill switch.
+    """
+    if not usage_counts_answered(config):
+        return False
+    return _reads_yes(config["privacy"].get("share_usage_counts"))
+
+
+def record_usage_counts_answer(config: dict[str, Any], share: bool) -> None:
+    """Write the person's answer into ``config``; the caller saves it."""
+    privacy = config.get("privacy")
+    if not isinstance(privacy, dict):
+        privacy = config["privacy"] = {}
+    privacy["share_usage_counts"] = bool(share)
+    privacy["usage_counts_asked"] = True
+
+
+def usage_counts_question_open(config: dict[str, Any] | None) -> bool:
+    """Whether to ask: a build that can send the counts, and no answer yet."""
+    return usage_counts_available() and not usage_counts_answered(config)
+
+
+def settle_usage_counts_answer(privacy: dict[str, Any], loaded_privacy: dict[str, Any]) -> None:
+    """At every load: what a file written before 0.4.176 answered, and the rule
+    that an unanswered switch reads off. ``privacy`` is the merged section,
+    ``loaded_privacy`` the one the file held.
+
+    A file without ``usage_counts_asked`` was written before 0.4.176, when the
+    switch was on by default. On means untouched there, not a yes: it is not
+    answered, and nothing is sent until the person is asked and says yes. A
+    switch that version read as off was the person's own choice: it stays off
+    and they are not asked (TEAM KNIGHT, 2026-10-27).
+    """
+    if "usage_counts_asked" not in loaded_privacy:
+        privacy["usage_counts_asked"] = (
+            "share_usage_counts" in loaded_privacy and not _reads_yes(loaded_privacy["share_usage_counts"])
+        )
+    if privacy.get("usage_counts_asked") is True:
+        privacy["share_usage_counts"] = _reads_yes(privacy.get("share_usage_counts"))
+    else:
+        privacy["usage_counts_asked"] = False
+        privacy["share_usage_counts"] = False
 
 
 def usage_counts_available() -> bool:
@@ -221,13 +302,13 @@ def usage_counts_available() -> bool:
 
 
 def activation_api_base(config: dict[str, Any] | None) -> str:
-    """Where the anonymous usage counts go, or "" when they must not be sent.
+    """Where the usage counts go, or "" when they must not be sent.
 
     Off in a source build (even one pointed at its own server: a fork that
     wants counts builds as official with its own baked endpoint), off with the
-    kill switch, and off when the person turned "Share anonymous usage counts"
-    off. Local-only privacy does not enter into it: that setting keeps audio
-    and text on the computer, and the counts carry neither.
+    kill switch, and off when the person turned "Share usage counts" off.
+    Local-only privacy does not enter into it: that setting keeps audio and
+    text on the computer, and the counts carry neither.
     """
     if not usage_counts_available() or not share_usage_counts(config):
         return ""
@@ -257,7 +338,8 @@ def describe(config: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "build": build_kind(),
         "api_base": api_base(config),
-        "anonymous_counts": bool(activation_api_base(config)),
+        "usage_counts": bool(activation_api_base(config)),
+        "usage_counts_answered": usage_counts_answered(config),
         "share_usage_counts": share_usage_counts(config),
         "update_repository": update_repository(),
         "phone_home_disabled": phone_home_disabled(),

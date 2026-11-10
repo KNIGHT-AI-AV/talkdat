@@ -149,9 +149,22 @@ window.TalkDatHome=({container,el,request,notice})=>{
     const line=offerPanel.querySelector(".home-offer-status");
     line.textContent=o.status||"";line.setAttribute("role",o.phase==="failed"?"alert":"status");
   }
+  // 0.4.176 (TEAM KNIGHT, consent before capture): an install that has not answered the usage counts
+  // question (one updated from 0.4.175, or a new one that left it in setup) is asked here, once: two equal
+  // answers, and the card goes when either is chosen. Nothing is sent before a Share.
+  const usagePanel=el("section",{class:"home-usage","aria-labelledby":"home-usage-title",hidden:true});
+  function renderUsage(asked){
+    if(!asked){usagePanel.hidden=true;usagePanel.replaceChildren();return;}
+    if(!usagePanel.hidden)return;
+    const answer=(text,op)=>el("button",{type:"button",text,class:"quiet","data-op":op,onclick:()=>update(op)});
+    usagePanel.replaceChildren(el("h2",{id:"home-usage-title",text:"Share usage counts?"}),
+      el("p",{text:"First open, first dictation, still in use, day 7, with a random install ID, not linked to you or your account. Never your audio or text. Nothing is sent unless you choose Share. Change it any time in Settings, Privacy."}),
+      el("div",{class:"action-list home-usage-actions"},[answer("Share","usage_share"),answer("Don't share","usage_decline")]));
+    usagePanel.hidden=false;
+  }
   async function update(operation){
     clearTimeout(timer);
-    const offerOperation=operation.startsWith("update_");
+    const offerOperation=operation.startsWith("update_")||operation.startsWith("usage_");
     const asked=operation==="check_updates"||operation==="install_update";
     if(asked)checkButton.disabled=true;
     try{
@@ -164,6 +177,7 @@ window.TalkDatHome=({container,el,request,notice})=>{
       if(result.activity&&result.phase!=="loading"&&result.revision!==painted){renderMetrics(result.activity);painted=result.revision;}
       renderUpdate(result.update);
       renderOffer(result.offer);
+      renderUsage(result.usage_counts);
       if(result.notice)notice(result.notice);
       const checking=result.update?.phase==="checking";
       const installing=result.offer?.phase==="installing";
@@ -185,7 +199,7 @@ window.TalkDatHome=({container,el,request,notice})=>{
     action("Scratchpad","Write and keep notes","scratchpad"),
     action("Translate","Translate text into another language","translation"),
     action("Settings","Shortcuts, speech and formatting","general")]);
-  root.append(hero,offerPanel,quick,metrics,news,status);container.append(root);update("refresh");
+  root.append(hero,offerPanel,usagePanel,quick,metrics,news,status);container.append(root);update("refresh");
   // Leaving (or closing) while the verified installer runs is refused, as the
   // Update window refused it.
   const leave=async()=>{

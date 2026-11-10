@@ -127,9 +127,15 @@ class RealPillPanelNativeAccessMenuTests(unittest.TestCase):
                 key=lambda item: item[1],
             )
         ]
-        self.assertEqual(ordered_actions[-3:], list(self.overlay.MENU_SAFETY_ZONE_ACTIONS))
-        for index in self.overlay.context_menu_access_action_entries.values():
-            self.assertEqual(menu.type(index), "command")
+        # 0.4.177 IA phase 2: the safety zone is Restart and Quit (Check for
+        # updates moved to Home and Help), and it closes the native menu too.
+        zone = list(self.overlay.MENU_SAFETY_ZONE_ACTIONS)
+        self.assertEqual(zone, ["restart_app", "quit_app"])
+        self.assertEqual(ordered_actions[-len(zone):], zone)
+        # Pause listening is a check whose label never flips (R6, IA phase 2);
+        # every other action is a plain command.
+        for action, index in self.overlay.context_menu_access_action_entries.items():
+            self.assertEqual(menu.type(index), "checkbutton" if action == "pause" else "command", action)
         self.assertEqual(menu.type(self.overlay.context_menu_access_reset_entry), "command")
 
     def test_radio_sync_and_single_invocation(self) -> None:

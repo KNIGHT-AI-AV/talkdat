@@ -268,9 +268,6 @@ AUTO_STOP_STATUSES = frozenset({"time_limit", "no_speech_timeout", "silence_time
 LANDING_WAIT_SECONDS = 10.0
 # X-633: at most one "why not" toast in this long.
 REFUSAL_TOAST_SECONDS = 3.0
-# Where Resume dictation lives: the tray icon's menu on Windows (X-633), the
-# menu bar icon's on the Mac, whose Pill menu has no resume row (mac-port).
-RESUME_SURFACE_NAME = "the menu bar icon" if mac_support.IS_MAC else "the tray icon"
 LIVE_SESSION_CONTROLS = frozenset({"hold", "command_hold", "hands_free"})
 # T1: a take's History entry waits this long for its polish, then is written
 # without it. The polish itself gives up after verified_replace.MAX_AGE_SECONDS.
@@ -346,6 +343,13 @@ class TalkDatApp:
         gc.disable()
         self.project_root = project_root or Path(__file__).resolve().parents[1]
         self.config = load_config(self.project_root)
+        # X-338: the fence follows the saved settings from the first request
+        # after launch, with no save needed: Local-only privacy raises it
+        # whatever the route says, the same rule a settings save applies.
+        from . import net_fence
+        from .stt_registry import local_only, route_mode
+
+        net_fence.set_local_only(local_only(self.config) or route_mode(self.config) == "local")
         self._plugins_were_enabled = self.config.get("plugins", {}).get("enabled") is True
         from .caret_context import read_caret_context
 
@@ -541,6 +545,9 @@ class TalkDatApp:
             # icon also runs. It re-showed only the Pill; it opens Talk DAT!.
             "show": self.open_from_tray,
             "hide": self.hide_overlay,
+            # 0.4.177 IA phase 2: the tray's Show the Pill (a check item) and Help.
+            "toggle_pill": self.toggle_pill,
+            "help": self.open_help,
             "settings": self.open_settings,
             "status": self.open_status,
             "history": self.open_history,
@@ -592,6 +599,9 @@ class TalkDatApp:
             ),
             self._hotkey_callbacks(callbacks),
             hold_debounce_ms=int(self.config.get("dictation", {}).get("hold_debounce_ms", 140)),
+            # Field report 2026-11-05: the hooks live in their own process (input_helper.py),
+            # so the model load here no longer freezes every key and mouse event on the PC.
+            input_process=sys.platform == "win32",
         )
         self.web_shell = None
         try:
@@ -710,26 +720,16 @@ class TalkDatApp:
         if bool(self.config.get("updates", {}).get("check_on_start", True)):
             self.overlay.root.after(2600, lambda: self.check_updates(silent=True))
         self._schedule_periodic_update_check()
-        from .activation_metrics import report_heartbeat, report_install, stamp_first_run
+        from .activation_metrics import stamp_first_run
+        from .official_build import describe as _describe_build
 
+        # The random install id and the first-run time are made here and kept
+        # on this computer; nothing is sent by making them.
         stamp_first_run(self.config, save_config)
-        # X-132: the count-only install ping, retried until acked. Rides the
-        # same startup beat and the same anonymous install id.
-        # Open source: "" (send nothing) in a source build, with the kill
-        # switch, or when Settings > Privacy > "Share anonymous usage counts"
-        # is off (privacy.share_usage_counts) -- official_build decides.
-        # Local-only privacy governs audio and text, not these counts.
-        from .official_build import activation_api_base, describe as _describe_build
-
         log.info("network services: %s", _describe_build(self.config))
-        _metrics_api = activation_api_base(self.config)
-        report_install(self.config, save_config, _metrics_api)
-        # X-167: the install ping fires once, so it counts machines that ever
-        # installed, not machines still in use. This one says "a copy of this
-        # version ran today", at most daily, which is what makes an ACTIVE count
-        # and a version breakdown possible. Same privacy budget: anonymous id,
-        # version, platform, nothing else.
-        report_heartbeat(self.config, save_config, _metrics_api)
+        # 0.4.176: the first-open and still-in-use reports go only after the
+        # person said yes to the usage counts (send_usage_reports).
+        self.send_usage_reports()
         if sys.platform == "darwin":
             # X-148: the dmg's Finder drag cannot touch the Dock (no code
             # runs); the app pins its own tile once, first launch from
@@ -917,10 +917,14 @@ class TalkDatApp:
         self.refresh_wake_word()
         if self.paused:
             self.cancel()
+            # 0.4.177 IA phase 2: Pause listening is one check row in the Pill
+            # menu and the tray, and its label never flips; it is how to resume.
             self.overlay.set_state(
                 "idle",
                 "Talk DAT! paused. Triggers are off.",
-                f"Resume from {RESUME_SURFACE_NAME}: Resume dictation.",
+                # 0.4.177 IA phase 2: Pause listening is a check row in the Pill menu and in the tray (the menu
+                # bar icon on a Mac, mac_menu_bar.py); its label never flips, so this names the row and its place.
+                f"To resume, choose Pause listening again in the Pill menu or {mac_support.MENU_SURFACE_NAME}.",
                 say=True,
             )
         else:
@@ -1303,7 +1307,6 @@ class TalkDatApp:
         def worker() -> None:
             try:
                 import json as json_module
-                import platform
                 import urllib.request
 
                 from .licensing import ensure_device_identity
@@ -1319,7 +1322,8 @@ class TalkDatApp:
                 payload = {
                     "code": code,
                     "deviceId": ensure_device_identity(self.config),
-                    "deviceName": platform.node() or platform_copy.THIS_COMPUTER_SENTENCE,
+                    # The same plain label every sign-in sends, never the hostname.
+                    "deviceName": self.license_manager.device_name,
                 }
                 request = urllib.request.Request(
                     exchange_url,
@@ -2165,7 +2169,9 @@ class TalkDatApp:
         # stall, and flashing gray before saying "paused" would be a lie.
         if self.paused:
             log.info("session start ignored: paused")
-            self._say_why_not(f"Talk DAT! is paused. Resume from {RESUME_SURFACE_NAME}: Resume dictation.")
+            self._say_why_not(
+                f"Talk DAT! is paused. To resume, choose Pause listening again in the Pill menu or {mac_support.MENU_SURFACE_NAME}."
+            )
             return
         # X-106: a trigger press while the previous dictation is still being
         # transcribed is a decision, not noise. Decode it BEFORE the
@@ -4944,6 +4950,17 @@ class TalkDatApp:
                 and foreground_input_generation() == input_generation
             ):
                 return
+            from .stt_registry import local_only
+
+            if local_only(self.config):
+                # The search would carry the spoken words off this computer.
+                self.overlay.set_state(
+                    "error",
+                    "Command search is off.",
+                    f"Local-only privacy keeps your words on {platform_copy.THIS_COMPUTER}. "
+                    "Select some text to run the command on it.",
+                )
+                return
             url = "https://www.perplexity.ai/search?q=" + quote_plus(command)
             webbrowser.open(url)
             if not self._deferred_delivery_is_current(claim):
@@ -5640,6 +5657,11 @@ class TalkDatApp:
         self.overlay.root.after(0, self.overlay.open_settings)
 
     def open_status(self) -> None:
+        self.overlay.root.after(0, self.overlay.open_status)
+
+    def open_help(self) -> None:
+        """0.4.177 IA phase 2: the tray's Help. Help is where the Status panel lives (X-613), so this opens the page
+        More > Status used to; without the renderer, the Status window."""
         self.overlay.root.after(0, self.overlay.open_status)
 
     def open_history(self) -> None:
@@ -6450,7 +6472,7 @@ class TalkDatApp:
                 set_status("Installer verified. Starting silent update...")
                 log.info("update install: installer launched for %s; quitting in 2.2s", info.latest_version)
                 on_done(True, "Update installer started. Talk DAT! will close and relaunch when install finishes.")
-                self.overlay.root.after(2200, self.quit)
+                self.overlay.root.after(2200, lambda: self.quit(source="update"))
             except UpdateError as error:
                 log.warning("update install failed: %s", error)
                 on_done(False, str(error))
@@ -6494,7 +6516,11 @@ class TalkDatApp:
         ):
             self._cross_thread_calls.put(lambda: self.open_from_tray())
             return
-        if self.overlay.reveal_now():
+        revealed = self.overlay.reveal_now()
+        # reveal_now shows the Pill, so the tray's Show the Pill is checked again (0.4.177 IA phase 2).
+        self._pill_hidden = False
+        self._tell_tray_the_pill_shows(True)
+        if revealed:
             return
         # X-634b: never open a window over a take in flight; it would take
         # the focus the words are about to be typed into.
@@ -6506,6 +6532,31 @@ class TalkDatApp:
 
     def hide_overlay(self) -> None:
         self.overlay.hide()
+
+    def toggle_pill(self) -> None:
+        """0.4.177 IA phase 2: the tray's Show the Pill, checked while the Pill shows (R17: visibility is the person's).
+
+        It replaces More > Hide overlay, which had no way back but Open Talk DAT!. The check follows the person's
+        own choice here and on Open; the Pill's own hiding over fullscreen media does not move it.
+        """
+        if threading.get_ident() != getattr(
+            getattr(self, "overlay", None), "_ui_thread_id", threading.get_ident()
+        ):
+            self._cross_thread_calls.put(self.toggle_pill)
+            return
+        hidden = not bool(getattr(self, "_pill_hidden", False))
+        self._pill_hidden = hidden
+        if hidden:
+            self.hide_overlay()
+        else:
+            self.show_overlay()
+        self._tell_tray_the_pill_shows(not hidden)
+
+    def _tell_tray_the_pill_shows(self, shown: bool) -> None:
+        tray = getattr(self, "tray", None)
+        if tray is not None:
+            with contextlib.suppress(Exception):
+                tray.set_pill_shown(shown)
 
     # App theme families -> the website's clay theme names. Only the families
     # with a genuine clay counterpart map; everything else means "night", the
@@ -6633,7 +6684,7 @@ class TalkDatApp:
         """The pill's switch writes here. One tap, reflected everywhere:
         config first (every menu reads it), the Settings speech tab repaints
         live if open, and the pill confirms what it did in plain words."""
-        from .stt_registry import ROUTE_MODES, byok_provider, resolve_route
+        from .stt_registry import ROUTE_MODES, byok_provider, local_only, resolve_route, route_mode
 
         mode = str(mode).strip().lower()
         if mode not in ROUTE_MODES:
@@ -6648,9 +6699,11 @@ class TalkDatApp:
         stt["provider"] = resolve_route(self.config)
         self.save_settings()
         # X-338: the fence IS the guarantee -- while Local is selected,
-        # every cloud helper refuses at the socket boundary.
+        # every cloud helper refuses at the socket boundary. Local-only
+        # privacy outranks the switch (resolve_route), so it holds the fence
+        # on "Your key" too: the same rule a launch or a save applies.
         from . import net_fence
-        net_fence.set_local_only(mode == "local")
+        net_fence.set_local_only(local_only(self.config) or route_mode(self.config) == "local")
         # Picking a route by hand ends any rescue the app imposed on its own.
         # It used to only clear on "auto", a mode X-480 deleted.
         self._auto_local_sticky = False
@@ -6678,7 +6731,13 @@ class TalkDatApp:
             "byok": ("Your key", "Dictation runs on the provider you hold the key for."),
         }
         title, detail = labels[mode]
-        if mode == "byok":
+        if mode == "byok" and local_only(self.config):
+            # LIST-0476 (i): Local-only privacy outranks the switch
+            # (resolve_route), so dictation stays here; the Pill said it ran
+            # on the key.
+            detail = (f"Local-only privacy is on, so dictation stays on {platform_copy.THIS_COMPUTER}. "
+                      "Your key works once you turn it off in Settings, Privacy.")
+        elif mode == "byok":
             # Say whose key, and say so plainly when there isn't one: a byok
             # route with no key resolves home (resolve_route), and a person
             # who is not told that reads the fallback as a broken switch.
@@ -6855,11 +6914,47 @@ class TalkDatApp:
         self.overlay.set_state("captured", f"{label} is your default finish.", "Flip it any time from the pill menu.", say=True)
         return f"{label} is your default finish. You can switch any time from the Pill menu."
 
+    def send_usage_reports(self) -> None:
+        """The launch's two usage reports, first open and still in use, after a yes.
+
+        0.4.176 (TEAM KNIGHT, consent before capture under the owner's "safe
+        and fair" order): no usage report leaves the computer before the person
+        has answered the usage counts question, and a "Don't share" sends
+        nothing. official_build decides: "" (send nothing) before an answer,
+        after a no, in a source build or with the kill switch; Local-only
+        privacy governs audio and text, not these counts.
+
+        Called at launch and after every settings save (setup, Home, Settings,
+        the Tk fallbacks), so a yes given during this session sends them then.
+        At most once a session: X-132's install ping then retries on later
+        launches until the server confirms it, and X-167's heartbeat ("a copy
+        of this version ran today") goes at most once a day. Same privacy
+        budget for both: the random install id, the version, the platform.
+        """
+        if getattr(self, "_usage_reports_sent", False):
+            return
+        from .activation_metrics import report_heartbeat, report_install
+        from .official_build import activation_api_base
+
+        _metrics_api = activation_api_base(self.config)
+        metrics = self.config.get("metrics") if isinstance(self.config.get("metrics"), dict) else {}
+        if not _metrics_api or not str(metrics.get("install_id") or ""):
+            # Nothing to send yet: no yes, or the launch has not made the id.
+            return
+        self._usage_reports_sent = True
+        report_install(self.config, save_config, _metrics_api)
+        report_heartbeat(self.config, save_config, _metrics_api)
+
     def save_settings(self, *, persist: bool = True) -> None:
         if getattr(self, "_reset_in_progress", False) is True:
             return
         if persist:
             save_config(self.config)
+        # 0.4.176: a yes saved just now sends the launch's usage reports.
+        try:
+            self.send_usage_reports()
+        except Exception:
+            log.debug("usage reports not started", exc_info=True)
         # X-222: the switch is flipped here -- overlay.py writes
         # privacy["save_history"] and then calls this -- so this is the moment
         # the draft taken BEFORE the toggle has to go. Clearing only on the
@@ -6934,13 +7029,13 @@ class TalkDatApp:
         model = model_to_warm(self.config)
         if model is None:
             return
-        # X-338: the fence follows the saved route from the very first
-        # breath of the app; this method runs at startup, so it is the one
-        # place both startup and every later warm pass through.
+        # X-338: the fence follows the saved settings from the very first
+        # breath of the app (__init__ raises it first); this warm runs at
+        # startup and after a route switch, and keeps the same rule.
         from . import net_fence
-        net_fence.set_local_only(
-            str(self.config.get("stt", {}).get("route_mode", "auto")).strip().lower() == "local"
-        )
+        from .stt_registry import local_only, route_mode
+
+        net_fence.set_local_only(local_only(self.config) or route_mode(self.config) == "local")
 
         def worker() -> None:
             started = time.perf_counter()
@@ -7598,30 +7693,36 @@ class TalkDatApp:
         self.overlay.root.after(100, poll)
         return True
 
-    def quit(self, *, settings_confirmed: bool = False, after_landing: bool = False) -> None:
+    def quit(self, *, settings_confirmed: bool = False, after_landing: bool = False,
+             source: str = "unknown") -> None:
+        # 2026-10-28: `source` is the place that asked (tray, pill_menu,
+        # window_close, update, reset, restore). Two quits in October logged
+        # the same bare line and could not be told apart, so every wait below
+        # carries it to the one line this writes.
         if threading.get_ident() != getattr(
             getattr(self, "overlay", None), "_ui_thread_id", threading.get_ident()
         ):
             self._cross_thread_calls.put(
-                lambda: self.quit(settings_confirmed=settings_confirmed, after_landing=after_landing)
+                lambda: self.quit(settings_confirmed=settings_confirmed, after_landing=after_landing,
+                                  source=source)
             )
             return
         if getattr(self, "_reset_in_progress", False) and not getattr(self, "_reset_finished", False):
             return
         if not after_landing and self._finish_take_then(
-            lambda: self.quit(settings_confirmed=settings_confirmed, after_landing=True), "quit"
+            lambda: self.quit(settings_confirmed=settings_confirmed, after_landing=True, source=source), "quit"
         ):
             return
         shell = getattr(self, "web_shell", None)
         if (
             shell is not None
             and not settings_confirmed
-            and shell.confirm_exit(lambda: self.quit(settings_confirmed=True))
+            and shell.confirm_exit(lambda: self.quit(settings_confirmed=True, source=source))
         ):
             return
-        if not self._auxiliary_audio_exit(lambda: self.quit(settings_confirmed=True)):
+        if not self._auxiliary_audio_exit(lambda: self.quit(settings_confirmed=True, source=source)):
             return
-        log.info("Talk DAT! quitting")
+        log.info("Talk DAT! quitting: source=%s", source)
         practice = getattr(self, "_pronunciation_practice", None)
         if practice is not None:
             practice.cancel()

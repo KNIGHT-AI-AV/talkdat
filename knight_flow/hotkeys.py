@@ -90,6 +90,8 @@ TAP_ACTIONS = [
 HOLD_ACTIONS = ["command_mode", "push_to_talk", "fix_that"]
 WATCHDOG_INTERVAL_SECONDS = 0.025
 MODIFIER_KEYS = frozenset({"ctrl", "cmd", "alt", "shift"})
+# The names mouse_name() gives; a shortcut holding one of these needs the mouse hook.
+MOUSE_KEYS = frozenset({"middle", "mouse4", "mouse5"})
 # X-624: how long a hold stays "young" -- long enough to catch a Windows
 # shortcut typed through the talk chord, short enough that a key pressed
 # mid-dictation never throws a real take away.
@@ -401,10 +403,15 @@ class HotkeyController:
         callbacks: dict[str, Callback],
         *,
         hold_debounce_ms: int = 140,
+        input_process: bool = False,
     ) -> None:
         self.hotkeys = normalize_hotkeys(hotkeys)
         self.callbacks = callbacks
         self.hold_debounce_ms = hold_debounce_ms
+        # Field report 2026-11-05: with input_process the keyboard and mouse hooks run in
+        # knight_flow.input_helper's process, so Windows never waits on this one.
+        self._input_process = input_process
+        self._input_helper: Any = None
         self.pressed: set[str] = set()
         self.latched: set[str] = set()
         self.active_hold: str | None = None
@@ -418,6 +425,7 @@ class HotkeyController:
         self._dispatch_queue: "queue.SimpleQueue[tuple[str, Callback]] | None" = None
         self.keyboard_listener: keyboard.Listener | None = None
         self.mouse_listener: mouse.Listener | None = None
+        self._listening = False
         self.watchdog_stop = threading.Event()
         self.watchdog_thread: threading.Thread | None = None
         self._shortcut_recording_until = 0.0
@@ -434,15 +442,16 @@ class HotkeyController:
                 self.pressed.clear()
                 self.latched.clear()
                 self._spoiled_holds.clear()
+        self._sync_mouse_listener()
 
     def start(self) -> None:
         # Before either listener exists: a listener thread can run the moment it
         # starts, and on a Mac it then reads the keyboard layout handed over here.
         mac_support.prepare_input_bridge()
-        self.keyboard_listener = keyboard.Listener(on_press=self._on_key_press, on_release=self._on_key_release)
-        self.mouse_listener = mouse.Listener(on_click=self._on_mouse_click)
-        self.keyboard_listener.start()
-        self.mouse_listener.start()
+        self._listening = True
+        if not (self._input_process and self._start_input_helper()):
+            self._start_keyboard_listener()
+        self._sync_mouse_listener()
         self.watchdog_stop.clear()
         self.watchdog_thread = threading.Thread(target=self._watchdog_loop, daemon=True)
         self.watchdog_thread.start()
@@ -627,16 +636,101 @@ class HotkeyController:
             self._hold_started_at = None
             self._spoiled_holds.clear()
             self._cancel_pending()
+        self._sync_mouse_listener()
         if stop_action:
             self._trigger(stop_action)
+
+    def _start_keyboard_listener(self) -> None:
+        self.keyboard_listener = keyboard.Listener(on_press=self._on_key_press, on_release=self._on_key_release)
+        self.keyboard_listener.start()
+
+    def _start_input_helper(self) -> bool:
+        from . import input_helper
+
+        try:
+            helper = input_helper.InputHelper(self._on_helper_event, self._on_helper_lost)
+            helper.start(mouse=self._needs_mouse_hook())
+        except Exception:
+            log.warning("the input helper did not start; the hooks stay in this process", exc_info=True)
+            return False
+        with self.lock:
+            self._input_helper = helper
+        return True
+
+    def _on_helper_event(self, kind: str, name: str) -> None:
+        if not self._listening:
+            return
+        try:
+            if name in MOUSE_KEYS:
+                self._mouse_button(name, kind == "down")
+            elif kind == "down":
+                self._key_down(name)
+            else:
+                self._key_up(name)
+        except Exception:
+            log.exception("input helper event handling failed")
+
+    def _on_helper_lost(self) -> None:
+        with self.lock:
+            self._input_helper = None
+            listening = self._listening
+        if not listening:
+            return
+        log.warning("the input helper ended; the hooks are back in this process")
+        self._start_keyboard_listener()
+        self._sync_mouse_listener()
+
+    def _needs_mouse_hook(self) -> bool:
+        if time.monotonic() < self._shortcut_recording_until:
+            return True
+        return any(chord & MOUSE_KEYS for chords in self.hotkeys.values() for chord in chords)
+
+    def _mouse_hooked(self) -> bool:
+        helper = self._input_helper
+        return self.mouse_listener is not None or (helper is not None and helper.mouse)
+
+    def _sync_mouse_listener(self) -> None:
+        """Hook the mouse only while a shortcut or a capture needs it (field report 2026-11-05).
+
+        pynput's mouse.Listener is a WH_MOUSE_LL hook: every mouse event on the
+        machine waits for the process that holds it (the X-436 mechanism). No
+        default shortcut uses a mouse button, so by default there is no hook at
+        all, in this process or the input helper's.
+        """
+        with self.lock:
+            want = self._listening and self._needs_mouse_hook()
+            helper = self._input_helper
+            listener = self.mouse_listener
+            if helper is not None:
+                if helper.mouse == want:
+                    return
+            elif want and listener is None:
+                listener = self.mouse_listener = mouse.Listener(on_click=self._on_mouse_click)
+                listener.start()
+                return
+            elif want or listener is None:
+                return
+            else:
+                self.mouse_listener = None
+            if not want:
+                # Without the hook no button can be let go, so none stays held.
+                self.pressed -= MOUSE_KEYS
+        if helper is not None:
+            helper.set_mouse(want)
+        else:
+            listener.stop()
 
     def stop(self) -> None:
         self.watchdog_stop.set()
         self._cancel_pending()
+        self._listening = False
+        with self.lock:
+            helper, self._input_helper = self._input_helper, None
+        if helper is not None:
+            helper.stop()
         if self.keyboard_listener:
             self.keyboard_listener.stop()
-        if self.mouse_listener:
-            self.mouse_listener.stop()
+        self._sync_mouse_listener()
         if self.watchdog_thread and self.watchdog_thread.is_alive():
             self.watchdog_thread.join(timeout=0.2)
         with self.lock:
@@ -728,19 +822,21 @@ class HotkeyController:
         # every hotkey with it -- silently. Nothing may escape.
         try:
             name = key_name(key)
-            if not name:
-                return
-            with self.lock:
-                # X-624b: only a key that newly goes down can be a shortcut.
-                # Auto-repeat of a key held since before the chord (W in a
-                # game, held while starting to talk) must not abort the take.
-                fresh = name not in self.pressed
-                self.pressed.add(name)
-                self._evaluate_press()
-                if fresh:
-                    self._foreign_key_aborts_young_hold(name)
+            if name:
+                self._key_down(name)
         except Exception:
             log.exception("key press handling failed")
+
+    def _key_down(self, name: str) -> None:
+        with self.lock:
+            # X-624b: only a key that newly goes down can be a shortcut.
+            # Auto-repeat of a key held since before the chord (W in a
+            # game, held while starting to talk) must not abort the take.
+            fresh = name not in self.pressed
+            self.pressed.add(name)
+            self._evaluate_press()
+            if fresh:
+                self._foreign_key_aborts_young_hold(name)
 
     def _foreign_key_aborts_young_hold(self, key: str) -> None:
         """X-624 (interaction grid D4, D17): a key that joins the chord was a
@@ -792,16 +888,20 @@ class HotkeyController:
 
     def _on_key_release_inner(self, key: keyboard.Key | keyboard.KeyCode) -> None:
         name = key_name(key)
-        if not name:
-            return
+        if name:
+            self._key_up(name)
+
+    def _key_up(self, name: str) -> None:
         with self.lock:
             self.pressed.discard(name)
             self._evaluate_release()
 
     def _on_mouse_click(self, x: int, y: int, button: mouse.Button, pressed: bool) -> None:
         name = mouse_name(button)
-        if not name:
-            return
+        if name:
+            self._mouse_button(name, pressed)
+
+    def _mouse_button(self, name: str, pressed: bool) -> None:
         with self.lock:
             if pressed:
                 self.pressed.add(name)
@@ -951,6 +1051,9 @@ class HotkeyController:
     def _watchdog_loop(self) -> None:
         while not self.watchdog_stop.wait(WATCHDOG_INTERVAL_SECONDS):
             stop_action: str | None = None
+            # A capture lease the UI never ended lapses here, and its mouse hook with it.
+            if self._mouse_hooked() and not self._needs_mouse_hook():
+                self._sync_mouse_listener()
             with self.lock:
                 # X-624: a refused hold is released by letting its chord go;
                 # a lost key-up must not leave it refused for good.

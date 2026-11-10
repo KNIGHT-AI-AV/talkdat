@@ -63,7 +63,9 @@ def native_app_profile_probe(connection,evidence,html):
                 field('search','per app');until("!!document.querySelector('.search-result')")
                 window.evaluate_js("window.TalkDat.refresh().then(()=>window.__searchRefreshDone=true);true")
                 until("window.__searchRefreshDone===true")
-                assert window.evaluate_js("!!document.querySelector('.search-result')")
+                # 2026-11-06 (0.4.176 H4 GREEN, KNOWN-FLAKE-0476-APP-PROFILES.md): the page turn's own refresh can land after
+                # this one and draw once more, so wait for the search to stand again instead of reading it at once.
+                until("!!document.querySelector('.search-result')&&document.getElementById('search').value==='per app'")
                 window.evaluate_js("document.querySelector('.search-result').click();true")
                 until("document.getElementById('profile-language')?.value==='de'")
                 click('Add app');field('profile-match','Sakura 日本語');field('profile-cleanup','light');click('Save app')

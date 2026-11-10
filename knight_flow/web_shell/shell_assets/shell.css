@@ -118,7 +118,7 @@ body.high-contrast .rail::before,body.high-contrast .theme-sample>img{display:no
    header, a symmetric 6 px inset, and a waiting update as the first row. Every size
    below is mirrored by knight_flow/web_shell/menu_geometry.MENU_METRICS, which sizes
    the window to this content (tests/test_the_menu_fits_its_window.py). */
-:root{--menu-w:288px;--menu-pad:6px;--menu-header:44px;--menu-row:40px;--menu-update:64px;--menu-sep:9px;--on-danger:#000;--muted-on-tint:var(--muted);--danger-text:var(--danger)}
+:root{--menu-w:288px;--menu-w-max:360px;--menu-pad:4px;--menu-header:44px;--menu-row:32px;--menu-update:49px;--menu-sep:9px;--on-danger:#000;--muted-on-tint:var(--muted);--danger-text:var(--danger)}
 body.high-contrast{--on-danger:Canvas;--muted-on-tint:CanvasText;--danger-text:CanvasText}
 @media(forced-colors:active){body{--danger:CanvasText;--on-danger:Canvas;--muted-on-tint:CanvasText;--danger-text:CanvasText}}
 .menu-view main{height:100%;display:flex;flex-direction:column;padding:var(--menu-pad);overflow:hidden}
@@ -139,6 +139,9 @@ body.menu-view[data-menu-quiet] .menu-items .menu-row,body.menu-view[data-menu-q
 .menu-view .menu-items .menu-row .nav-icon{display:block;width:20px;height:20px;flex:0 0 20px;color:var(--muted)}
 .menu-view .menu-label{display:flex;flex-direction:column;justify-content:center;gap:1px;min-width:0;flex:1}
 .menu-view .menu-label>span{font-size:14px;font-weight:400;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 0.4.177 IA phase 2: the main action, Start hands-free dictation, is the menu's default row, bold as Windows draws a
+   default item (R2 of MENU-IA-RESEARCH.md). */
+.menu-view .menu-items .menu-row.menu-row-default .menu-label>span{font-weight:600}
 .menu-view .menu-label small{font-size:12px;line-height:1.25;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .menu-value{flex:0 0 auto;font-size:12.5px;color:var(--muted);white-space:nowrap}
 .menu-chevron{flex:0 0 6px;width:6px;height:6px;margin:0 4px 0 1px;border-top:1.5px solid currentColor;border-right:1.5px solid currentColor;color:var(--muted);transform:rotate(45deg);opacity:.9}
@@ -172,6 +175,13 @@ body.menu-view[data-menu-quiet] .menu-items .menu-row,body.menu-view[data-menu-q
    which forced colours drop, so it becomes a ring. */
 @media(forced-colors:active){.pill-menu-heading .menu-glyph,.menu-view .menu-items .menu-row .menu-check,.menu-view .menu-items .menu-row .nav-icon{background:ButtonText}.menu-view .menu-items .menu-row.menu-row-update .update-mark{background:none;border:1.5px solid ButtonText;box-shadow:none}}
 .nav-icon.nav-icon-download{mask-mode:alpha;mask-size:100% 100%;mask-position:center;-webkit-mask-size:100% 100%;mask-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 4v10.5'/%3E%3Cpath d='M7.5 10.5L12 15l4.5-4.5'/%3E%3Cpath d='M5 16.5v1.5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1.5'/%3E%3C/svg%3E");-webkit-mask-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 4v10.5'/%3E%3Cpath d='M7.5 10.5L12 15l4.5-4.5'/%3E%3Cpath d='M5 16.5v1.5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1.5'/%3E%3C/svg%3E")}
+/* 0.4.177 IA phase 2, drawn at the atlas's stroke weight like Download: Start hands-free dictation (a voice wave),
+   Pause listening (two bars) and Scratchpad (a note page; the atlas's clipboard is Paste last transcript's). */
+.nav-icon.nav-icon-handsfree{mask-mode:alpha;mask-size:100% 100%;mask-position:center;-webkit-mask-size:100% 100%;mask-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 10.5v3M8 7v10M12 4v16M16 7v10M20 10.5v3'/%3E%3C/svg%3E");-webkit-mask-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 10.5v3M8 7v10M12 4v16M16 7v10M20 10.5v3'/%3E%3C/svg%3E")}
+.nav-icon.nav-icon-pause{mask-mode:alpha;mask-size:100% 100%;mask-position:center;-webkit-mask-size:100% 100%;mask-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='6.5' y='5' width='3.5' height='14' rx='1'/%3E%3Crect x='14' y='5' width='3.5' height='14' rx='1'/%3E%3C/svg%3E");-webkit-mask-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='6.5' y='5' width='3.5' height='14' rx='1'/%3E%3Crect x='14' y='5' width='3.5' height='14' rx='1'/%3E%3C/svg%3E")}
+.nav-icon.nav-icon-notes{mask-mode:alpha;mask-size:100% 100%;mask-position:center;-webkit-mask-size:100% 100%;mask-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3.5h8.5L19 8v12.5H6z'/%3E%3Cpath d='M14.5 3.5V8H19M9 12.5h7M9 16h5'/%3E%3C/svg%3E");-webkit-mask-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3.5h8.5L19 8v12.5H6z'/%3E%3Cpath d='M14.5 3.5V8H19M9 12.5h7M9 16h5'/%3E%3C/svg%3E")}
+/* 2026-11-06: Shortcuts, a keyboard, drawn at the atlas's stroke weight like Download. */
+.nav-icon.nav-icon-shortcuts{mask-mode:alpha;mask-size:100% 100%;mask-position:center;-webkit-mask-size:100% 100%;mask-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='2.5' y='6' width='19' height='12' rx='2'/%3E%3Cpath d='M6.5 10h.01M10 10h.01M13.5 10h.01M17 10h.01M8 14h8'/%3E%3C/svg%3E");-webkit-mask-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='2.5' y='6' width='19' height='12' rx='2'/%3E%3Cpath d='M6.5 10h.01M10 10h.01M13.5 10h.01M17 10h.01M8 14h8'/%3E%3C/svg%3E")}
 /* X-684: the menu grows out of the Pill on the sheet spring: from the side facing the
    Pill (--menu-origin, set by the host from the pointer that right-clicked it), 4%
    smaller and 8px toward it. The whole surface moves as one, so every row keeps one
@@ -372,3 +382,181 @@ button.quiet.say-host{background-color:var(--button);border-color:var(--stroke)}
 body.reduce-motion .say-ext,body.reduce-motion .say-roll>span,body.reduce-motion .say-words,body.reduce-motion .say-check,body.reduce-motion .say-host{transition-property:opacity!important;transition-duration:var(--t-fade)!important;transition-delay:0s!important;transition-timing-function:var(--ease-out)!important;translate:none!important}
 body.high-contrast .say-ext,body.high-contrast .say-header,body.high-contrast #save-strip{background:Canvas;color:CanvasText;border-color:CanvasText;box-shadow:none}
 @media(forced-colors:active){.say-ext,.say-header,#save-strip{background:Canvas;color:CanvasText;border-color:CanvasText;box-shadow:none}.say-check{background:CanvasText}}
+/* Windows 11's subtle fills (WinUI), which the Pill menu's rows still use. */
+:root{--subtle-secondary:rgb(255 255 255/.0588);--subtle-tertiary:rgb(255 255 255/.0392);--text-secondary:color-mix(in srgb,var(--text) 77.25%,transparent)}
+:root[data-mode=light]{--subtle-secondary:rgb(0 0 0/.0353);--subtle-tertiary:rgb(0 0 0/.0235);--text-secondary:color-mix(in srgb,var(--text) 61.96%,transparent)}
+/* The Pill menu works like Windows 11's MenuFlyout (FLUENT-MENUS-SPEC.md part B: no title bar, submenus beside it after
+   400 ms or a click, every invoke closes every menu) and looks like the owner's reference of 2026-11-05, whose system is
+   shadcn/ui's (its DropdownMenu, ui/dropdown-menu.tsx; the lane's REFERENCE-SIDEBAR-SPEC.md part 6): a 4 px inset, 32 px
+   rows padded 6 and 8 with an 8 px gap, 14/20 text, 16 px icons in the dim ink, a shortcut-style value in 12 px spaced
+   0.1em, a 16 px chevron, a 1 px divider bleeding to the edges 4 px above and below, the sidebar's fills changing at
+   once and no movement when pressed; it opens from 95% with an 8 px slide from the Pill's side in 150 ms and closes back
+   to 95% within the host's one exit. Mirrored by menu_geometry.MENU_METRICS and shell.js MENU_SIZE
+   (tests/test_the_menu_fits_its_window.py). */
+.menu-view main{padding:var(--menu-pad)}
+.menu-view .menu-items .menu-row{flex:0 0 auto;height:auto;min-height:0;width:auto;margin:0;padding:6px 8px;gap:8px;border:0;border-radius:var(--r-xs);background:transparent;font-size:14px;line-height:20px;box-shadow:none;transform:none;transition:none}
+.menu-view .menu-items .menu-row .nav-icon{width:16px;height:16px;flex:0 0 16px;color:var(--chrome-ink)}
+.menu-view .menu-items .menu-row .menu-label>span{font-size:14px;line-height:20px}
+.menu-view .menu-items .menu-row:hover:not(:disabled){background:var(--row-fill)}
+.menu-view .menu-items .menu-row:active:not(:disabled){background:var(--row-press);color:var(--text);transform:none}
+.menu-view .menu-items .menu-row.submenu-open{background:var(--row-fill)}
+.menu-view .menu-items .menu-row .menu-value{font-size:12px;line-height:16px;letter-spacing:.1em;color:var(--chrome-ink);margin-left:24px}
+.menu-view .menu-items .menu-row .menu-chevron{flex:0 0 16px;width:16px;height:16px;margin:0;margin-left:0;border:0;transform:none;color:inherit;background:var(--chrome-ink);mask:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3.5L10.5 8 6 12.5'/%3E%3C/svg%3E") center/100% 100% no-repeat;-webkit-mask:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3.5L10.5 8 6 12.5'/%3E%3C/svg%3E") center/100% 100% no-repeat}
+.menu-view .menu-items .menu-row .menu-check.menu-check-off{visibility:hidden}
+/* 0.4.177 IA phase 3: the window is as wide as its widest row needs, from --menu-w to --menu-w-max. The page lays each
+   row out once at its natural width to measure it (shell.js menuViewWidth), then takes this class off. */
+.menu-view .menu-items.menu-measure .menu-row{width:max-content}
+.menu-view .menu-items.menu-measure .menu-label{flex:none}
+.menu-view .menu-items .menu-row.menu-row-update{flex:0 0 var(--menu-update);height:var(--menu-update);padding:6px 8px}
+.menu-view .menu-items .menu-sep{flex:0 0 1px;height:1px;margin:4px -4px;padding:0;background:var(--hairline)}
+.menu-view .menu-items .menu-sep::before{display:none}
+@keyframes menu-pop-down{from{opacity:0;transform:translateY(-8px) scale(.95)}}
+@keyframes menu-pop-up{from{opacity:0;transform:translateY(8px) scale(.95)}}
+@keyframes menu-pop-side{from{opacity:0;transform:translateX(-8px) scale(.95)}}
+@keyframes menu-pop-out{to{opacity:0;transform:scale(.95)}}
+.menu-view.menu-opening .workspace{animation:menu-pop-down var(--t-quick) var(--ease-pop) backwards}
+:root[data-menu-anchor=bottom] .menu-view.menu-opening .workspace{animation-name:menu-pop-up}
+.submenu-view.submenu-opening .workspace{animation:menu-pop-side var(--t-quick) var(--ease-pop) backwards}
+.menu-view.menu-leaving .workspace{animation:menu-pop-out var(--t-exit) var(--ease-pop) forwards}
+/* The owner's reference of 2026-11-05 ("Revamp our entire menu system to be like this": a dark finance dashboard whose
+   sidebar is shadcn/ui's, MIT). The shot decides what it shows, shadcn's source what a still image cannot; every number
+   and its source line or image pixel is in the lane's REFERENCE-SIDEBAR-SPEC.md, the choices in SIDEBAR-REDESIGN-
+   DECISIONS.md. Colours are the active theme's, in the shot's proportions (D1): the sidebar on the theme's bg, the page
+   1.6% lighter, hairlines of the text at 6%, the current row a 3.8% fill with a 6% edge. Tests:
+   test_settings_follow_the_reference_sidebar.py and test_the_sidebar_opens_like_the_reference.py. */
+:root{--sidebar:var(--bg);--surface-main:color-mix(in srgb,var(--bg),#fff 1.6%);--hairline:color-mix(in srgb,var(--text) 6%,transparent);--row-fill:color-mix(in srgb,var(--text) 3.8%,transparent);--row-press:color-mix(in srgb,var(--text) 7%,transparent);--tab-fill:color-mix(in srgb,var(--text) 4.7%,transparent);--field-fill:color-mix(in srgb,var(--text) 2.1%,transparent);--kbd-fill:color-mix(in srgb,var(--text) 6.5%,transparent);--card-edge:color-mix(in srgb,var(--text) 8%,transparent);--tree:color-mix(in srgb,var(--text) 16%,var(--sidebar));--chrome-ink:var(--muted);--sidebar-width:256px;--sidebar-width-icon:48px;--t-sidebar:200ms;--t-quick:150ms;--ease-ui:cubic-bezier(.4,0,.2,1);--ease-pop:ease}
+:root[data-mode=light]{--hairline:color-mix(in srgb,var(--text) 10%,transparent);--card-edge:color-mix(in srgb,var(--text) 12%,transparent)}
+.nav-chevron{display:block;width:12px;height:12px;flex:0 0 12px;background:currentColor;mask:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3.5L10.5 8 6 12.5'/%3E%3C/svg%3E") center/100% 100% no-repeat;-webkit-mask:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3.5L10.5 8 6 12.5'/%3E%3C/svg%3E") center/100% 100% no-repeat}
+.nav-chevron-back{transform:rotate(180deg)}
+/* The frame: a flush sidebar beside the page, no cards around either. */
+#shell{grid-template-columns:auto minmax(0,1fr);grid-template-rows:none;padding:0;gap:0;background:var(--sidebar)}
+.rail{width:var(--sidebar-width);min-width:0;padding:0;border:0;border-radius:0;border-right:1px solid var(--hairline);background:var(--sidebar);overflow:hidden;transition:width var(--t-sidebar) linear}
+.workspace{border:0;border-radius:0;background:var(--surface-main)}
+/* The brand row: the mark over the rows' icons, the collapse button flush with their right edge. */
+.rail-brand{display:flex;align-items:center;gap:8px;height:48px;flex:0 0 48px;padding:0 16px 0 24px}
+.brand-mark{display:block;width:20px;height:20px;flex:0 0 20px;border-radius:var(--r-xs);background:var(--accent)}
+.rail-brand .wordmark{flex:1;min-width:0;padding:0;font-family:Knight,"Segoe UI",sans-serif;font-size:15px;font-weight:600;line-height:20px;letter-spacing:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#rail-toggle{display:flex;align-items:center;justify-content:center;flex:0 0 26px;width:26px;height:26px;min-height:0;margin-left:auto;padding:0;border:0;border-radius:var(--r-xs);background:var(--row-fill);box-shadow:inset 0 0 0 1px var(--hairline);color:var(--chrome-ink);transform:none}
+#rail-toggle:hover:not(:disabled){background:var(--tab-fill);color:var(--text)}
+/* Rows (from 768 px): 32 px, 4 px apart, 8 px padding, a 16 px icon, an 8 px gap, 6 px corners, 14/20 text; colours change
+   at once (shadcn's rows transition only their size), and a row does not move when pressed. */
+#navigation{display:flex;flex-direction:column;flex:1;min-height:0;gap:4px;padding:0 16px;overflow-x:hidden;overflow-y:auto}
+#navigation .nav-top,#navigation .nav-bottom{display:flex;flex-direction:column;gap:4px}
+#navigation .nav-bottom{margin-top:auto;padding:16px 0 12px}
+#navigation .nav-group{position:relative;display:flex;flex-direction:column}
+#navigation .nav-row{display:flex;align-items:center;width:100%;height:32px;min-height:0;margin:0;padding:0 8px;gap:8px;border:0;border-radius:var(--r-sm);background:transparent;box-shadow:none;color:var(--chrome-ink);font-size:14px;font-weight:400;line-height:20px;text-align:left;white-space:nowrap;transform:none;transition:none}
+#navigation .nav-group[data-open]>.nav-parent{padding-right:32px}
+#navigation .nav-row .nav-icon{width:16px;height:16px;flex:0 0 16px;color:var(--chrome-ink)}
+#navigation .nav-row .nav-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+#navigation .nav-row:hover:not(:disabled){background:var(--row-fill)}
+#navigation .nav-row:active:not(:disabled){background:var(--row-press);transform:none}
+#navigation .nav-row[aria-current=true],#navigation .nav-row[aria-current=true] .nav-icon{color:var(--text)}
+#navigation .nav-row[aria-current=page]{background:var(--row-fill);box-shadow:inset 0 0 0 1px var(--hairline);color:var(--text);font-weight:500}
+#navigation .nav-row[aria-current=page] .nav-icon{color:var(--text)}
+#navigation .nav-row:focus-visible{outline:var(--focus-width) solid var(--ring);outline-offset:var(--focus-inset)}
+/* The shot's tree: a spine under the parent's icon, a 6 px curve into each child, an elbow into the last. */
+#navigation .nav-sub{display:flex;flex-direction:column;gap:4px;margin-top:4px}
+#navigation .nav-child{position:relative;width:calc(100% - 24px);margin-left:24px}
+#navigation .nav-child::before{content:"";position:absolute;left:-9px;top:-4px;height:calc(50% + 4px);width:7px;border-left:1px solid var(--tree);border-bottom:1px solid var(--tree);border-bottom-left-radius:6px;pointer-events:none}
+#navigation .nav-child:not(:last-child)::after{content:"";position:absolute;left:-9px;top:0;bottom:-4px;border-left:1px solid var(--tree);pointer-events:none}
+/* The group's chevron: shadcn sidebar-08's menu action, turning a quarter when the group is open. */
+#navigation .nav-toggle{position:absolute;right:6px;top:6px;display:flex;align-items:center;justify-content:center;width:20px;height:20px;min-height:0;padding:0;border:0;border-radius:var(--r-xs);background:transparent;box-shadow:none;color:var(--chrome-ink);transform:none;transition:transform var(--t-quick) var(--ease-ui)}
+#navigation .nav-toggle[aria-expanded=true]{transform:rotate(90deg)}
+#navigation .nav-toggle:hover:not(:disabled){background:var(--row-fill);color:var(--text)}
+#navigation .nav-toggle:focus-visible{outline:var(--focus-width) solid var(--ring);outline-offset:0}
+/* The account card under a full-width separator. */
+.connection{padding:12px 24px}
+.rail-footer{flex:0 0 auto;border-top:1px solid var(--hairline);padding:16px}
+#account-card{display:flex;align-items:center;gap:8px;width:100%;height:48px;min-height:0;padding:0 8px;border:0;border-radius:var(--r-sm);background:var(--row-fill);box-shadow:inset 0 0 0 1px var(--card-edge);color:var(--text);text-align:left;transform:none}
+#account-card:hover:not(:disabled){background:var(--tab-fill)}
+.account-avatar{display:flex;align-items:center;justify-content:center;width:32px;height:32px;flex:0 0 32px;border-radius:var(--r-xs);background:var(--accent);color:var(--on-accent);font-size:14px;font-weight:600;line-height:1}
+.account-copy{display:grid;min-width:0}
+.account-name{font-size:14px;line-height:18px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.account-line{font-size:12px;line-height:16px;color:var(--chrome-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Folded (Ctrl+B): a 48 px icon rail; labels, chevrons and pages hide, each icon names itself in a tooltip. */
+#shell[data-sidebar=collapsed] .rail{width:var(--sidebar-width-icon)}
+#shell[data-sidebar=collapsed] #navigation{padding:0 8px}
+#shell[data-sidebar=collapsed] #navigation .nav-row{width:32px;padding:8px}
+/* Folded, a page's own row is hidden, so its group's icon carries the current mark. */
+#shell[data-sidebar=collapsed] #navigation .nav-row[aria-current=true]{background:var(--row-fill);box-shadow:inset 0 0 0 1px var(--hairline)}
+#shell[data-sidebar=collapsed] .nav-label,#shell[data-sidebar=collapsed] .nav-sub,#shell[data-sidebar=collapsed] .nav-toggle,#shell[data-sidebar=collapsed] .rail-brand .wordmark,#shell[data-sidebar=collapsed] .brand-mark,#shell[data-sidebar=collapsed] .account-copy,#shell[data-sidebar=collapsed] .connection{display:none}
+#shell[data-sidebar=collapsed] .rail-brand{padding:0 8px;justify-content:center}
+#shell[data-sidebar=collapsed] #rail-toggle{flex-basis:32px;width:32px;height:32px;margin:0}
+#shell[data-sidebar=collapsed] #rail-toggle .nav-chevron-back{transform:none}
+#shell[data-sidebar=collapsed] .rail-footer{padding:8px}
+#shell[data-sidebar=collapsed] #account-card{width:32px;height:32px;padding:0;background:transparent;box-shadow:none}
+.rail-tip{position:fixed;z-index:30;transform:translateY(-50%);padding:6px 12px;border-radius:var(--r-sm);background:var(--text);color:var(--bg);font-size:12px;line-height:16px;white-space:nowrap;pointer-events:none;animation:rail-tip-in var(--t-quick) var(--ease-pop)}
+.rail-tip::before{content:"";position:absolute;left:-4px;top:50%;width:8px;height:8px;margin-top:-4px;background:var(--text);transform:rotate(45deg)}
+@keyframes rail-tip-in{from{opacity:0;transform:translate(-8px,-50%) scale(.95)}}
+/* The top bar: a breadcrumb, then search with its shortcut, a divider and Quick help as a ghost button. */
+.toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;height:52px;min-height:52px;padding:0 24px;border-bottom:1px solid var(--hairline)}
+.breadcrumb{display:flex;flex-direction:row;align-items:center;gap:10px;min-width:0;overflow:hidden;font-size:14px;line-height:20px;color:var(--chrome-ink)}
+.breadcrumb .crumb{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.breadcrumb button.crumb{height:auto;min-height:0;padding:0;border:0;border-radius:var(--r-xs);background:transparent;box-shadow:none;color:inherit;transform:none}
+.breadcrumb button.crumb:hover:not(:disabled){background:transparent;color:var(--text)}
+.breadcrumb .crumb .nav-icon{width:16px;height:16px;flex:0 0 16px}
+.breadcrumb .crumb-separator{display:block;width:14px;height:14px;flex:0 0 14px;background:currentColor;mask:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3.5L10.5 8 6 12.5'/%3E%3C/svg%3E") center/100% 100% no-repeat;-webkit-mask:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3.5L10.5 8 6 12.5'/%3E%3C/svg%3E") center/100% 100% no-repeat}
+.breadcrumb .crumb-page{min-width:0;overflow:hidden;color:var(--text)}
+.toolbar-actions{display:flex;align-items:center;gap:12px;margin-left:auto;min-width:0}
+.toolbar .search{display:flex;align-items:center;gap:6px;flex:0 1 280px;width:280px;max-width:280px;height:30px;padding:0 5px 0 10px;border-radius:var(--r-sm);background:var(--field-fill);box-shadow:inset 0 0 0 1px var(--hairline);color:var(--chrome-ink)}
+.toolbar .search:focus-within{box-shadow:inset 0 0 0 1px var(--ring),0 0 0 3px color-mix(in srgb,var(--ring) 35%,transparent)}
+.toolbar .search .nav-icon{width:14px;height:14px;flex:0 0 14px}
+.toolbar .search input{flex:1;min-width:0;height:100%;min-height:0;font-size:14px;line-height:20px}
+.toolbar .search input::placeholder{color:var(--chrome-ink)}
+.kbd{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;height:20px;min-width:20px;padding:0 6px;border:0;border-radius:var(--r-xs);background:var(--kbd-fill);color:var(--chrome-ink);font-family:inherit;font-size:12px;font-weight:500;line-height:16px;white-space:nowrap;pointer-events:none}
+.toolbar-divider{display:block;width:1px;height:16px;flex:0 0 1px;background:var(--tree)}
+#help-button{display:inline-flex;align-items:center;gap:6px;height:32px;min-height:0;padding:0 10px;border:0;border-radius:var(--r-sm);background:transparent;box-shadow:none;color:var(--text);font-size:14px;font-weight:500;line-height:20px;white-space:nowrap}
+#help-button:hover:not(:disabled){background:var(--row-fill)}
+#help-button .nav-icon{width:16px;height:16px;flex:0 0 16px}
+/* The group's pages as the shot's pill tabs. */
+#sections{display:flex;flex-direction:row;align-items:center;gap:4px;padding:12px 24px;border-bottom:1px solid var(--hairline);overflow-x:auto;white-space:nowrap}
+#sections button{height:36px;min-height:0;padding:0 12px;border:0;border-radius:var(--r-sm);background:transparent;box-shadow:none;color:var(--chrome-ink);font-size:14px;font-weight:500;line-height:20px}
+#sections button:hover:not(:disabled){background:transparent;color:var(--text)}
+#sections button[aria-current=page],#sections button[aria-current=page]:hover:not(:disabled){background:var(--tab-fill);border-color:transparent;box-shadow:none;color:var(--text)}
+/* The page header: the shot's 18/28 title over a 13/20 subtitle. */
+#shell main{padding:24px 24px 48px}
+/* The Pill menu is the same shell: its page keeps the menu's own inset, which its window's height is computed from. */
+.menu-view #shell main{padding:var(--menu-pad)}
+main .intro{margin-bottom:24px}
+.intro h1{font-family:var(--ui-font,"Segoe UI"),sans-serif;font-size:18px;font-weight:600;line-height:28px;letter-spacing:normal}
+.intro p,main .intro p{margin-top:2px;font-size:13px;line-height:20px;color:var(--chrome-ink)}
+/* 0.4.177 IA phase 3: the command palette (IA-SCHEMATIC.md section 4), drawn in the page where the search's results
+   always were, as shadcn's Command draws its list: 12/16 group headings in the muted ink, 32 px rows (6 by 8 px, 14/20
+   text), the active row filled and ringed, a Restart or Quit that asked once marked in the danger colour, and
+   CommandShortcut (its DropdownMenuShortcut) right-aligned at 12/16, tracked 1.2 px, in the muted ink. */
+.command-palette{display:flex;flex-direction:column;gap:12px;max-width:640px}
+.command-group{display:flex;flex-direction:column;gap:2px}
+.command-heading{padding:6px 8px 4px;font-size:12px;font-weight:500;line-height:16px;color:var(--chrome-ink)}
+.search-result.command-option{display:flex;align-items:center;gap:8px;width:100%;min-height:32px;margin:0;padding:6px 8px;border:0;border-radius:var(--r-xs);background:transparent;background-image:none;box-shadow:none;color:var(--text);font-size:14px;font-weight:400;line-height:20px;text-align:left;transform:none}
+.search-result.command-option:hover:not(:disabled),.search-result.command-option[aria-selected=true]{background:var(--row-fill)}
+.search-result.command-option:active:not(:disabled){background:var(--row-press);transform:none}
+.search-result.command-option[aria-selected=true]{outline:var(--focus-width) solid var(--ring);outline-offset:var(--focus-inset)}
+.search-result.command-option[data-armed=true]{box-shadow:inset 3px 0 var(--danger)}
+.command-text{display:flex;flex-direction:column;flex:1;min-width:0}
+.command-text small{display:block;margin-top:0;font-size:12px;line-height:16px;color:var(--chrome-ink)}
+.command-option .command-shortcut{flex:0 0 auto;margin-left:auto;font-size:12px;line-height:16px;letter-spacing:.1em;color:var(--chrome-ink);white-space:nowrap}
+.command-check{flex:0 0 16px;width:16px;height:16px;background:currentColor;color:var(--text);mask:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 8.4l2.9 2.9 6.1-6.6'/%3E%3C/svg%3E") no-repeat center/100% 100%;-webkit-mask:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 8.4l2.9 2.9 6.1-6.6'/%3E%3C/svg%3E") no-repeat center/100% 100%}
+@media(max-width:767px){.search-result.command-option{min-height:44px}}
+@media(forced-colors:active){.command-check{background:ButtonText}}
+/* Below 768 px (shadcn's mobile breakpoint, and 200% zoom) the sidebar is an icon rail with 44 px targets (D5). */
+@media(max-width:767px){
+#shell .rail,#shell[data-sidebar] .rail{width:60px}
+#shell #navigation,#shell[data-sidebar] #navigation{padding:0 8px}
+#shell #navigation .nav-row,#shell[data-sidebar] #navigation .nav-row{width:44px;height:44px;padding:0;justify-content:center}
+#shell #navigation .nav-row[aria-current=true],#shell[data-sidebar] #navigation .nav-row[aria-current=true]{background:var(--row-fill);box-shadow:inset 0 0 0 1px var(--hairline)}
+#shell .nav-label,#shell #navigation .nav-sub,#shell #navigation .nav-toggle,#shell .rail-brand .wordmark,#shell #rail-toggle,#shell .breadcrumb,#account-card .account-copy,.toolbar .search .kbd,#shell .connection{display:none}
+#shell .rail-brand,#shell[data-sidebar] .rail-brand{padding:0 8px;justify-content:center}
+#shell .rail-footer,#shell[data-sidebar] .rail-footer{padding:8px}
+#shell #account-card,#shell[data-sidebar] #account-card{width:44px;height:44px;padding:0;justify-content:center;background:transparent;box-shadow:none}
+#shell .toolbar{gap:8px;padding:0 12px}
+#shell .toolbar-actions{flex:1}
+#shell .toolbar .search{flex:1 1 auto;width:auto;max-width:none;height:44px}
+#shell #help-button{height:44px}
+#shell #sections{padding:8px 12px}
+#shell #sections button{height:44px}
+#shell main{padding:20px 16px 32px}
+}
+@media(prefers-reduced-motion:reduce){.rail,.rail-tip,#navigation .nav-toggle{transition:none;animation:none}}
+body.reduce-motion .rail,body.reduce-motion .rail-tip,body.reduce-motion #navigation .nav-toggle{transition:none;animation:none}
+body.high-contrast #navigation .nav-row[aria-current=page],body.high-contrast #account-card{box-shadow:none;outline:1px solid CanvasText;outline-offset:-1px}
+@media(forced-colors:active){#navigation .nav-row[aria-current=page]{outline:2px solid Highlight;outline-offset:-2px}.nav-chevron,.breadcrumb .crumb-separator{background:ButtonText}.rail-tip{border:1px solid CanvasText}}

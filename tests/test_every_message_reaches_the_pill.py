@@ -198,13 +198,14 @@ class TheCallSitesMovedTests(unittest.TestCase):
 
     @unittest.skipIf(sys.platform == "darwin", "the Mac spells these its own way")
     def test_the_platform_words_are_the_plain_ones(self) -> None:
-        from knight_flow.app import RESUME_SURFACE_NAME, TalkDatApp
+        from knight_flow import mac_support
+        from knight_flow.app import TalkDatApp
         from knight_flow.onboarding import chord_label
 
         app = TalkDatApp.__new__(TalkDatApp)
         self.assertEqual(app._no_speech_message(), "No speech heard. Closing the mic.")
         self.assertEqual(chord_label({}, "push_to_talk", ("ctrl", "cmd")), "Ctrl+Win")
-        self.assertEqual(RESUME_SURFACE_NAME, "the tray icon")
+        self.assertEqual(mac_support.MENU_SURFACE_NAME, "the tray")
 
     def test_the_refusals_speak_through_one_call(self) -> None:
         refusal = ast.get_source_segment((ROOT / "app.py").read_text(encoding="utf-8"),

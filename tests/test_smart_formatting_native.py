@@ -85,10 +85,15 @@ class FakeFormatting:
         return {'message':'Smart formatting setup started.'}
     def check_again(self):return {'message':'Checked again.'}
     def open_download_page(self):return {'message':'opened'}
+    # 0.4.177: the walk through setup reads the status eight times while downloading, and the Settings row's own
+    # once-a-second poll (an interval with a random phase) used to be the ninth: "Downloading 40%" then showed only
+    # until that poll, sometimes for less than the probe's 50 ms look, and the run failed about one time in five
+    # once Settings drew its page at once (no 150 ms page turn). Two more reads keep it on screen for two polls.
+    DOWNLOADING_READS=10
     def snapshot(self):
         if self.state=='downloading':
             self.polls+=1
-            if self.polls>8:self.state='failed'
+            if self.polls>self.DOWNLOADING_READS:self.state='failed'
         labels={'not_set_up':'Not set up','downloading':'Downloading 40%','failed':'Failed','ready':'Ready'}
         return {'state':self.state,'label':labels[self.state],'percent':40 if self.state=='downloading' else None,
             'message':'The download did not finish.' if self.state=='failed' else '','title':'Smart formatting',

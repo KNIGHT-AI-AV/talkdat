@@ -56,7 +56,7 @@ def native_ramble_probe(connection,evidence,html):
                 click('Copy')
                 until("document.getElementById('notice').textContent.startsWith('Text copied.')")
                 window.evaluate_js("window.TalkDat.navigate('general');true")
-                until("document.querySelector('main h1').textContent==='General'")
+                until("document.querySelector('main h1').textContent==='Startup and updates'")
                 window.evaluate_js("window.TalkDat.navigate('ramble');true")
                 until("document.querySelector('[aria-label=\"Ramble draft\"]')?.value.startsWith('  Native')")
                 click('Finish writing')

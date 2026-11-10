@@ -29,14 +29,15 @@
   <a class="skip-link" href="#page">Skip to content</a>
   <div id="shell">
     <aside class="rail" aria-label="Talk DAT navigation">
-      <div class="wordmark" aria-label="Talk DAT!">Talk DAT!</div>
+      <div class="rail-brand"><span class="brand-mark" aria-hidden="true"></span><div class="wordmark" aria-label="Talk DAT!">Talk DAT!</div><button id="rail-toggle" type="button" aria-label="Collapse the sidebar" aria-expanded="true" aria-controls="navigation" aria-keyshortcuts="Control+B"><span class="nav-chevron nav-chevron-back" aria-hidden="true"></span></button></div>
       <nav id="navigation" aria-label="Settings pages"></nav>
       <div class="connection" id="connection-status" role="status" aria-live="polite" hidden><span class="status-dot" aria-hidden="true"></span><span class="connection-copy"><span id="connection">Not connected to Talk&nbsp;DAT!</span><span id="connection-help">Your changes are still here. If this stays, close this window and open it again from the Pill.</span></span></div>
+      <div class="rail-footer"><button id="account-card" type="button"><span class="account-avatar" aria-hidden="true"></span><span class="account-copy"><span class="account-name">Talk DAT!</span><span class="account-line">Account and sign-in</span></span></button></div>
     </aside>
     <div class="workspace">
       <header class="toolbar">
-        <label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Search settings and tools" aria-label="Search settings and tools" autocomplete="off"></label>
-        <button id="help-button" class="quiet" aria-haspopup="dialog">Quick help</button>
+        <nav id="breadcrumb" class="breadcrumb" aria-label="Breadcrumb"></nav>
+        <div class="toolbar-actions"><label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Search settings and tools" aria-label="Search settings and tools" aria-keyshortcuts="Control+K" autocomplete="off"><kbd class="kbd" aria-hidden="true">Ctrl K</kbd></label><span class="toolbar-divider" aria-hidden="true"></span><button id="help-button" class="quiet" aria-haspopup="dialog">Quick help</button></div>
       </header>
       <nav id="sections" aria-label="Section pages" hidden></nav>
       <div id="say-header" class="say-header" hidden><span class="status-dot" aria-hidden="true"></span><span id="say-header-text"></span></div>

@@ -253,7 +253,10 @@ class TheEntranceTests(unittest.TestCase):
     def test_the_page_grows_from_that_origin_on_the_sheet_spring(self):
         opening = Element("div", ("workspace",), parent=Element("body", ("menu-view", "menu-opening")))
         animation = resolve(opening, "animation") or ""
-        self.assertTrue(animation.startswith("menu-grow var(--t-sheet) var(--spring-sheet)"), animation)
+        # 0.4.177: the open is the reference's (shadcn's DropdownMenu): a 150 ms fade in from 95% with an 8 px slide
+        # from the Pill's side (tests/test_the_pill_menu_is_a_windows_menu.py); the grow below stays declared for the
+        # in-place submenu's fallback.
+        self.assertTrue(animation.startswith("menu-pop-down var(--t-quick) var(--ease-pop)"), animation)
         self.assertEqual(resolve(opening, "transform-origin"), "var(--menu-origin)")
         frames = [body for _sheet, stack, selector, body in shell_css.all_rules() if stack == ("@keyframes menu-grow",)]
         self.assertTrue(frames)

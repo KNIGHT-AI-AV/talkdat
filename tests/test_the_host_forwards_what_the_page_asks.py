@@ -30,7 +30,8 @@ from knight_flow.web_shell.shell_app import AppShell
 
 ASSETS = Path(__file__).resolve().parents[1] / "knight_flow" / "web_shell" / "shell_assets"
 #: Answered by the host itself (shell_host Api.request), never forwarded.
-HOST_ANSWERS = {"theme_asset", "cancel_close", "dismiss", "close"}
+# 0.4.177: "submenu" opens and closes the Pill menu's submenu window, in the renderer itself.
+HOST_ANSWERS = {"theme_asset", "cancel_close", "dismiss", "close", "submenu"}
 
 
 def page_methods() -> set[str]:
@@ -127,6 +128,19 @@ class TheMenusRequestsCrossTheRealHostTests(unittest.TestCase):
         api._place_menu.assert_called_once_with(list(expected))
         # The edge that faces the Pill stays put; the far edge moved.
         self.assertEqual(expected[1] + expected[3], app_shell._menu_bounds[1] + app_shell._menu_bounds[3])
+
+    def test_a_fit_with_the_width_its_rows_need_moves_the_window_too(self) -> None:
+        # 0.4.177 IA phase 3: the page measures its widest row and asks for that width with the height.
+        _app, app_shell, api = self.connect()
+        pill, area = (1300, 900, 200, 48), (0, 0, 1920, 1040)
+        app_shell._menu_pill, app_shell._menu_work_area, app_shell._menu_scale = pill, area, 1.0
+        app_shell._menu_side = "above"
+        app_shell._menu_bounds = pill_menu_bounds(pill, area, 1.0, height=472, side="above")
+        answer = api.request("menu_fit", {"height": 451, "width": 344})
+        expected = pill_menu_bounds(pill, area, 1.0, height=451, side="above", width=344)
+        self.assertEqual(expected[2], 344)
+        self.assertEqual(answer, {"ok": True, "result": {"bounds": list(expected)}})
+        api._place_menu.assert_called_once_with(list(expected))
 
     def test_a_fit_the_backend_refuses_comes_back_as_an_error(self) -> None:
         _app, _app_shell, api = self.connect()

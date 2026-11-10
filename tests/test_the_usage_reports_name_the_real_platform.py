@@ -33,12 +33,15 @@ class _Sent:
         return b""
 
 
-def _capture(platform: str, send) -> list[dict]:
-    """Run one report with sys.platform set, its thread run inline; return the payloads it sent."""
+def _capture(platform: str, send, agents: list[str] | None = None) -> list[dict]:
+    """Run one report with sys.platform set, its thread run inline; return the payloads it sent.
+    `agents`, when given, collects the user-agent header of each request."""
     captured: list[dict] = []
 
     def fake_urlopen(request, timeout=0):
         captured.append(json.loads(request.data.decode("utf-8")))
+        if agents is not None:
+            agents.append(request.get_header("User-agent"))
         return _Sent()
 
     def run_now(target, name=None, daemon=None):
@@ -104,6 +107,25 @@ class EveryReportNamesTheRealPlatformTests(unittest.TestCase):
         source = Path(activation_metrics.__file__).read_text(encoding="utf-8")
         for literal in ('"platform": "windows"', '"platform": "mac"'):
             self.assertFalse(literal in source, f"activation_metrics.py still writes {literal}")
+
+
+class TheUserAgentNamesTheRealPlatformTests(unittest.TestCase):
+    """The install and first-dictation reports also sent the header user-agent "TalkDat-Windows" as a literal, so a Mac
+    named itself Windows there too. The heartbeat and day 7 send their own agents and are left as they are."""
+
+    def check(self, platform: str, expected: str) -> None:
+        for name in ("install", "first dictation"):
+            with self.subTest(report=name, platform=platform):
+                agents: list[str] = []
+                config = _config(name)
+                _capture(platform, lambda: REPORTS[name](config), agents)
+                self.assertEqual(agents, [expected])
+
+    def test_a_mac_says_talkdat_mac(self) -> None:
+        self.check("darwin", "TalkDat-Mac")
+
+    def test_windows_still_says_talkdat_windows(self) -> None:
+        self.check("win32", "TalkDat-Windows")
 
 
 if __name__ == "__main__":

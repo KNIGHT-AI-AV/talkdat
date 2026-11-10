@@ -75,7 +75,8 @@ class ResetCategory:
 CATEGORIES: tuple[ResetCategory, ...] = (
     ResetCategory(
         "settings", "App settings",
-        "Voice, writing, appearance, privacy and automation return to defaults. Saved provider keys are removed.",
+        "Voice, writing, appearance, privacy and automation return to defaults, except your usage counts "
+        "choice. Saved provider keys are removed.",
         ORDINARY,
         # "deepgram" and "remote" are here because of what happens AFTER the
         # prune: any secret still sitting in the config in plaintext is written
@@ -311,12 +312,37 @@ def category_size(key: str, data_dir: Path) -> int:
     return plan([key], data_dir).bytes_freed
 
 
+# 0.4.176 (TEAM KNIGHT's decision, 2026-10-27): Reset keeps the person's answer
+# to the usage counts question. App settings returns privacy to its defaults,
+# and in 0.4.175 the default it returned to was "on", so a Reset turned the
+# counts back on without a word. Kept, a "Don't share" stays a no and a
+# "Share" stays a yes: Reset never changes what the counts do. (The install ID
+# lives in "metrics", which no category prunes.)
+KEPT_THROUGH_RESET = ("privacy.share_usage_counts", "privacy.usage_counts_asked")
+
+
+def _keep(original: dict, pruned: dict, dotted: str) -> None:
+    """Put one KEPT_THROUGH_RESET key back if pruning took it with its section."""
+    parts = dotted.split(".")
+    value = original
+    for part in parts:
+        if not isinstance(value, dict) or part not in value:
+            return
+        value = value[part]
+    node = pruned
+    for part in parts[:-1]:
+        if not isinstance(node.get(part), dict):
+            node[part] = {}
+        node = node[part]
+    node.setdefault(parts[-1], json.loads(json.dumps(value)))
+
+
 def prune_config(config: dict, keys: tuple[str, ...]) -> dict:
     """Remove the selected sections so defaults are re-applied on next load.
 
     Returns a new dict. The original is left alone because the caller may still
     need it if writing the pruned copy fails -- a half-cleared settings file is
-    worse than an uncleared one.
+    worse than an uncleared one. KEPT_THROUGH_RESET survives every prune.
     """
     remaining = json.loads(json.dumps(config))
     for key in keys:
@@ -328,6 +354,8 @@ def prune_config(config: dict, keys: tuple[str, ...]) -> dict:
                 break
         if isinstance(node, dict):
             node.pop(parts[-1], None)
+    for kept in KEPT_THROUGH_RESET:
+        _keep(config, remaining, kept)
     return remaining
 
 

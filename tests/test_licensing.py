@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import base64
 import json
+import sys
 import time
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -142,6 +145,79 @@ class LicensingTests(unittest.TestCase):
         state = manager.exchange_activation(user_code="ABCD-EFGH", device_code="secret")
         self.assertTrue(state.active)
         self.assertEqual(store.values[LICENSE_TARGET], token)
+
+
+class Answer:
+    """What the account service answers, for a stand-in opener."""
+
+    def __init__(self, body: dict) -> None:
+        self.body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def read(self) -> bytes:
+        return json.dumps(self.body).encode()
+
+
+class RunNow:
+    """threading.Thread that runs its target at start()."""
+
+    def __init__(self, target, **_kwargs) -> None:
+        self.target = target
+
+    def start(self) -> None:
+        self.target()
+
+
+class TheDeviceNameIsNeverTheHostnameTests(unittest.TestCase):
+    """The account service is told a plain label for this computer, "Mac" or "Windows PC", and never its network name,
+    unless the person named the device themselves (licensing.device_name)."""
+
+    HOSTNAME = "SAMS-MACBOOK-PRO"
+    LABEL = "Mac" if sys.platform == "darwin" else "Windows PC"
+
+    def sign_in_started(self, licensing: dict) -> str:
+        sent: list[dict] = []
+
+        def opener(request, timeout=0):
+            sent.append(json.loads(request.data.decode("utf-8")))
+            return Answer({"userCode": "ABCD-EFGH"})
+
+        config = {"licensing": {"api_base": "https://api.example", **licensing}}
+        with mock.patch("platform.node", return_value=self.HOSTNAME):
+            LicenseManager(config, store=MemoryStore(), opener=opener, public_key_pem=b"").begin_activation()
+        return sent[0]["deviceName"]
+
+    def test_the_hostname_is_never_sent(self) -> None:
+        self.assertEqual(self.sign_in_started({}), self.LABEL)
+
+    def test_a_name_the_person_chose_is_kept(self) -> None:
+        self.assertEqual(self.sign_in_started({"device_name": "Studio laptop"}), "Studio laptop")
+
+    def test_the_web_sign_in_link_sends_the_same_name(self) -> None:
+        from knight_flow import app
+
+        sent: list[dict] = []
+
+        def urlopen(request, timeout=0):
+            sent.append(json.loads(request.data.decode("utf-8")))
+            return Answer({"licenseToken": "signed"})
+
+        config = {"licensing": {"api_base": "https://api.example", "device_id": "td-test"}}
+        overlay = SimpleNamespace(root=SimpleNamespace(after=lambda _ms, run: run()), set_state=mock.Mock())
+        with mock.patch("platform.node", return_value=self.HOSTNAME), mock.patch("urllib.request.urlopen", urlopen), \
+                mock.patch.object(app.threading, "Thread", RunNow):
+            manager = LicenseManager(config, store=MemoryStore(), public_key_pem=b"")
+            manager.adopt_handoff = mock.Mock(return_value=SimpleNamespace(detail="Signed in."))
+            app.TalkDatApp.complete_handoff(SimpleNamespace(config=config, license_manager=manager, overlay=overlay),
+                                            "one-time-code")
+        self.assertEqual(len(sent), 1, overlay.set_state.call_args)
+        self.assertEqual(sent[0]["deviceName"], self.LABEL)
+        manager.adopt_handoff.assert_called_once_with({"licenseToken": "signed"})
 
 
 if __name__ == "__main__":

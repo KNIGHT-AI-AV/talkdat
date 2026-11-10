@@ -290,3 +290,88 @@ class TheBrandRegistryCorrectsPublicNamesTests(unittest.TestCase):
         elapsed_ms = (time.perf_counter() - start) * 1000
         self.assertLess(elapsed_ms, 2500,
                         f"vocabulary pass took {elapsed_ms:.0f}ms on 4400 chars")
+
+
+class TheHousesNewerNamesCorrectThemselvesTests(unittest.TestCase):
+    """2026-10-28, the owner's own dictation: "dreq" for D-REC and "Dandy List"
+    for Dandelist, two Knight AI+AV products the registry did not have yet.
+
+    Both hearings are made of words a sentence can hold for its own reasons, so
+    the guards matter as much as the corrections: "dreq" inside another word,
+    and "dandy" and "list" standing on their own, come through untouched."""
+
+    def _apply(self, text: str) -> str:
+        return apply_vocabulary_terms(text, {})
+
+    def test_dreq_is_d_rec(self) -> None:
+        for heard, expected in (
+            ("I recorded it in dreq last night", "I recorded it in D-REC last night"),
+            ("Dreq is the recorder", "D-REC is the recorder"),
+        ):
+            with self.subTest(heard=heard):
+                self.assertEqual(self._apply(heard), expected)
+
+    def test_dandy_list_is_dandelist(self) -> None:
+        for heard, expected in (
+            ("add it to Dandy List", "add it to Dandelist"),
+            ("add it to dandy list today", "add it to Dandelist today"),
+        ):
+            with self.subTest(heard=heard):
+                self.assertEqual(self._apply(heard), expected)
+
+    def test_dreq_inside_another_word_is_left_alone(self) -> None:
+        for sentence in ("the dreqs folder and an undreq tag", "that movie was dreck"):
+            with self.subTest(sentence=sentence):
+                self.assertEqual(self._apply(sentence), sentence)
+
+    def test_dandy_and_list_on_their_own_are_left_alone(self) -> None:
+        """"dandy. List the rest" is two sentences that happen to spell the name."""
+        for sentence in (
+            "that suit looks dandy",
+            "make a list of names",
+            "That sounds dandy. List the rest for me.",
+            "Fine and dandy, list them all.",
+        ):
+            with self.subTest(sentence=sentence):
+                self.assertEqual(self._apply(sentence), sentence)
+
+    def test_a_dandy_list_of_things_is_ordinary_english(self) -> None:
+        sentence = "that is a dandy list of chores"
+        self.assertEqual(self._apply(sentence), sentence)
+
+    def test_a_sentence_break_never_joins_words_into_a_public_name(self) -> None:
+        """The rule holds for every public name: initials before a surname are
+        not D-REC, and "you. Tube" is two sentences, not YouTube."""
+        for sentence in ("Dr. E. C. Jones signed it", "Thank you. Tube trains run late."):
+            with self.subTest(sentence=sentence):
+                self.assertEqual(self._apply(sentence), sentence)
+
+    def test_spelled_out_letters_still_spell_a_name(self) -> None:
+        """A single letter may carry its own stop inside a name."""
+        self.assertEqual(self._apply("I use talk D. A. T. daily"), "I use Talk DAT! daily")
+
+
+class TheBrandHeardAsChadGbtTests(unittest.TestCase):
+    """2026-10-26, the owner's own dictation: "Chad GBT" for ChatGPT.
+
+    The brand answered only to "chat gpt" and "chat g p t". The recognizer also
+    hears its T as a D and its P as a B, so those hearings join the list. "Chad"
+    on its own is a name and stays one, and a stop or a comma after it still
+    ends the phrase."""
+
+    def _apply(self, text: str) -> str:
+        return apply_vocabulary_terms(text, {})
+
+    def test_the_other_hearings_are_chatgpt(self) -> None:
+        for heard, expected in (
+            ("please quit Chad GBT before the demo", "please quit ChatGPT before the demo"),
+            ("is chad gpt still running", "is ChatGPT still running"),
+            ("open chat GBT for me", "open ChatGPT for me"),
+        ):
+            with self.subTest(heard=heard):
+                self.assertEqual(self._apply(heard), expected)
+
+    def test_chad_on_his_own_is_a_name(self) -> None:
+        for sentence in ("Chad is coming over at noon", "Ask Chad. GPT can wait.", "Thanks Chad, GPT is next."):
+            with self.subTest(sentence=sentence):
+                self.assertEqual(self._apply(sentence), sentence)

@@ -126,9 +126,12 @@ class GeneratedIconWiringTests(unittest.TestCase):
         self.assertEqual(drawers["ramble"], "_draw_ramble_icon")
         self.assertEqual(drawers["captions"], "_draw_captions_icon")
         self.assertEqual(drawers["scribe"], "_draw_scribe_icon")
-        self.assertEqual(drawers["local_models"], "_draw_offline_icon")
         self.assertEqual(drawers["restart_app"], "_draw_restart_icon")
-        self.assertNotEqual(drawers["restart_app"], drawers["check_updates"])
+        # 0.4.177 IA phase 2: the new rows draw their own generated assets (Check for updates and Local models left).
+        self.assertEqual(drawers["hands_free"], "_draw_hands_free_icon")
+        self.assertEqual(drawers["pause"], "_draw_pause_icon")
+        self.assertEqual(drawers["help"], "_draw_help_icon")
+        self.assertEqual(len(set(drawers.values())), len(drawers), "two rows draw one picture")
 
     def test_context_icon_methods_do_not_draw_font_or_canvas_approximations(self) -> None:
         methods = (
@@ -146,6 +149,9 @@ class GeneratedIconWiringTests(unittest.TestCase):
             "_draw_scribe_icon",
             "_draw_offline_icon",
             "_draw_restart_icon",
+            "_draw_hands_free_icon",
+            "_draw_pause_icon",
+            "_draw_help_icon",
         )
         forbidden = ("create_line", "create_arc", "create_oval", "create_polygon", "create_text")
         for method in methods:

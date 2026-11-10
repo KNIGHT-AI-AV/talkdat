@@ -59,6 +59,10 @@ def stray_shadow_layers(value: str) -> list[str]:
             continue
         if layer.startswith(("inset", "0 0 0")) and ("color-mix" in layer or "var(--ring)" in layer):
             continue
+        # 0.4.177 (the owner's reference sidebar): the hairline edges of the current row, the search field and the
+        # account card are 1 px rings in the named mixes --hairline and --card-edge, which are color-mix themselves.
+        if layer.startswith("inset 0 0 0 1px") and layer.endswith(("var(--hairline)", "var(--card-edge)")):
+            continue
         stray.append(layer)
     return stray
 

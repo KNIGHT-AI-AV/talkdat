@@ -108,13 +108,19 @@ class HighDpiViewportGeometryTests(unittest.TestCase):
 
                 self.assertLessEqual(collapsed_viewport, 1080)
                 self.assertLessEqual(expanded_viewport, 1080)
-                self.assertEqual(collapsed_viewport, collapsed_content)
+                # 0.4.177 IA phase 2's 11 rows fit 1080p whole at 100% and
+                # 150%; at 200% (1272 px) the viewport stops at the work area
+                # and the rest scrolls, with the rows kept full size.
+                available = 1080 - 2 * collapsed._context_menu_work_margin()
+                self.assertEqual(collapsed_viewport, min(collapsed_content, available))
+                if scale < 2.0:
+                    self.assertEqual(collapsed_viewport, collapsed_content)
                 # X-339: "expanded" grew DOWN until it pushed past the
                 # screen (the founder's screenshot); the Features panel now
                 # slides SIDEWAYS. Height is identical in both states; the
                 # growth happens in width, scaled like every other metric.
                 self.assertEqual(expanded_content, collapsed_content)
-                self.assertEqual(expanded_viewport, expanded_content)
+                self.assertEqual(expanded_viewport, min(expanded_content, available))
                 self.assertEqual(
                     expanded._menu_total_width(),
                     expanded.MENU_WIDTH + expanded.MENU_FEATURES_WIDTH,
@@ -124,14 +130,19 @@ class HighDpiViewportGeometryTests(unittest.TestCase):
     def test_1080p_at_200_percent_keeps_full_rows_and_scrolls_the_overflow(self) -> None:
         # History: the expanded menu was 1536 tall at 200% and HAD to
         # scroll inside 1080p. X-339 folded the flat list permanently
-        # (features slide sideways), so the whole menu fits; the scrolling
-        # contract is preserved against a shorter work area instead.
+        # (features slide sideways), so the 8-row menu fit (1008). 0.4.177
+        # IA phase 2 gives the Tk fallback 11 rows (1272 at 200%): the
+        # viewport stops at the work area less its margins and the overflow
+        # scrolls, with the controls kept full size.
         overlay = scaled_overlay(2.0, expanded=True)
         content = overlay._context_menu_window_height(len(overlay._context_menu_rows()))
         viewport = overlay._context_menu_viewport_height(content, (0, 0, 1920, 1080))
 
-        self.assertEqual(content, 1008)
-        self.assertEqual(viewport, 1008)
+        self.assertEqual(len(overlay._context_menu_rows()), 11)
+        self.assertEqual(content, 1272)
+        self.assertEqual(viewport, 1080 - 2 * overlay._context_menu_work_margin())
+        self.assertEqual(viewport, 1048)
+        self.assertLess(viewport, content, "the overflow scrolls inside the work area")
         self.assertEqual(overlay.MENU_ROW_HEIGHT, 80, "DPI repair must not shrink controls")
         short_viewport = overlay._context_menu_viewport_height(content, (0, 0, 1920, 700))
         self.assertLess(short_viewport, content,

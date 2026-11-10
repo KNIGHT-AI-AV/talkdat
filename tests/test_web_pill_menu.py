@@ -1,6 +1,7 @@
 """Real Pill -> menu -> Settings handoff on an isolated Windows desktop."""
 import copy
 import ctypes
+import math
 from ctypes import wintypes
 import multiprocessing
 from pathlib import Path
@@ -41,6 +42,9 @@ def probe_window(connection, html, page, hidden, mode, bounds):
                 until("document.body.classList.contains('connected')")
                 if mode=='menu':
                     until("!!document.querySelector('[data-action=\"menu:settings\"]')")
+                    # 0.4.177 IA phase 3: the window takes the width its widest row needs (from 288 to 360 px). It
+                    # lands after the page has measured; then the main action's label is whole beside its shortcut.
+                    until("(()=>{const s=document.querySelector('.menu-row-default .menu-label>span');return !!s&&s.scrollWidth<=s.clientWidth+0.5})()")
                     rect=wintypes.RECT();hwnd=wintypes.HWND(int(window.native.Handle.ToInt64()))
                     u.GetWindowRect(hwnd,ctypes.byref(rect))
                     report={'bounds':[rect.left,rect.top,rect.right-rect.left,rect.bottom-rect.top]}
@@ -48,7 +52,8 @@ def probe_window(connection, html, page, hidden, mode, bounds):
                     private=ctypes.WinDLL('user32',use_last_error=True)
                     private.GetClassLongPtrW.argtypes=(wintypes.HWND,ctypes.c_int);private.GetClassLongPtrW.restype=ctypes.c_size_t
                     report['shadow']=bool(private.GetClassLongPtrW(hwnd,-26)&0x00020000)
-                    report['layout']=window.evaluate_js("({scroll:document.getElementById('page').scrollHeight,height:document.getElementById('page').clientHeight,rows:[...document.querySelectorAll('.menu-row:not([hidden])')].map(n=>({x:n.getBoundingClientRect().x,h:n.getBoundingClientRect().height})),mask:getComputedStyle(document.querySelector('.menu-row .nav-icon')).maskMode})")
+                    report['main']=window.evaluate_js("(()=>{const r=document.querySelector('.menu-row-default');return {label:r.querySelector('.menu-label>span').textContent,value:r.querySelector('.menu-value')?.textContent||null,width:window.innerWidth}})()")
+                    report['layout']=window.evaluate_js("({scroll:document.getElementById('page').scrollHeight,height:document.getElementById('page').clientHeight,rows:[...document.querySelectorAll('.menu-row:not([hidden])')].map(n=>({x:n.getBoundingClientRect().x,h:n.getBoundingClientRect().height})),mask:getComputedStyle(document.querySelector('.menu-row[data-action=\"menu:settings\"] .nav-icon')).maskMode})")
                     window.evaluate_js("document.querySelector('[data-action=\"menu:settings\"]').click();true")
                     # X-744: an error is read to screen readers from #alert (role=alert).
                     until("document.getElementById('alert').textContent==='Synthetic open failure'")
@@ -115,17 +120,26 @@ class PillMenuNativeTests(unittest.TestCase):
             self.assertTrue(reports['menu']['error_visible'])
             self.assertTrue(reports['menu']['shadow'], 'the menu window casts no shadow')
             self.assertTrue(reports['settings']['visible'])
-            self.assertEqual(reports['settings']['heading'],'General')
+            self.assertEqual(reports['settings']['heading'],'Startup and updates')
+            # 0.4.177 IA phase 3: with the default binding, the bold main action and Ctrl+Win+Space both show in full
+            # in a real renderer, and the window widened past the old 288 px to fit them (never past 360).
+            main=reports['menu']['main']
+            self.assertEqual((main['label'],main['value']),('Start hands-free dictation','Ctrl+Win+Space'))
+            self.assertGreater(shell._menu_width,288);self.assertLessEqual(shell._menu_width,360)
+            self.assertLessEqual(abs(main['width']-shell._menu_width),1)
             layout=reports['menu']['layout']
             self.assertLessEqual(layout['scroll'],layout['height'])
             self.assertEqual(len({row['x'] for row in layout['rows']}),1)
-            # 2026-10-09 redesign: single-line 40 px rows (Fluent's menu row height).
-            self.assertGreaterEqual(min(row['h'] for row in layout['rows']),40)
+            # 0.4.177: WinUI's own MenuFlyout row, read from its source (FLUENT-MENUS-SPEC.md B2): 20 px text padded
+            # 4 and 5 when the menu is opened with a mouse, pen or keyboard, so 29 px (the 10-09 note's "Fluent's 40 px"
+            # was not WinUI's number).
+            self.assertGreaterEqual(min(row['h'] for row in layout['rows']),29)
             # The menu's icons come from the line-art ATLAS, which is a luminance
             # mask. This probed `.nav-icon` -- the first one in the document --
             # until X-172 put Home at the top of the rail with a mask of its own,
             # and the assertion started reading an icon the menu never shows.
-            # Name the menu's icon, so it keeps protecting the atlas.
+            # Name the menu's icon, so it keeps protecting the atlas. 0.4.177 IA phase 2: the first row is Start
+            # hands-free dictation, whose voice wave is a drawn (alpha) mask, so the probe names Settings' row.
             self.assertEqual(layout['mask'],'luminance')
             print('Native Pill menu and Settings:',reports)
         finally:
@@ -141,10 +155,12 @@ class PillAnchorGeometryTests(unittest.TestCase):
         for scale in (1,1.25,1.5,2):
             with self.subTest(scale=scale):
                 pill=(-1300,1600,200,60)
-                x,y,w,h=pill_menu_bounds(pill,(-2560,0,0,1800),scale)
-                self.assertLessEqual(abs(x+w/2-(pill[0]+pill[2]/2)),.5)
-                self.assertEqual(y+h,pill[1]-round(10*scale))
-                self.assertEqual(w,round(288*scale))
+                # 0.4.177 IA phase 3: the floor before the page has measured, then the width its widest row needs.
+                for width in (None,344,360):
+                    x,y,w,h=pill_menu_bounds(pill,(-2560,0,0,1800),scale,width=width)
+                    self.assertLessEqual(abs(x+w/2-(pill[0]+pill[2]/2)),.5)
+                    self.assertEqual(y+h,pill[1]-round(10*scale))
+                    self.assertEqual(w,math.ceil((width or 288)*scale-1e-9))
     def test_top_edge_falls_below_without_crossing_work_area(self):
         x,y,w,h=pill_menu_bounds((700,10,200,50),(0,0,1920,1040),1.5)
         self.assertGreaterEqual(y,60)

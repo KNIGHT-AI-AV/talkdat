@@ -9,6 +9,7 @@ from unittest.mock import patch
 from knight_flow import plugins
 from knight_flow.config import DEFAULT_CONFIG
 from knight_flow.web_shell.plugins_workspace import PluginsWorkspace
+from tests.child_isolation import SUITE_TOTAL_LOAD_SECONDS
 
 ASSETS=Path(__file__).resolve().parents[1]/'knight_flow/web_shell/shell_assets'
 
@@ -57,7 +58,7 @@ def native_plugins_probe(connection,evidence,html):
                 click('Open plugins folder')
                 until("document.getElementById('notice').textContent==='Opened your local plugins folder.'")
                 window.evaluate_js("window.TalkDat.navigate('general');true")
-                until("document.querySelector('main h1').textContent==='General'")
+                until("document.querySelector('main h1').textContent==='Startup and updates'")
                 window.evaluate_js("window.TalkDat.navigate('privacy');true");expand()
                 until("document.querySelector('.plugin-issues').textContent.includes('RuntimeError')")
                 window.evaluate_js("document.getElementById('field-plugins.enabled').click();true")
@@ -98,7 +99,7 @@ class NativePluginTests(unittest.TestCase):
             while time.monotonic()<deadline and not receiver.poll():drain();time.sleep(.005)
             self.assertTrue(receiver.poll(),'No native plugin result');result=receiver.recv();self.assertNotIn('error',result,result)
             drain();self.assertFalse(config['plugins']['enabled']);self.assertEqual(opened,[plugins.plugins_dir()])
-            self.assertTrue(plugins._reload_done.wait(3));self.assertEqual(plugins._hosts,[])
+            self.assertTrue(plugins._reload_done.wait(SUITE_TOTAL_LOAD_SECONDS));self.assertEqual(plugins._hosts,[])  # may cover a worker's start
             print(result['status'],'on',result['surface'])
         finally:
             process.join(5)

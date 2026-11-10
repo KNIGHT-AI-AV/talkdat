@@ -9,6 +9,7 @@ import contextlib
 import json
 import multiprocessing
 from pathlib import Path
+import queue
 import secrets
 import sys
 import threading
@@ -248,6 +249,8 @@ class _RendererApi:
         self._materials = None
         self._menu_hide_lock = threading.Lock()
         self._menu_hide_generation = 0
+        # The Pill menu's submenu window (2026-11-05), made with the menu in the same process; None elsewhere.
+        self._submenu_window = None
 
     def _hide_menu_after_exit(self):
         """Hide the menu once its page has faded; a show in between cancels it."""
@@ -259,6 +262,7 @@ class _RendererApi:
             with self._menu_hide_lock:
                 if generation != self._menu_hide_generation:
                     return
+            self._hide_submenu()
             self._window.hide()
 
         timer = threading.Timer(MENU_EXIT_SECONDS, hide)
@@ -304,6 +308,8 @@ class _RendererApi:
         if method == 'dismiss' and self._mode == 'menu':
             self._hide_menu_after_exit()
             return {'ok': True, 'result': None}
+        if method == 'submenu' and self._mode == 'menu':
+            return self._submenu_request(payload)
         if method == 'close':
             if self._mode == 'menu' and self._close_token is None:
                 self._hide_menu_after_exit()
@@ -329,9 +335,10 @@ class _RendererApi:
             answer = pending['answer']
             # Failed actions must remain visible. In particular, opening Settings
             # can fail during renderer startup; hiding first loses the error.
+            # Field report 2026-11-05: every successful action closes the menu, a Speech or
+            # Formatting choice included, as WinUI closes every menu when an item is invoked.
             if method == 'action' and self._mode == 'menu' and answer and answer.get('ok'):
-                if not str(payload.get('name', '')).startswith('route:') and payload.get('name') != 'menu:toggle_intensity':
-                    self._hide_menu_after_exit()
+                self._hide_menu_after_exit()
             return answer
         except (OSError, ValueError) as error:
             if isinstance(error, ValueError) and 'too large' in str(error):
@@ -360,7 +367,64 @@ class _RendererApi:
         # WebView's DOM blur does not reliably follow WinForms activation.
         # Outside clicks must also dismiss at the native window boundary.
         if self._mode == 'menu' and self._window.native.Visible:
+            self._dismiss_unless_partner()
+
+    def _submenu_deactivated(self, _sender=None, _args=None):
+        if self._mode == 'menu':
+            self._dismiss_unless_partner()
+
+    def _dismiss_unless_partner(self):
+        """The menu and its submenu dismiss as one (2026-11-05): focus moving from one to the other keeps both;
+        anywhere else hides both. Read once the activation has settled."""
+        def check():
+            pair = {_hwnd_of(self._window), _hwnd_of(self._submenu_window)} - {None}
+            with contextlib.suppress(Exception):
+                if _foreground_window() in pair:
+                    return
             self._hide_menu_after_exit()
+
+        timer = threading.Timer(0.05, check)
+        timer.daemon = True
+        timer.start()
+
+    def _hide_submenu(self):
+        hwnd = _hwnd_of(self._submenu_window)
+        if hwnd is not None:
+            with contextlib.suppress(Exception):
+                _hide_window(hwnd)
+
+    def _submenu_request(self, payload):
+        """Open, place or close the submenu window for the menu page (never forwarded to the app)."""
+        unavailable = {'ok': False, 'error': 'This menu is unavailable.'}
+        if not isinstance(payload, dict) or self._submenu_window is None:
+            return unavailable
+        if payload.get('op') == 'close':
+            self._hide_submenu()
+            if payload.get('refocus') is True:
+                self._window.show()
+            return {'ok': True, 'result': None}
+        if payload.get('op') != 'open':
+            return unavailable
+        values = _submenu_values(payload)
+        if values is None:
+            return unavailable
+        rows, (x, y, width, height), (sub_width, sub_height), scale, keyboard, theme = values
+        from .menu_geometry import submenu_bounds
+        try:
+            parent, child = _hwnd_of(self._window), _hwnd_of(self._submenu_window)
+            left, top, _right, _bottom = _window_rect(parent)
+            row = (left + round(x * scale), top + round(y * scale), round(width * scale), round(height * scale))
+            bounds = submenu_bounds(row, (round(sub_width * scale), round(sub_height * scale)), _work_area_of(parent), scale)
+            _position_menu_window(child, bounds)
+            self._submenu_window.evaluate_js('window.TalkDat.showSubmenu(' + json.dumps(
+                {'rows': rows, 'keyboard': keyboard, 'theme': theme}) + ');true')
+            if keyboard:
+                self._submenu_window.show()
+            else:
+                _show_without_activating(child)
+        except (OSError, ValueError):
+            return unavailable
+        return {'ok': True, 'result': {'bounds': bounds}}
 
     def _place_menu(self, bounds):
         if not isinstance(bounds, list) or len(bounds) != 4 or not all(type(v) is int for v in bounds):
@@ -474,6 +538,166 @@ def _position_menu_window(hwnd, bounds, *, user32=None):
     finally:
         if previous:
             context(previous)
+
+
+def _physical_user32(user32=None):
+    """user32 with the calls the submenu makes typed, and this thread set to physical pixels (per-monitor v2)."""
+    import ctypes
+    from ctypes import wintypes
+    user32 = user32 or ctypes.WinDLL('user32', use_last_error=True)
+    user32.SetThreadDpiAwarenessContext.argtypes = (wintypes.HANDLE,)
+    user32.SetThreadDpiAwarenessContext.restype = wintypes.HANDLE
+    return user32
+
+
+def _window_rect(hwnd, *, user32=None):
+    """A window's rectangle, physical pixels: (left, top, right, bottom)."""
+    import ctypes
+    from ctypes import wintypes
+    user32 = _physical_user32(user32)
+    user32.GetWindowRect.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.RECT))
+    rect = wintypes.RECT()
+    previous = user32.SetThreadDpiAwarenessContext(wintypes.HANDLE(-4))
+    try:
+        if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            raise OSError('Could not read the menu window')
+    finally:
+        if previous:
+            user32.SetThreadDpiAwarenessContext(previous)
+    return rect.left, rect.top, rect.right, rect.bottom
+
+
+def _work_area_of(hwnd, *, user32=None):
+    """The work area of the monitor a window is on, physical pixels: (left, top, right, bottom)."""
+    import ctypes
+    from ctypes import wintypes
+
+    class MONITORINFO(ctypes.Structure):
+        _fields_ = [('cbSize', wintypes.DWORD), ('rcMonitor', wintypes.RECT), ('rcWork', wintypes.RECT),
+                    ('dwFlags', wintypes.DWORD)]
+
+    user32 = _physical_user32(user32)
+    user32.MonitorFromWindow.argtypes = (wintypes.HWND, wintypes.DWORD)
+    user32.MonitorFromWindow.restype = wintypes.HANDLE
+    user32.GetMonitorInfoW.argtypes = (wintypes.HANDLE, ctypes.POINTER(MONITORINFO))
+    info = MONITORINFO(cbSize=ctypes.sizeof(MONITORINFO))
+    previous = user32.SetThreadDpiAwarenessContext(wintypes.HANDLE(-4))
+    try:
+        if not user32.GetMonitorInfoW(user32.MonitorFromWindow(hwnd, 2), ctypes.byref(info)):  # MONITOR_DEFAULTTONEAREST
+            raise OSError('Could not read the monitor')
+    finally:
+        if previous:
+            user32.SetThreadDpiAwarenessContext(previous)
+    work = info.rcWork
+    return work.left, work.top, work.right, work.bottom
+
+
+def _show_without_activating(hwnd, *, user32=None):
+    """Show a window on top without taking the focus: a hover opens a submenu, and the menu keeps the keyboard."""
+    from ctypes import wintypes
+    user32 = _physical_user32(user32)
+    user32.SetWindowPos.argtypes = (wintypes.HWND, wintypes.HWND, wintypes.INT, wintypes.INT, wintypes.INT, wintypes.INT,
+                                    wintypes.UINT)
+    # HWND_TOPMOST; SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_SHOWWINDOW
+    if not user32.SetWindowPos(hwnd, wintypes.HWND(-1), 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0040):
+        raise OSError('Could not show the submenu')
+
+
+def _hide_window(hwnd, *, user32=None):
+    from ctypes import wintypes
+    user32 = _physical_user32(user32)
+    user32.ShowWindow.argtypes = (wintypes.HWND, wintypes.INT)
+    user32.ShowWindow(hwnd, 0)  # SW_HIDE
+
+
+def _foreground_window(*, user32=None):
+    user32 = _physical_user32(user32)
+    return int(user32.GetForegroundWindow() or 0)
+
+
+def _hwnd_of(window):
+    if window is None:
+        return None
+    with contextlib.suppress(Exception):
+        return int(window.native.Handle.ToInt64())
+    return None
+
+
+#: The submenu's request, read by _RendererApi._submenu_request: at most this many rows, these keys per row.
+SUBMENU_ROWS = 16
+SUBMENU_ROW_KEYS = {'label': str, 'icon': str, 'kind': str, 'checked': bool, 'value': str, 'disabled': bool,
+                    'description': str}
+
+
+def _submenu_values(payload):
+    """The validated parts of an "open" request, or None: rows, anchor, size, scale, keyboard, theme."""
+    def number(value, low, high):
+        return type(value) in (int, float) and low <= value <= high
+
+    rows = payload.get('rows')
+    if not isinstance(rows, list) or not 1 <= len(rows) <= SUBMENU_ROWS:
+        return None
+    kept = []
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get('label'), str) or not row['label'] or len(row['label']) > 80:
+            return None
+        entry = {}
+        for key, value in row.items():
+            want = SUBMENU_ROW_KEYS.get(key)
+            if want is None or type(value) is not want or (want is str and len(value) > 160):
+                return None
+            entry[key] = value
+        kept.append(entry)
+    anchor, size = payload.get('anchor'), payload.get('size')
+    if not isinstance(anchor, dict) or not isinstance(size, dict):
+        return None
+    box = [anchor.get(key) for key in ('x', 'y', 'width', 'height')]
+    if not all(number(value, -10000, 10000) for value in box) or box[2] <= 0 or box[3] <= 0:
+        return None
+    extent = [size.get(key) for key in ('width', 'height')]
+    if not all(number(value, 1, 4000) for value in extent):
+        return None
+    scale, keyboard = payload.get('scale'), payload.get('keyboard', False)
+    if not number(scale, 0.5, 4.0) or type(keyboard) is not bool:
+        return None
+    theme = payload.get('theme')
+    if theme is not None and not (isinstance(theme, dict) and len(theme) <= 64
+                                  and all(isinstance(k, str) and isinstance(v, (str, int, float, bool)) and len(str(v)) <= 300
+                                          for k, v in theme.items())):
+        return None
+    return kept, box, extent, float(scale), keyboard, theme
+
+
+class _SubmenuApi:
+    """The submenu window's js_api (2026-11-05): its page reports pointer and click events, and they go to the menu
+    page in order. It asks for nothing else; the menu page keeps every decision."""
+
+    EVENTS = frozenset({'enter', 'leave', 'invoke', 'close', 'ready'})
+
+    def __init__(self, menu_api):
+        self._menu = menu_api
+        self._window = None
+        self._bundled_uri = None
+        self._guard_ready = False
+        self._outbox = queue.SimpleQueue()
+        threading.Thread(target=self._relay, name='TalkDatSubmenuRelay', daemon=True).start()
+
+    def _trusted(self):
+        return self._guard_ready and self._window is not None and trusted_document(self._window.get_current_url(), self._bundled_uri)
+
+    def event(self, kind, index=-1):
+        if kind not in self.EVENTS or type(index) is not int or not -1 <= index < SUBMENU_ROWS or not self._trusted():
+            return False
+        self._outbox.put({'kind': kind, 'index': index})
+        return True
+
+    def _relay(self):
+        while True:
+            message = self._outbox.get()
+            window = self._menu._window
+            if window is not None:
+                with contextlib.suppress(Exception):
+                    window.evaluate_js('window.TalkDat.submenuEvent(' + json.dumps(message) + ');true')
 
 
 #: Set when Windows announces the session is ending (SystemEvents.SessionEnding).

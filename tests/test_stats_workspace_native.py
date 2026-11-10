@@ -55,7 +55,7 @@ def native_stats_probe(connection,evidence,html):
                 refresh()
                 until("document.querySelector('.activity-metric strong')?.textContent==='0'")
                 window.evaluate_js("window.TalkDat.navigate('general');true")
-                until("document.querySelector('main h1')?.textContent==='General'")
+                until("document.querySelector('main h1')?.textContent==='Startup and updates'")
                 window.evaluate_js("window.TalkDat.navigate('stats');true")
                 until("document.querySelector('.activity-metric strong')?.textContent==='3,703'")
                 window.evaluate_js("document.querySelector('.activity-estimates summary').click();true")

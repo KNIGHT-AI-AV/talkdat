@@ -4,6 +4,10 @@ Legacy releases allowed update, restart, and close to be mixed among routine
 destinations.  Migration must preserve every valid daily row and its relative
 order while restoring lifecycle actions to a predictable tail above the fixed
 Reset layout footer.
+
+0.4.177 IA phase 2: Check for updates left the Pill, so the zone is Restart and
+Quit; Pause listening, Settings and Help are pinned in their own fixed groups
+just above it (Overlay.MENU_PINNED_ACTIONS), and none of the five ever drags.
 """
 
 from __future__ import annotations
@@ -48,13 +52,18 @@ class SavedOrderMigrationTests(unittest.TestCase):
         overlay.config["overlay"]["menu_order"] = legacy
 
         migrated = [row[0] for row in overlay._context_menu_rows()]
+        fixed = list(Overlay.MENU_PINNED_ACTIONS + Overlay.MENU_SAFETY_ZONE_ACTIONS)
 
+        # History, Paste last and Tools keep the order the person gave them (apply_menu_order permutes them among the
+        # places they hold); the rows this version added keep their default places; Settings joins its fixed group;
+        # Stats and Check for updates are no longer top-level rows.
         self.assertEqual(
-            migrated[:-3],
-            ["history", "paste_last", "settings", "stats", "more_features"],
+            migrated[:-len(fixed)],
+            ["hands_free", "history", "scratchpad", "translation", "paste_last", "more_features"],
         )
-        self.assertEqual(migrated[-3:], list(Overlay.MENU_SAFETY_ZONE_ACTIONS))
-        self.assertEqual(sorted(migrated), sorted(legacy))
+        self.assertEqual(migrated[-2:], list(Overlay.MENU_SAFETY_ZONE_ACTIONS))
+        self.assertEqual(migrated[-len(fixed):], fixed)
+        self.assertEqual(len(migrated), len(set(migrated)))
 
     def test_missing_new_daily_destination_is_added_without_losing_old_ones(self) -> None:
         overlay = bare_overlay()
@@ -64,10 +73,10 @@ class SavedOrderMigrationTests(unittest.TestCase):
 
         migrated = [row[0] for row in overlay._context_menu_rows()]
 
-        self.assertIn("stats", migrated)
+        self.assertIn("hands_free", migrated)
         self.assertIn("more_features", migrated)
         self.assertEqual(len(migrated), len(set(migrated)))
-        self.assertEqual(migrated[-3:], list(Overlay.MENU_SAFETY_ZONE_ACTIONS))
+        self.assertEqual(migrated[-2:], list(Overlay.MENU_SAFETY_ZONE_ACTIONS))
 
     def test_reset_footer_remains_outside_every_saved_order(self) -> None:
         overlay = bare_overlay(expanded=True)
@@ -80,24 +89,25 @@ class DragSafetyTests(unittest.TestCase):
     def test_lifecycle_rows_never_start_a_drag_timer_or_reorder(self) -> None:
         overlay = bare_overlay()
         rows = [row[0] for row in overlay._context_menu_rows()]
-        action = "quit_app"
-        row_index = rows.index(action)
-        y = overlay.MENU_ROWS_Y0 + row_index * overlay.MENU_ROW_PITCH + 4
-        overlay._context_menu_press(SimpleNamespace(x=20, y=y))
+        for action in Overlay.MENU_SAFETY_ZONE_ACTIONS + Overlay.MENU_PINNED_ACTIONS:
+            with self.subTest(action=action):
+                row_index = rows.index(action)
+                y = overlay.MENU_ROWS_Y0 + row_index * overlay.MENU_ROW_PITCH + 4
+                overlay._context_menu_press(SimpleNamespace(x=20, y=y))
 
-        self.assertIsNotNone(overlay.context_menu_press_state)
-        assert overlay.context_menu_press_state is not None
-        self.assertEqual(overlay.context_menu_press_state["action"], action)
-        self.assertIsNone(overlay.context_menu_press_state["timer"])
-        self.assertFalse(overlay.context_menu_press_state["dragging"])
+                self.assertIsNotNone(overlay.context_menu_press_state)
+                assert overlay.context_menu_press_state is not None
+                self.assertEqual(overlay.context_menu_press_state["action"], action)
+                self.assertIsNone(overlay.context_menu_press_state["timer"])
+                self.assertFalse(overlay.context_menu_press_state["dragging"])
 
-        overlay._context_menu_begin_drag()
-        self.assertFalse(overlay.context_menu_press_state["dragging"])
+                overlay._context_menu_begin_drag()
+                self.assertFalse(overlay.context_menu_press_state["dragging"])
 
     def test_daily_drag_cannot_cross_into_the_lifecycle_tail(self) -> None:
         overlay = bare_overlay()
         order = [row[0] for row in overlay._context_menu_rows()]
-        action = "settings"
+        action = "history"
         overlay.context_menu_press_state = {
             "action": action,
             "y": overlay.MENU_ROWS_Y0,
@@ -109,9 +119,11 @@ class DragSafetyTests(unittest.TestCase):
         # A pointer well below the menu requests the last possible target.
         overlay._context_menu_drag_motion(SimpleNamespace(x=20, y=999))
         reordered = overlay.context_menu_press_state["order"]
+        fixed = list(Overlay.MENU_PINNED_ACTIONS + Overlay.MENU_SAFETY_ZONE_ACTIONS)
 
-        self.assertEqual(reordered[-3:], list(Overlay.MENU_SAFETY_ZONE_ACTIONS))
-        self.assertEqual(reordered[-4], action)
+        self.assertEqual(reordered[-2:], list(Overlay.MENU_SAFETY_ZONE_ACTIONS))
+        self.assertEqual(reordered[-len(fixed):], fixed)
+        self.assertEqual(reordered[-len(fixed) - 1], action)
 
     def test_commit_normalizes_untrusted_order_before_persisting(self) -> None:
         overlay = bare_overlay()
@@ -122,9 +134,10 @@ class DragSafetyTests(unittest.TestCase):
         )
 
         committed = saved[-1]
-        self.assertEqual(committed[-3:], list(Overlay.MENU_SAFETY_ZONE_ACTIONS))
+        self.assertEqual(committed[-2:], list(Overlay.MENU_SAFETY_ZONE_ACTIONS))
         self.assertEqual(len(committed), len(set(committed)))
-        self.assertTrue({"settings", "paste_last", "history", "stats", "more_features"} <= set(committed))
+        self.assertTrue({"settings", "paste_last", "history", "hands_free", "more_features"} <= set(committed))
+        self.assertNotIn("check_updates", committed)
 
 
 if __name__ == "__main__":

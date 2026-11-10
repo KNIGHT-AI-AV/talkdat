@@ -1,10 +1,10 @@
-# Telemetry and anonymous counts
+# Telemetry and usage counts
 
 Talk DAT! has two separate things that could be called telemetry. Only one of
 them sends anything, and only from official builds. The full list of every
 connection the app can make is in [NETWORK.md](NETWORK.md).
 
-## 1. Anonymous usage counts: official builds, on by default, their own switch
+## 1. Usage counts: official builds, only after you say yes, their own switch
 
 `knight_flow/activation_metrics.py` sends four kinds of count to
 `POST https://api.talkdat.app/v1/activation`. The setting names them in the
@@ -17,9 +17,12 @@ same words: first open, first dictation, still in use, day 7.
 | heartbeat | still in use | at most once a day, at startup | install id, `stage`, version, platform, internal flag |
 | day 7 | day 7 | once, after a delivered dictation seven or more days after first open (retried at most daily until the server confirms it) | install id, `stage`, version, platform, internal flag |
 
-The install id is a random `uuid4` created on the computer and tied to
-nothing else: not the account, not an email address, not the machine. No
-report carries audio, text, a file name, a user name or a host name.
+Each report carries a random install ID, not linked to you or your account:
+a `uuid4` created on the computer the first time the app runs. It is saved in
+config.json and stays the same across updates and Reset, so the server can
+tell that several reports came from the same install. Settings, Privacy shows
+it; send it to Build@KnightAIAV.com to have its records deleted. No report
+carries audio, text, a file name, a user name or a host name.
 `tests/test_our_own_machines_are_not_adoption.py` pins the install field set
 and `tests/test_usage_counts_setting.py` the day-7 one. The "internal" flag
 marks Knight's own machines and source checkouts so they are not counted as
@@ -27,10 +30,15 @@ adoption.
 
 ### The switch
 
-**Settings > Privacy > "Share anonymous usage counts: first open, first
-dictation, still in use, day 7. Never your audio or text."** The config key is
-`privacy.share_usage_counts`. First-run setup mentions it once, as that line
-and the toggle, above Finish setup; there is no other prompt.
+**The usage counts switch in Settings, Privacy.** The config keys are
+`privacy.share_usage_counts`, the answer, and `privacy.usage_counts_asked`,
+which says the person answered. Nothing is sent before an answer. First-run
+setup asks once, above Finish setup, with two answers, Share and Don't share,
+and neither chosen. Finishing setup without an answer leaves it unanswered,
+and Home asks, in one card that stays until it is answered. An install
+updated from an earlier version that never touched the switch counts as not
+answered and is asked on Home; one whose switch was off stays off and is not
+asked. Reset keeps the answer.
 
 They are sent only when **all** of these hold, decided in one place,
 `knight_flow/official_build.activation_api_base()`:
@@ -39,8 +47,9 @@ They are sent only when **all** of these hold, decided in one place,
   whatever the setting says and even when pointed at its own server; it shows
   no toggle for them. A fork that wants counts of its own builds as official
   with its own baked endpoint (see NETWORK.md);
-- **Share anonymous usage counts is on.** It is on by default; turning it off
-  stops all four reports from the next one onwards;
+- **the person chose Share**, in setup or on Home, or turned the switch on in
+  Settings, Privacy. Turning it off stops all four reports from the next one
+  onwards;
 - `TALKDAT_NO_PHONE_HOME=1` is not set. The kill switch turns off every
   connection to Knight's services, these included, and hides the toggle.
 
@@ -49,7 +58,7 @@ dictate: your audio and text stay on the computer, and your own provider keys
 are not used while it is on. The counts carry neither, so they have their own
 switch instead of riding on that one (owner decision, 2026-09-23).
 
-This matches the "Anonymous usage counts" section of the privacy notice
+This matches the "Usage counts" section of the privacy notice
 (`docs/privacy.html`).
 
 ## 2. Product telemetry: built, not wired (dark)

@@ -1,9 +1,9 @@
 # Every connection Talk DAT! makes
 
-Talk DAT! dictates on your computer. Speech recognition, formatting and
-translation run locally, and none of them needs the internet once the model
-is downloaded. This page lists every connection the desktop app can open, who
-it goes to, and how to turn it off.
+Talk DAT! dictates on your computer. By default, speech recognition,
+formatting and translation run locally, and none of them needs the internet
+once the model is downloaded. This page lists every connection the desktop
+app can open, who it goes to, and how to turn it off.
 
 ## Official builds and builds from source
 
@@ -14,7 +14,7 @@ The same open-source code builds two kinds of app.
   services, listed below.
 - **Builds from source** are everything else: running from a checkout, an app
   you built yourself, a fork. **By default they contact none of Knight AI+AV's
-  services.** Sign-in, feedback upload, preference sync, the anonymous counts
+  services.** Sign-in, feedback upload, preference sync, the usage counts
   and the update check are all off.
 
 The switch is baked in at build time: `scripts/write_build_flags.py` writes
@@ -27,14 +27,16 @@ checkout carrying Knight AI+AV's private release tooling builds as official.
 
 | Connection | Where | When | Carries |
 |---|---|---|---|
-| Anonymous usage counts | `POST api.talkdat.app/v1/activation` | first open (once), first dictation (once), still in use (at most daily), day 7 (once); only while **Settings > Privacy > Share anonymous usage counts** is on, which is the default | a random install id, version, platform, dates, an internal-machine flag; never audio or text. Details: [TELEMETRY.md](TELEMETRY.md) |
-| Optional sign-in | `api.talkdat.app/v1/device/*`, `/v1/auth/email/*`, `/v1/handoff/exchange` | only when you sign in | your email address, a random device id and a device name |
+| Usage counts | `POST api.talkdat.app/v1/activation` | first open (once), first dictation (once), still in use (at most daily), day 7 (once); only after you choose Share when setup or Home asks, or turn the switch on in **Settings, Privacy**. Nothing is sent before you answer | a random install ID, not linked to you or your account, the version, the platform, dates and an internal-machine flag; never audio or text. Details: [TELEMETRY.md](TELEMETRY.md) |
+| Optional sign-in | `api.talkdat.app/v1/device/*`, `/v1/auth/email/*`, `/v1/handoff/exchange` | only when you sign in | your email address, a random device id and a device name: "Windows PC" or "Mac", or the `licensing.device_name` you set in config.json |
 | Preference sync | `POST api.talkdat.app/v1/prefs` | only while signed in, when you change the theme or the Pill menu order | the theme name or the menu order |
 | Feedback | `POST api.talkdat.app/v1/feedback` | only when you send the in-app form | what you typed, an optional reply address, version, platform, and a formatting log only if you tick the box |
-| Update check | `api.github.com/repos/KNIGHT-AI-AV/talk-dat-releases/releases` and the release's download | at launch and every 24 hours (Settings can turn it off), and when you click Check for updates | an ordinary GitHub API request; nothing about you |
+| Update check | `api.github.com/repos/KNIGHT-AI-AV/talk-dat-releases/releases` and the release's download | at launch and every 24 hours (Settings can turn it off), and when you click Check for updates | an ordinary GitHub API request with the app version in its user agent; GitHub sees your IP address |
 
 A Microsoft Store copy updates only through the Store and makes no update
-check of its own.
+check of its own. After an update, What's New may ask GitHub once for the
+release notes, in a Microsoft Store copy too and also when update checks are
+off.
 
 ## Third parties, in every build
 
@@ -42,8 +44,10 @@ check of its own.
 |---|---|---|
 | Speech model download | `huggingface.co`, pinned revisions | the first time you pick a local model (the default model is prepared on first launch) |
 | NVIDIA CUDA runtime | `files.pythonhosted.org` | only if you ask for GPU acceleration on an NVIDIA card |
-| Ollama | `ollama.com` (opened in your browser) and the local Ollama server on `127.0.0.1`. On a Mac without Homebrew, Set up smart formatting downloads the Ollama app from `ollama.com/download/Ollama-darwin.zip`, which is served from Ollama's GitHub releases; with Homebrew, Homebrew downloads it | only if you set up local formatting or translation; the Mac download only when you choose Set up smart formatting |
+| Ollama | Windows: winget (Microsoft) installs Ollama. Mac download: Homebrew, or `ollama.com` opened in your browser. On a Mac without Homebrew, Set up smart formatting downloads the Ollama app from `ollama.com/download/Ollama-darwin.zip`, which is served from Ollama's GitHub releases. Ollama then downloads its writing model from its own registry, and formatting runs on the local Ollama server on `127.0.0.1` | only if you set up smart formatting or local translation; the Mac download only when you choose Set up smart formatting |
 | Your own provider | the provider whose key you added (Deepgram, OpenAI and others) | only on that route, and never while the Local route is on: `knight_flow/net_fence.py` refuses the connection |
+| Your own server | an Ollama address or a custom endpoint you set | only if you set one; your text goes there. While Local-only privacy is on, an address on another computer is refused |
+| Command search | `https://www.perplexity.ai/search?q=...`, opened in your default browser | in command mode with no text selected, with the words you said as the search; not while Local-only privacy is on |
 | Links | talkdat.app pages, provider sign-up pages | opened in your browser when you click them |
 
 The local control API listens on `127.0.0.1:4670` only (see
@@ -51,11 +55,12 @@ The local control API listens on `127.0.0.1:4670` only (see
 
 ## Turning things off
 
-- **Share anonymous usage counts** (Settings > Privacy, on by default in
-  official builds, mentioned once in first-run setup) stops the four anonymous
-  counts. It is a separate switch from Local-only privacy.
+- **The usage counts switch** (Settings, Privacy; off until you choose Share
+  when first-run setup or Home asks) stops the four usage counts. Reset keeps
+  your answer. It is a separate switch from Local-only privacy.
 - **Local-only privacy** (Settings, on by default) keeps your audio and text on
-  the computer and blocks your own provider keys. It does not decide the
+  the computer, blocks your own provider keys, stops command search and
+  refuses an Ollama address on another computer. It does not decide the
   counts, which carry neither.
 - **`TALKDAT_NO_PHONE_HOME=1`** in the environment turns off every connection
   to Knight AI+AV's services in any build: sign-in, feedback upload, preference
@@ -73,10 +78,10 @@ TALKDAT_API_BASE=https://accounts.example.com       account, feedback, prefs
 TALKDAT_UPDATE_REPOSITORY=your-org/your-releases    GitHub releases the updater reads
 ```
 
-A build from source never sends the anonymous usage counts, even to a server
-you point it at. A fork that wants counts of its own builds as official
+A build from source never sends the usage counts, even to a server you point
+it at. A fork that wants counts of its own builds as official
 (`TALKDAT_OFFICIAL_BUILD=1`) with its own baked endpoint; the person using it
-then gets the same Share anonymous usage counts switch.
+then gets the same usage counts switch.
 
 or, in `config.json`, `"licensing": {"api_base": "https://accounts.example.com"}`.
 A source build ignores a `licensing.api_base` that names talkdat.app, because

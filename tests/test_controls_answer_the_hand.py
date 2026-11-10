@@ -98,7 +98,14 @@ class HoverTests(unittest.TestCase):
 
 class PressTests(unittest.TestCase):
     def test_every_control_presses_one_pixel_in_sixty_milliseconds(self):
+        # The owner's order of 2026-11-05: the sidebar copies Windows 11's NavigationView, whose rows
+        # answer a press with an instant fill and do not move
+        # (tests/test_settings_follow_windows_navigation.py holds them to it).
+        # 0.4.177: the Pill menu copies WinUI's MenuFlyout, whose rows do not move either
+        # (tests/test_the_pill_menu_is_a_windows_menu.py).
         for name, make in FAMILIES.items():
+            if name in ("sidebar row", "menu row"):
+                continue
             with self.subTest(control=name):
                 pressed = make(states={"active"})
                 self.assertEqual(resolve(pressed, "transform"), "translateY(1px)")

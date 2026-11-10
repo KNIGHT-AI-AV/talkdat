@@ -174,10 +174,13 @@ class HomeWorkspace:
     # X-611: the offer the Update window used to carry, answered on Home.
     OFFER_OPERATIONS = {"update_install": "install", "update_later": "later",
                         "update_skip": "skip", "update_github": "github"}
+    # 0.4.176: the usage counts question, answered on Home (HomeUsageCounts).
+    USAGE_OPERATIONS = {"usage_share": True, "usage_decline": False}
 
-    def __init__(self, config, dispatch, loader=load_activity, greeter=home_greeting, updates=None):
+    def __init__(self, config, dispatch, loader=load_activity, greeter=home_greeting, updates=None, usage=None):
         self.config, self.dispatch, self.loader, self.greeter = config, dispatch, loader, greeter
         self.updates = updates
+        self.usage = usage
         self.activity = None
         self.phase = "idle"
         self.message = ""
@@ -188,12 +191,16 @@ class HomeWorkspace:
 
     def handle(self, payload):
         if (type(payload) is not dict or set(payload) != {"operation"}
-                or payload["operation"] not in self.OPERATIONS | set(self.OFFER_OPERATIONS)):
+                or payload["operation"] not in self.OPERATIONS | set(self.OFFER_OPERATIONS) | set(self.USAGE_OPERATIONS)):
             raise ValueError("That Home action is unavailable.")
         if self.closed:
             raise ValueError("Home is closed. Open it again to refresh.")
         operation = payload["operation"]
         notice = ""
+        if operation in self.USAGE_OPERATIONS:
+            if self.usage is None:
+                raise ValueError("That Home action is unavailable.")
+            notice = self.usage.answer(self.USAGE_OPERATIONS[operation])
         if operation in self.OFFER_OPERATIONS:
             offer = getattr(self.updates, "offer", None)
             if offer is None:
@@ -242,7 +249,8 @@ class HomeWorkspace:
         return {"phase": self.phase, "message": self.message, "revision": self.revision,
                 "greeting": greeting, "activity": copy.deepcopy(self.activity),
                 "update": copy.deepcopy(self.update),
-                "offer": offer.snapshot() if offer is not None else None, "notice": notice}
+                "offer": offer.snapshot() if offer is not None else None, "notice": notice,
+                "usage_counts": bool(self.usage is not None and self.usage.open())}
 
     def _check_updates(self):
         if self.update.get("phase") == "checking":
@@ -283,6 +291,43 @@ class HomeWorkspace:
         self.closed = True
         self.revision += 1
         self._update_ticket += 1
+
+
+class HomeUsageCounts:
+    """0.4.176: Home asks the usage counts question until it is answered.
+
+    TEAM KNIGHT's ruling (consent before capture, under the owner's "safe and
+    fair" order): nothing is sent before the person answers. An install that
+    has not answered lands on Home: one updated from 0.4.175 that never touched
+    the switch (on by default there, which is not an answer), or a new install
+    that finished setup without picking. Home asks there, in one card with two
+    equal answers, and the card goes once either is picked. It is the least
+    intrusive honest place: Home already greets every launch, so nothing new
+    opens. Settings, Privacy keeps the switch for any later change.
+    """
+
+    def __init__(self, app, persist):
+        self.app, self.persist = app, persist
+
+    def open(self) -> bool:
+        from knight_flow import official_build
+
+        return official_build.usage_counts_question_open(self.app.config)
+
+    def answer(self, share: bool) -> str:
+        from knight_flow import official_build
+
+        if not self.open():
+            raise ValueError("Your usage counts choice is in Settings, Privacy.")
+        candidate = copy.deepcopy(self.app.config)
+        official_build.record_usage_counts_answer(candidate, share)
+        # The answer is on disk before anything is sent; a failed save raises
+        # and leaves the question open.
+        self.persist(candidate)
+        self.app.config.clear()
+        self.app.config.update(candidate)
+        self.app.send_usage_reports()
+        return official_build.usage_counts_saved_message(share)
 
 
 class HomeUpdates:

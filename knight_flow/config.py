@@ -390,12 +390,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # a deliberate choice a person makes, never something the app does for
         # them when a local part is missing.
         "local_only": True,
-        # Owner decision 2026-09-23: the anonymous usage counts (first open,
-        # first dictation, still in use, day 7) have their OWN switch, separate
-        # from local_only, which governs audio and text. On by default; an
-        # official build honours it, a source build never sends them
-        # (official_build.activation_api_base).
-        "share_usage_counts": True,
+        # Owner decision 2026-09-23: the usage counts (first open, first
+        # dictation, still in use, day 7) have their OWN switch, separate from
+        # local_only, which governs audio and text. An official build honours
+        # it, a source build never sends them (official_build.activation_api_base).
+        # 0.4.176 (TEAM KNIGHT, consent before capture): nothing is sent until
+        # the person answers the question in setup or on Home, or turns the
+        # switch on in Settings, Privacy. usage_counts_asked says they answered;
+        # load_config settles what an older file meant
+        # (official_build.settle_usage_counts_answer).
+        "share_usage_counts": False,
+        "usage_counts_asked": False,
         "save_audio": False,
         "save_history": True,
         "history_limit": 0,
@@ -1040,6 +1045,19 @@ def _migrate_prerelease_update_channel(config: dict[str, Any], loaded: dict[str,
         updates["prerelease_channel_migrated"] = True
 
 
+def _migrate_usage_counts_answer(config: dict[str, Any], loaded: dict[str, Any]) -> None:
+    """0.4.176: a file from before the usage counts question never answered it,
+    unless its switch was turned off. Not a one-time migration: an unanswered
+    switch reads off at every load (official_build.settle_usage_counts_answer)."""
+    from .official_build import settle_usage_counts_answer
+
+    privacy = config.get("privacy")
+    if not isinstance(privacy, dict):
+        return
+    loaded_privacy = loaded.get("privacy") if isinstance(loaded.get("privacy"), dict) else {}
+    settle_usage_counts_answer(privacy, loaded_privacy)
+
+
 def _migrate_audio_device_label(config: dict[str, Any], loaded: dict[str, Any]) -> None:
     """Upgrade older numeric mic selections to the safer "index: name" form."""
     loaded_audio = loaded.get("audio", {}) if isinstance(loaded.get("audio"), dict) else {}
@@ -1432,6 +1450,7 @@ def load_config(project_root: Path | None = None) -> dict[str, Any]:
     _migrate_intensity_default_to_executive(config, loaded if isinstance(loaded, dict) else {})
     _migrate_prerelease_update_channel(config, loaded if isinstance(loaded, dict) else {})
     _migrate_audio_device_label(config, loaded if isinstance(loaded, dict) else {})
+    _migrate_usage_counts_answer(config, loaded if isinstance(loaded, dict) else {})
     # X-169. Unconditional, not a one-time migration: these keys are session
     # state, so a value on disk is stale by definition however it got there.
     _reset_session_only_settings(config)
@@ -1473,7 +1492,7 @@ def load_config(project_root: Path | None = None) -> dict[str, Any]:
 
 # X-548: one writer at a time, for the whole read-merge-write below.
 #
-# The app fires two anonymous beacons from two daemon threads at startup
+# The app fires two usage-count beacons from two daemon threads at startup
 # (`report_install` and `report_heartbeat`), each stamping its own flag and
 # calling save_config. On a fresh install neither guard is satisfied yet, so
 # both fire together -- the live HTTP log shows the resulting pair of

@@ -45,7 +45,7 @@ def native_scribe_probe(connection,evidence,html):
                 click('Edit notes')
                 window.evaluate_js("var editor=document.querySelector('[aria-label=\"Scribe notes\"]');editor.value="+json.dumps(TEXT)+";editor.dispatchEvent(new Event('input',{bubbles:true}));true")
                 until("document.querySelector('.scribe-status').textContent.includes('Draft saved on this computer')")
-                window.evaluate_js("window.TalkDat.navigate('general');true");until("document.querySelector('main h1').textContent==='General'")
+                window.evaluate_js("window.TalkDat.navigate('general');true");until("document.querySelector('main h1').textContent==='Startup and updates'")
                 window.evaluate_js("window.TalkDat.navigate('scribe');true");click('Edit notes')
                 assert window.evaluate_js("document.querySelector('[aria-label=\"Scribe notes\"]').value")==TEXT
                 click('Copy');click('Save a copy')

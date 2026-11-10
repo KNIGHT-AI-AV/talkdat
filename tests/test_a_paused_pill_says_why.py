@@ -19,7 +19,8 @@ from unittest import mock
 
 import numpy as np
 
-from knight_flow.app import RESUME_SURFACE_NAME, TalkDatApp
+from knight_flow import mac_support
+from knight_flow.app import TalkDatApp
 
 
 def refusing_app(**state):
@@ -43,12 +44,20 @@ def refusing_app(**state):
 
 
 class RefusalsSayWhyTests(unittest.TestCase):
+    def test_the_pause_messages_name_where_pause_listening_lives(self) -> None:
+        """0.4.177 (one name for each place): Pause listening is a check row in the Pill menu and in the tray, which
+        is the menu bar icon on a Mac. Windows keeps its sentence byte for byte; the Mac names its menu bar icon,
+        through mac_support's one name for the place the app's menu lives."""
+        self.assertEqual(mac_support.menu_surface_name(False), "the tray")
+        self.assertEqual(mac_support.menu_surface_name(True), "the menu bar icon")
+        self.assertEqual(mac_support.MENU_SURFACE_NAME, mac_support.menu_surface_name(mac_support.IS_MAC))
+
     def test_a_paused_start_says_so_once_per_three_seconds(self) -> None:
         app = refusing_app(paused=True)
         app.start_session("dictation", "Hands-free: toggle to stop.", control="hands_free")
         app.start_session("dictation", "Hands-free: toggle to stop.", control="hands_free")
         app.overlay.flag.assert_called_once_with(
-            f"Talk DAT! is paused. Resume from {RESUME_SURFACE_NAME}: Resume dictation.",
+            f"Talk DAT! is paused. To resume, choose Pause listening again in the Pill menu or {mac_support.MENU_SURFACE_NAME}.",
             key="refusal", origin="person")
         self.assertEqual(app.overlay.set_state.call_count, 2)
         app._last_refusal_toast_at -= 3.1

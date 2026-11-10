@@ -329,6 +329,11 @@ BRAND_TERMS: tuple[Term, ...] = (
     Term("Snip Wizard", sounds_like=("snip wizard",)),
     Term("KnightForge", sounds_like=("knight forge", "night forge")),
     Term("KnightChat", sounds_like=("knight chat", "night chat")),
+    # 2026-10-28, the owner's own dictation: "dreq" for D-REC and "Dandy List"
+    # for Dandelist. "a dandy list of chores" is an adjective and a noun, and
+    # the word after it says so.
+    Term("D-REC", sounds_like=("dreq",)),
+    Term("Dandelist", sounds_like=("dandy list",), not_before=("of",)),
     # --- the world ---
     Term("iPhone", sounds_like=("i phone",)),
     Term("iPad", sounds_like=("i pad",)),
@@ -344,7 +349,9 @@ BRAND_TERMS: tuple[Term, ...] = (
          not_before=("caps", "cap", "capped", "motor", "motors", "bearing", "bearings", "assembly",
                      "assemblies", "nut", "nuts", "bolt", "bolts", "gear", "gears", "seal", "seals")),
     Term("GitLab", sounds_like=("git lab",)),
-    Term("ChatGPT", sounds_like=("chat gpt", "chat g p t")),
+    # 2026-10-29, his 10-26 dictation: the recognizer heard the brand as "Chad
+    # GBT", its T as a D and its P as a B.
+    Term("ChatGPT", sounds_like=("chat gpt", "chat g p t", "chad gpt", "chad gbt", "chat gbt")),
     # OpenAI was cut 2026-08-08 (X-14) after corrupting a real dictation three
     # times in one message: its "open ai" alias shares a sound key with
     # "open a" -- one of the most common bigrams in English -- and slipped the
@@ -561,6 +568,14 @@ def _apply_vocabulary_prose(text: str, terms: list[Term]) -> str:
                 # "Launched in" shares LinkedIn's phonetic key, but it is a verb.
                 # Personal terms keep phonetic matching for unfamiliar names.
                 if brand_spellings is not None:
+                    # 2026-10-28: a public name never has a sentence break inside
+                    # it. "dandy. List the rest" and "Thank you. Tube trains" spell
+                    # a name only once the stop is thrown away. A single letter may
+                    # carry its own: "talk D. A. T." is the name spelled out.
+                    if any(word[-1] in ".,;:!?" and len(re.sub(r"[^A-Za-z]", "", word)) > 1
+                           for word in stripped.split()[:-1]):
+                        position += 1
+                        continue
                     spelling = re.sub(r"[^a-z0-9]", "", stripped.lower())
                     if spelling not in brand_spellings:
                         position += 1

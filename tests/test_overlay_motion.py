@@ -369,13 +369,16 @@ class OverlayMotionTests(unittest.TestCase):
         # This list is deliberately exhaustive rather than a subset check, so
         # adding a row is a decision somebody has to write down here. That is
         # working as intended: this assertion is what caught the addition.
+        # 0.4.177 IA phase 2 (IA-SCHEMATIC.md section 1): Start hands-free dictation leads; Scratchpad and
+        # Translate come up to the top level; Tools folds Ramble, Scribe, Live captions and Stats; Pause listening,
+        # Settings and Help are fixed rows; Check for updates and Local models left the Pill (Home, Help, Settings).
         self.assertEqual(sorted(expanded), sorted([
-            "settings", "paste_last", "history", "more_features",
-            "ramble", "captions", "translation", "scratchpad", "scribe", "local_models",
-            "check_updates", "stats", "restart_app", "quit_app",
+            "hands_free", "paste_last", "history", "scratchpad", "translation", "more_features",
+            "ramble", "scribe", "captions", "stats",
+            "pause", "settings", "help", "restart_app", "quit_app",
         ]))
         self.assertEqual(len(expanded), len(set(expanded)), "no card may appear twice")
-        self.assertEqual(collapsed[0], "settings", "Home leads the menu")
+        self.assertEqual(collapsed[0], "hands_free", "the main action leads the menu")
         self.assertEqual(collapsed[-2:], ["restart_app", "quit_app"], "app control closes the menu")
         self.assertNotIn("ramble", collapsed, "occasional features stay folded until asked for")
         relocated = [tool_id for tool_id, _title in Overlay.RELOCATED_TOOLS]

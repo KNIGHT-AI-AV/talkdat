@@ -36,6 +36,39 @@ class SetupRoutesTests(unittest.TestCase):
         with patch('knight_flow.brand_font.apply_app_family'),patch('knight_flow.net_fence.set_local_only') as fence:
             shell._applied()
         fence.assert_called_once_with(True)
+    def test_a_legacy_route_keeps_the_fence_the_way_route_mode_reads_it(self):
+        # X-480: route_mode() reads a saved "auto", or a "cloud" with no key, as Local, so the save keeps the fence up
+        # for them with Local-only off, the rule the launch and the Pill's switch apply. It compared the raw string.
+        for legacy in ('auto','cloud'):
+            with self.subTest(route_mode=legacy):
+                app,shell=test_web_shell_app.AppShellTests().make_shell()
+                app.config.setdefault('privacy',{})['local_only']=False
+                app.config['stt']['route_mode']=legacy
+                with patch('knight_flow.brand_font.apply_app_family'),patch('knight_flow.net_fence.set_local_only') as fence:
+                    shell._applied()
+                fence.assert_called_once_with(True)
+    def test_with_local_only_off_your_key_still_lowers_the_fence(self):
+        # The control: the own-key route with Local-only off is not fenced, before the fix and after it.
+        app,shell=test_web_shell_app.AppShellTests().make_shell()
+        app.config.setdefault('privacy',{})['local_only']=False
+        app.config['stt']['route_mode']='byok'
+        with patch('knight_flow.brand_font.apply_app_family'),patch('knight_flow.net_fence.set_local_only') as fence:
+            shell._applied()
+        fence.assert_called_once_with(False)
+    def test_the_tk_setup_save_for_older_hosts_reads_the_route_through_route_mode(self):
+        # LIST-0476: ui/onboarding.py's save for a host without the onboarding_save transaction compared the raw
+        # route string, so a legacy "auto" (or a "cloud" with no key) with Local-only off lowered the fence.
+        from knight_flow.ui.onboarding import OnboardingWizard
+        for saved,expected in (('auto',True),('cloud',True),('local',True),('byok',False)):
+            with self.subTest(route_mode=saved):
+                wizard=object.__new__(OnboardingWizard)
+                wizard.config={'privacy':{'local_only':False},'stt':{'route_mode':'local'}}
+                wizard.host=SimpleNamespace(callbacks={'save_settings':Mock()},apply_runtime_config=Mock())
+                wizard.status_var=Mock()
+                with patch('knight_flow.net_fence.set_local_only') as fence:
+                    self.assertTrue(wizard._save_setup({'privacy':{'local_only':False},'stt':{'route_mode':saved}}))
+                fence.assert_called_once_with(expected)
+                wizard.host.callbacks['save_settings'].assert_called_once_with()
 
 
 if __name__=='__main__':unittest.main()

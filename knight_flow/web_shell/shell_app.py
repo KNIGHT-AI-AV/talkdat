@@ -13,7 +13,7 @@ from .shell_persistence import save_settings_config as save_config
 from .shell_backend import ShellBackend
 from .shell_host import ShellController
 from .shell_models import ModelManager
-from .menu_geometry import menu_height, pill_menu_bounds, pill_menu_side
+from .menu_geometry import menu_height, menu_width, pill_menu_bounds, pill_menu_side
 from .. import menu_anchor
 from .shell_devices import InputDevices
 from .workspace_adapter import Workspaces
@@ -36,6 +36,8 @@ class AppShell:
         self._last_menu_position = (0, 0)
         self._menu_requested = False
         self._menu_bounds = [0, 0, 380, 600]
+        # 0.4.177 IA phase 3: the width the page measured the menu needs (CSS px at 100%); None until it has.
+        self._menu_width = None
         self._menu_work_area = (0, 0, 1920, 1080)
         self._menu_order = copy.deepcopy(app.config.get('overlay', {}).get('menu_order', []))
         self._mac_paste_target = None
@@ -56,6 +58,7 @@ class AppShell:
             open_url=self._open_release_page, count_dismissal=self._count_update_dismissal)
         self.backend = ShellBackend(app.config, self.assets, self._persist, self._applied,
                                     self.overlay._settings_palette, actions=actions, menu=self._menu, update=self._update_state, menu_fit=self._fit_menu,
+                                    commands=self._commands,
                                     system_preferences=self._preferences, models=self.models,
                                     menu_layout=self._menu_layout, microphones=self.devices.snapshot, workspaces=self.workspaces,
                                     formatting=smart_formatting(app.config), finish_choice=self.finish_choice)
@@ -75,11 +78,13 @@ class AppShell:
     def _applied(self):
         from knight_flow.brand_font import apply_app_family
         from knight_flow import net_fence
-        from knight_flow.stt_registry import local_only
+        from knight_flow.stt_registry import local_only, route_mode
         apply_app_family(self.app.config)
         self.overlay.apply_runtime_config()
         self.app.save_settings(persist=False)
-        local = local_only(self.app.config) or str(self.app.config.get('stt', {}).get('route_mode', 'local')) == 'local'
+        # X-338: the rule the launch and the Pill's switch apply. route_mode() reads a legacy "auto" (or a "cloud"
+        # with no key) as Local; comparing the saved string lowered the fence for them.
+        local = local_only(self.app.config) or route_mode(self.app.config) == 'local'
         net_fence.set_local_only(local)
         self.app._auto_local_sticky = False
         self.overlay.refresh_route_paint()
@@ -133,6 +138,14 @@ class AppShell:
             # 2026-10-09: the menu's update row installs the release the last
             # check found (pending_update); it never starts a new network check.
             'menu:install_update': self._install_from_menu,
+            # 0.4.177 IA phase 3: what the command palette runs (AppShell._commands). It lives in Talk DAT's own
+            # window, so nothing first gives the focus back to the window the Pill's menu opened over: the app runs
+            # each as the tray does. A paste aimed at Talk DAT's own window copies, the Pill menu's rule there
+            # (_paste_from_menu). Restart and Quit asked twice in the page before they get here.
+            'palette:hands_free': lambda: app.toggle_hands_free(), 'palette:cancel': lambda: app.cancel(),
+            'palette:paste_last': lambda: app.copy_last(), 'palette:copy_last': lambda: app.copy_last(),
+            'palette:pause': lambda: app.toggle_pause(), 'palette:toggle_pill': lambda: app.toggle_pill(),
+            'palette:restart': lambda: app.restart(), 'palette:quit': lambda: app.quit(source='palette'),
         }
         for identifier, _label, _description, _icon in overlay._context_menu_access_rows():
             actions['menu:'+identifier] = lambda identifier=identifier: overlay._activate_context_menu_action(identifier)
@@ -149,6 +162,8 @@ class AppShell:
         actions['menu:settings'] = lambda: self._open_menu_destination('general')
         actions['menu:help'] = lambda: self._open_menu_destination('help')
         actions['menu:formatting'] = lambda: self._open_menu_destination('formatting')
+        # 0.4.177 IA phase 2: Speech's submenu ends on its settings row, as Writing style's does.
+        actions['menu:speech_settings'] = lambda: self._open_menu_destination('speech')
         for identifier, page in {'settings':'general', 'history':'history', 'stats':'stats',
                                  'scratchpad':'scratchpad', 'add_words':'words', 'translation':'translation',
                                  'ramble':'ramble', 'scribe':'scribe', 'local_models':'models'}.items():
@@ -165,26 +180,109 @@ class AppShell:
         self.app.hotkeys.record_shortcut(True)
 
     def _menu(self):
+        """The Pill menu's rows for the page: the overlay's one row list (the Tk menu draws the same list).
+
+        0.4.177 IA phase 2 (IA-SCHEMATIC.md section 1): each row names its group, so the page draws the daily block
+        (the person's Menu layout order; 'fixed' False) and then the fixed groups behind separators: the switches
+        (Speech and Writing style, which the page draws from the app's state, then Pause listening), the places and
+        the lifecycle pair. The main action is the 'default' row and shows the live binding of its 'shortcut'; Pause
+        listening is a 'check' row, 'checked' while the app is paused. The Tk menu's own update row is left out: the
+        page draws its update row from the release the last check found.
+        """
+        from knight_flow.overlay import Overlay
         defaults = [row[0] for row in self.overlay._context_menu_default_rows()]
+        paused = getattr(self.app, 'paused', False) is True
         result = []
         for identifier, label, description, _icon in self.overlay._context_menu_rows():
+            group = Overlay.menu_row_group(identifier)
+            if group == 'status':
+                continue
             row = {'id':identifier, 'action':'menu:'+identifier, 'label':label, 'description':description,
-                   'default_index':defaults.index(identifier), 'fixed':identifier in self.overlay.MENU_SAFETY_ZONE_ACTIONS}
+                   'default_index':defaults.index(identifier), 'fixed':group != 'daily', 'group':group}
             if identifier == 'more_features':
                 row.pop('action')
                 row['children'] = [{'action':'menu:'+key, 'label':title, 'description':detail}
                                    for key,title,detail,_ in self.overlay._context_menu_feature_rows()]
+            if identifier == 'hands_free':
+                row.update(default=True, shortcut='hands_free')
+            if identifier == 'pause':
+                row.update(check=True, checked=paused)
             result.append(row)
+        return result
+
+    #: 0.4.177 IA phase 3: the palette's run for a Pill row the Pill's menu runs through the overlay (the rest run
+    #: the action named by their id, which opens their page in this window), and the hotkey whose live binding each
+    #: row shows (R13; a row with none shows none).
+    COMMAND_RUNS = {'hands_free': 'palette:hands_free', 'paste_last': 'palette:paste_last', 'pause': 'palette:pause',
+                    'restart_app': 'palette:restart', 'quit_app': 'palette:quit'}
+    COMMAND_SHORTCUTS = {'hands_free': 'hands_free', 'cancel': 'cancel', 'paste_last': 'paste_last',
+                         'copy_last': 'copy_last', 'scratchpad': 'scratchpad'}
+
+    def _commands(self):
+        """The command palette's actions (0.4.177 IA phase 3: IA-SCHEMATIC.md section 4, rules R32, R33 and R8).
+
+        In the Pill's daily order: the daily block in the person's Menu layout order, the main action with Cancel
+        what's recording beside it, Paste last with Copy last, and Tools' four rows in place of Tools; then the
+        switches (the speech route and the writing style as choices, Pause listening and Show the Pill as check
+        rows), Check for updates, and Restart and Quit, which ask twice. One name for each action
+        (tests/test_one_name_for_each_place.py): a Pill row's label is read from the Pill's own row list;
+        Cancel what's recording and Show the Pill are the tray's words, the four choices the Pill submenus' and
+        Check for updates Home's and Help's. The checks read the app's state as the Pill's menu does.
+        """
+        from knight_flow.config import DEFAULT_CONFIG
+        from knight_flow.overlay import Overlay
+        config = getattr(self.app, 'config', None)
+        config = config if isinstance(config, dict) else {}
+        rows = [row for row in self.overlay._context_menu_rows() if Overlay.menu_row_group(row[0]) != 'status']
+        labels = {identifier: label for identifier, label, _description, _icon in rows}
+        result = []
+
+        def add(identifier, label, action, **extra):
+            row = {'id': identifier, 'label': label, 'action': action, **extra}
+            if identifier in AppShell.COMMAND_SHORTCUTS:
+                row['shortcut'] = AppShell.COMMAND_SHORTCUTS[identifier]
+            result.append(row)
+
+        for identifier, label, _description, _icon in rows:
+            if Overlay.menu_row_group(identifier) != 'daily':
+                continue
+            if identifier == 'more_features':
+                for key, title, _detail, _draw in self.overlay._context_menu_feature_rows():
+                    add(key, title, key)
+                continue
+            add(identifier, label, AppShell.COMMAND_RUNS.get(identifier, identifier))
+            if identifier == 'hands_free':
+                add('cancel', "Cancel what's recording", 'palette:cancel')
+            elif identifier == 'paste_last':
+                add('copy_last', 'Copy last transcript', 'palette:copy_last')
+        route = str((config.get('stt') or {}).get('route_mode', 'local'))
+        intensity = str((config.get('cleanup') or {}).get('format_intensity', DEFAULT_CONFIG['cleanup']['format_intensity']))
+        local, executive = route == 'local', intensity == 'executive'
+        add('route_local', 'Local speech', 'route:local', choice=True, checked=local, group='Speech')
+        add('route_byok', 'Your key', 'route:byok', choice=True, checked=not local, group='Speech')
+        add('style_chill', 'Chill', 'menu:toggle_intensity', choice=True, checked=not executive, group='Writing style')
+        add('style_executive', 'Executive', 'menu:toggle_intensity', choice=True, checked=executive, group='Writing style')
+        # Only rows the Pill has: a row list without one (a test double's) leaves it out here too.
+        if 'pause' in labels:
+            add('pause', labels['pause'], AppShell.COMMAND_RUNS['pause'], check=True,
+                checked=getattr(self.app, 'paused', False) is True)
+        add('toggle_pill', 'Show the Pill', 'palette:toggle_pill', check=True,
+            checked=getattr(self.app, '_pill_hidden', False) is not True)
+        add('check_updates', 'Check for updates', 'check_updates')
+        for identifier in Overlay.MENU_SAFETY_ZONE_ACTIONS:
+            if identifier in labels:
+                add(identifier, labels[identifier], AppShell.COMMAND_RUNS[identifier], confirm=True)
         return result
 
     def _menu_content_height(self):
         """Home's height at 100%: the menu opens on Home, and every other view then asks
         for its own height (menu_fit), so no view sits in a window sized for another."""
         rows = self._menu()
-        daily = sum(1 for row in rows if not row.get('fixed'))
         update = self._update_state()
-        # Home: the daily rows, then Speech, Formatting and App controls under one separator.
-        return menu_height(daily + 3, update=bool(update and not update.get('skipped')), separators=1)
+        # 0.4.177 IA phase 2: every row, plus the Speech and Writing style rows the page adds to the switches; each
+        # fixed group the page draws sits behind one separator (the switches always do).
+        groups = {'switches'} | {row.get('group') for row in rows if row.get('fixed')}
+        return menu_height(len(rows) + 2, update=bool(update and not update.get('skipped')), separators=len(groups))
 
     def _install_from_menu(self):
         """The update row's Install, in one click (2026-10-09).
@@ -208,7 +306,7 @@ class AppShell:
             self.update_offer.act('install')
         return {}
 
-    def _fit_menu(self, height):
+    def _fit_menu(self, height, width=None):
         """The menu window takes the height of the view the page shows (2026-10-09).
 
         It opened at Home's height, and a submenu replaces Home in place, so App
@@ -216,12 +314,18 @@ class AppShell:
         owner called "misshapen". The page asks for each view's height; the window
         keeps the edge that faces the Pill (pill_menu_bounds puts it there) and moves
         the far one, so the content, anchored to that edge, never jumps.
+
+        0.4.177 IA phase 3 (PHASE2-REVIEW-0477.md decision 1): and as wide as its widest row needs, which the page
+        measures too (288 to 360 px). The width is kept, so a fit that sends only a height keeps it, and the next
+        open starts at it: the hidden prewarm draws the menu before any Pill asked for it.
         """
+        if width is not None:
+            self._menu_width = menu_width(width)
         pill = getattr(self, '_menu_pill', None)
         if pill is None:
             return {'bounds': list(self._menu_bounds)}
         bounds = pill_menu_bounds(pill, self._menu_work_area, self._menu_scale, height=height,
-                                  side=getattr(self, '_menu_side', None))
+                                  side=getattr(self, '_menu_side', None), width=getattr(self, '_menu_width', None))
         if bounds != list(self._menu_bounds):
             self._menu_bounds = bounds
             self.menu_controller.resize(bounds)
@@ -394,7 +498,8 @@ class AppShell:
         home = self._menu_content_height()
         # The side is chosen once, here, for Home; every view keeps it (review B2).
         self._menu_side = pill_menu_side(pill, self._menu_work_area, scale, height=home)
-        self._menu_bounds = pill_menu_bounds(pill, self._menu_work_area, scale, height=home, side=self._menu_side)
+        self._menu_bounds = pill_menu_bounds(pill, self._menu_work_area, scale, height=home, side=self._menu_side,
+                                             width=self._menu_width)
         try:
             self.menu_controller.open('menu', bounds=self._menu_bounds, side=self._menu_side)
             return True
@@ -555,5 +660,5 @@ class AppShell:
         self._pending_backup = None
         # The confirmation explicitly says Restore and quit. The renderer gets
         # its reply before the existing UI queue performs the normal shutdown.
-        self.app._cross_thread_calls.put(lambda: self.app.quit(settings_confirmed=True))
+        self.app._cross_thread_calls.put(lambda: self.app.quit(settings_confirmed=True, source="restore"))
         return {'message': f'Restored {len(restored)} files. Open Talk DAT again to use them.'}

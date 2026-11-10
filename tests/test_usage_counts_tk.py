@@ -1,9 +1,13 @@
 """The Tk fallbacks for the usage-counts switch (owner decision 2026-09-23).
 
 When the web shell cannot open, Settings and first-run setup fall back to Tk.
-Those carry the same switch in the same words: one checkbox, only in an
-official build, saving privacy.share_usage_counts. Real windows, on the
-isolated test desktop (scripts/run_tests_offscreen.py tests.test_usage_counts_tk).
+Those carry the same words, only in an official build: Settings has one
+checkbox, saving privacy.share_usage_counts. 0.4.176 (TEAM KNIGHT, consent
+before capture): the checkbox reads off until the person says yes, and setup
+asks with two answers, Share and Don't share, neither chosen until the person
+picks one; either is saved as their answer (privacy.usage_counts_asked). Real
+windows, on the isolated test desktop
+(scripts/run_tests_offscreen.py tests.test_usage_counts_tk).
 """
 from __future__ import annotations
 
@@ -49,6 +53,16 @@ def descendants(widget):
         yield from descendants(child)
 
 
+def usage_radios(window) -> list:
+    found = []
+    for widget in descendants(window):
+        if widget.winfo_class() in {"TRadiobutton", "Radiobutton"}:
+            with contextlib.suppress(tk.TclError):
+                if str(widget.cget("text")) in {official_build.USAGE_COUNTS_SHARE, official_build.USAGE_COUNTS_DECLINE}:
+                    found.append(widget)
+    return found
+
+
 def usage_checks(window) -> list:
     found = []
     for widget in descendants(window):
@@ -83,12 +97,14 @@ class TkFallbackTests(unittest.TestCase):
         else:
             os.environ["TALK_DAT_HOME"] = self._previous_home
 
-    def settings_window(self):
+    def settings_window(self, metrics=None):
         from knight_flow.config import load_config, save_config
         from knight_flow.overlay import Overlay
         from tests.tk_support import acquire_root, release_root
 
         config = load_config()
+        if metrics is not None:
+            config["metrics"] = metrics
         # macOS: one Tk root per process, ever (tests/tk_support). A fresh Tk
         # here is not the default root while the shared one lives, so the
         # Pill's images landed in the wrong interpreter.
@@ -109,13 +125,46 @@ class TkFallbackTests(unittest.TestCase):
             checks = usage_checks(window)
             self.assertEqual(len(checks), 1)
             variable = str(checks[0].cget("variable"))
-            self.assertTrue(overlay.root.getboolean(overlay.root.getvar(variable)), "on by default")
+            self.assertFalse(overlay.root.getboolean(overlay.root.getvar(variable)), "off until a yes")
             checks[0].invoke()
             save = next(w for w in descendants(window) if w.winfo_class() == "TButton" and str(w.cget("text")) == "Save")
             save.invoke()
             pump(overlay.root, 0.3)
-            self.assertIs(overlay.config["privacy"]["share_usage_counts"], False)
+            self.assertIs(overlay.config["privacy"]["share_usage_counts"], True)
+            self.assertIs(overlay.config["privacy"]["usage_counts_asked"], True, "turning it on is the answer")
             self.assertIs(overlay.config["privacy"]["local_only"], True)
+
+    def test_tk_settings_saving_something_else_is_not_an_answer(self) -> None:
+        with build(True):
+            overlay, window = self.settings_window()
+            save = next(w for w in descendants(window) if w.winfo_class() == "TButton" and str(w.cget("text")) == "Save")
+            save.invoke()
+            pump(overlay.root, 0.3)
+            self.assertIs(overlay.config["privacy"]["usage_counts_asked"], False)
+            self.assertIs(overlay.config["privacy"]["share_usage_counts"], False)
+
+    INSTALL_ID = "ab" * 16  # obviously fake: an ID-shaped literal reads as a key to the export's secrets gate
+
+    def install_id_widgets(self, window) -> tuple[list, list]:
+        shown = [w for w in descendants(window) if w.winfo_class() in {"TEntry", "Entry"}
+                 and self.INSTALL_ID in str(w.get())]
+        lines = [w for w in descendants(window) if w.winfo_class() in {"TLabel", "Label"}
+                 and str(w.cget("text")) == official_build.USAGE_COUNTS_ID_DETAIL]
+        return shown, lines
+
+    def test_tk_settings_shows_the_install_id_read_only_in_an_official_build(self) -> None:
+        # 0.4.176 item 7: the ID a person sends to have its records deleted.
+        with build(True):
+            _overlay, window = self.settings_window({"install_id": self.INSTALL_ID})
+            shown, lines = self.install_id_widgets(window)
+            self.assertEqual(len(shown), 1)
+            self.assertEqual(str(shown[0].cget("state")), "readonly")
+            self.assertEqual(len(lines), 1)
+
+    def test_tk_settings_shows_no_install_id_in_a_source_build(self) -> None:
+        with build(False):
+            _overlay, window = self.settings_window({"install_id": self.INSTALL_ID})
+            self.assertEqual(self.install_id_widgets(window), ([], []))
 
     def test_tk_settings_shows_no_switch_in_a_source_build(self) -> None:
         with build(False):
@@ -123,7 +172,7 @@ class TkFallbackTests(unittest.TestCase):
             self.assertEqual(usage_checks(window), [])
 
     @unittest.skipUnless(sys.platform == "win32", "the setup wizard fallback is exercised on Windows")
-    def test_the_tk_setup_wizard_mentions_it_once_and_saves_it(self) -> None:
+    def test_the_tk_setup_wizard_asks_with_two_answers_and_saves_the_one_picked(self) -> None:
         from knight_flow import main_thread
         from knight_flow.app import TalkDatApp
         from knight_flow.config import config_path
@@ -131,8 +180,9 @@ class TkFallbackTests(unittest.TestCase):
         from knight_flow.ui import onboarding as ui
         from scripts.capture_onboarding_gallery import CaptureHost
 
-        for official in (False, True):
-            with self.subTest(official=official), build(official), \
+        for official, pick in ((False, None), (True, official_build.USAGE_COUNTS_DECLINE), (True, None)):
+            config_path().unlink(missing_ok=True)
+            with self.subTest(official=official, pick=pick), build(official), \
                     mock.patch.object(ui, "list_input_devices", return_value=["Synthetic microphone"]), \
                     mock.patch("knight_flow.net_fence.set_local_only"):
                 root = tk.Tk()
@@ -149,19 +199,22 @@ class TkFallbackTests(unittest.TestCase):
                     wizard = ui.OnboardingWizard(host)
                     wizard.render_step(next(i for i, step in enumerate(ONBOARDING_STEPS) if step.id == "test"))
                     pump(root, 0.3)
-                    checks = usage_checks(wizard.window)
+                    radios = usage_radios(wizard.window)
+                    self.assertEqual(usage_checks(wizard.window), [], "setup asks; it has no switch")
                     if not official:
-                        self.assertEqual(checks, [])
+                        self.assertEqual(radios, [])
                         continue
-                    self.assertEqual(len(checks), 1)
-                    self.assertTrue(wizard.share_counts_var.get())
-                    checks[0].invoke()
-                    self.assertFalse(wizard.share_counts_var.get())
+                    self.assertEqual([str(r.cget("text")) for r in radios],
+                                     [official_build.USAGE_COUNTS_SHARE, official_build.USAGE_COUNTS_DECLINE])
+                    self.assertNotIn(wizard.usage_choice_var.get(), {"yes", "no"}, "neither answer is chosen")
+                    if pick:
+                        next(r for r in radios if str(r.cget("text")) == pick).invoke()
                     wizard.next_button.invoke()
                     pump(root, 0.5)
                     saved = json.loads(config_path().read_text(encoding="utf-8"))
                     self.assertIs(saved["onboarding"]["completed"], True)
                     self.assertIs(saved["privacy"]["share_usage_counts"], False)
+                    self.assertIs(saved["privacy"]["usage_counts_asked"], pick is not None)
                 finally:
                     with contextlib.suppress(Exception):
                         root.destroy()

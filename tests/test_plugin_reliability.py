@@ -1,6 +1,7 @@
 import os, tempfile, time, unittest
 from unittest.mock import patch
 from knight_flow import plugins, text_pipeline
+from tests.child_isolation import product_budget
 
 
 class PluginReliabilityTests(unittest.TestCase):
@@ -119,10 +120,12 @@ class PluginReliabilityTests(unittest.TestCase):
         self.assertEqual(self.filtered(), "Keep every word.")
 
     def test_import_stall_is_bounded(self):
+        # The product's own load budget (the suite gives its workers more room).
         self.install("import time\ntime.sleep(20)\n")
-        started = time.perf_counter()
-        self.assertEqual(self.filtered(), "Keep every word.")
-        self.assertLess(time.perf_counter() - started, 1.6)
+        with product_budget():
+            started = time.perf_counter()
+            self.assertEqual(self.filtered(), "Keep every word.")
+            self.assertLess(time.perf_counter() - started, 1.6)
         self.assertIn("TimeoutError", " ".join(plugins.load_errors()))
 
     def test_errors_do_not_retain_private_text(self):

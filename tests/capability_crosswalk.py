@@ -44,16 +44,18 @@ def pill_menu_actions() -> list[str]:
 
 
 def tray_commands() -> list[str]:
-    """Callback keys the tray menu invokes."""
-    return sorted(set(re.findall(r'self\._call\("([a-z_0-9]+)"\)', _read(TRAY))))
+    """Callback keys the tray menu invokes (2026-10-28: Quit also passes source="tray")."""
+    return sorted(set(re.findall(r'self\._call\("([a-z_0-9]+)"[,)]', _read(TRAY))))
 
 
 def tray_labels() -> list[str]:
     """Visible tray labels, so a rename is visible in the diff too."""
     src = _read(TRAY)
     labels = set(re.findall(r'pystray\.MenuItem\("([^"]+)"', src))
-    # The two dynamic labels are built by methods, not literals.
-    labels.update({"Pause dictation", "Resume dictation", "Check for updates"})
+    # The one dynamic label is built by a method, not a literal: "Install update <version>", shown only while one
+    # waits. (0.4.177 IA phase 2: Pause listening is a literal check item now; it was "Pause dictation" or "Resume
+    # dictation", and the update item read "Check for updates" when none waited.)
+    labels.add("Install update")
     return sorted(labels)
 
 

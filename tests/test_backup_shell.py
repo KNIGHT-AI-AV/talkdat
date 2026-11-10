@@ -40,7 +40,7 @@ class BackupShellTests(unittest.TestCase):
         self.call('restore_backup'); self.call('restore_backup_confirm')
         self.assertIn('restored', config.config_path().read_text())
         self.app._cross_thread_calls.put.call_args.args[0]()
-        self.app.quit.assert_called_once_with(settings_confirmed=True)
+        self.app.quit.assert_called_once_with(settings_confirmed=True, source='restore')
         with self.assertRaises(ValueError): self.call('restore_backup_confirm')
 
     def test_active_capture_prevents_selection_and_later_confirmation(self):

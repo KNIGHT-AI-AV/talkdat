@@ -83,7 +83,9 @@ class TheFenceIsTheGuaranteeTests(unittest.TestCase):
     def test_the_route_switch_raises_and_lowers_the_fence(self) -> None:
         app = APP.read_text(encoding="utf-8")
         route = block(app, r"def set_route_mode\(self, mode: str\) -> bool:.*?self\.overlay\.set_state")
-        self.assertIn('net_fence.set_local_only(mode == "local")', route)
+        # Local-only privacy outranks the switch, so it holds the fence on the own-key route too
+        # (test_local_only_means_local_only, TheFenceHoldsFromLaunchTests).
+        self.assertIn('net_fence.set_local_only(local_only(self.config) or route_mode(self.config) == "local")', route)
         self.assertIn("warm_selected_local_model()", route,
                       "switching toward local must warm the engine NOW")
 

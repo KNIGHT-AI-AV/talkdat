@@ -88,8 +88,9 @@ class Workspaces:
             return MicCheckWorkspace(self.config,self.persist,self.app.start_microphone_check,self.copy)
 
         if area=="home":
-            from .home_workspace import HomeUpdates, HomeWorkspace
-            return HomeWorkspace(self.config,self.app._cross_thread_calls.put,updates=HomeUpdates(self.app))
+            from .home_workspace import HomeUpdates, HomeUsageCounts, HomeWorkspace
+            return HomeWorkspace(self.config,self.app._cross_thread_calls.put,updates=HomeUpdates(self.app),
+                                 usage=HomeUsageCounts(self.app,self.persist))
         if area=="stats":
             return StatsWorkspace(self.config,self.app._cross_thread_calls.put,record=self.record_editing_task)
         if area=='scribe':

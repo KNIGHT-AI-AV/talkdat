@@ -7,11 +7,14 @@ border-radius, and to what", which is the question these tests ask.
 """
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSETS = ROOT / "knight_flow" / "web_shell" / "shell_assets"
+# TALKDAT_SHELL_ASSETS points a run at another copy of the assets (a RED on the previous
+# commit's stylesheets), as tests/js/shell_dom.mjs does for the scripts.
+ASSETS = Path(os.environ.get("TALKDAT_SHELL_ASSETS") or ROOT / "knight_flow" / "web_shell" / "shell_assets")
 SHEETS = ("shell.css", "workspaces.css")
 
 

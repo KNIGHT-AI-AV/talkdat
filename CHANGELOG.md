@@ -3,6 +3,63 @@
 All notable product changes to Talk DAT! are recorded here. The project uses beta
 versions while broader field verification remains in progress.
 
+## 0.4.177-beta
+
+The Pill menu, the tray and Settings are laid out again around what you use most, and Ctrl+K finds any action, page or setting.
+
+- The Pill menu now starts with Start hands-free dictation, in bold, with its shortcut beside it. Below it are Paste last transcript, History, Scratchpad, Translate and Tools, in your Menu layout order.
+- Tools on the Pill menu holds Ramble, Scribe, Live captions and Stats.
+- Speech and Writing style come after the daily rows. Speech holds Local speech, Your key and Speech settings. Writing style, called Formatting before, holds Chill, Executive and Writing settings.
+- Pause listening is now on the Pill menu as well as the tray, with a check mark while Talk DAT! is paused. Before, the tray said Pause dictation or Resume dictation.
+- When Talk DAT! is paused, its message now says how to resume: choose Pause listening again in the Pill menu or the tray.
+- Settings, Help, Restart and Quit stay at the bottom of the Pill menu, and Restart and Quit still ask for a second click. The App controls submenu is gone.
+- Menu layout in Settings now arranges the daily rows only. Speech, Writing style, Pause listening, Settings, Help, Restart and Quit always stay in place, and a layout you saved in an earlier version keeps your daily order.
+- Check for updates is now on Home and Help instead of the Pill menu and the tray. When an update is waiting, the Pill menu still shows it first and the tray shows Install update.
+- On Windows, a submenu on the Pill menu now opens beside the menu, after the pointer rests on its row or at once when you click it, and the menu stays open. Before, the submenu took the menu's place.
+- The Pill menu has a new look, with tighter rows, smaller icons and thin dividers, and it opens with a short slide from the Pill. It no longer has a title line or a close button.
+- The Pill menu is as wide as its longest row needs, up to 360 pixels, so Start hands-free dictation and its shortcut usually fit side by side. When they do not, the shortcut is left out rather than cutting the label.
+- The tray menu is regrouped and its More submenu is gone. Status is now the tray icon's tooltip, Talk DAT!: ready or Talk DAT!: paused, and the Status panel on Help. Stats and Local models are in Settings, and Share an idea is on Help.
+- Hide overlay in the tray is now Show the Pill, with a check mark while the Pill shows.
+- Settings has a new sidebar. Each group's pages sit under it on a tree line, a chevron opens or closes a group, and your account is at the bottom. The highlight bar and the page slide that 0.4.176 added are gone: a page now opens in place.
+- Ctrl+B folds the Settings sidebar to icons, and pointing at an icon shows its name. In a narrow window the sidebar always shows icons.
+- The top of Settings shows where you are, and the search field shows its Ctrl K shortcut.
+- In the Talk DAT! window, Ctrl+K or a click in the search opens one list of every action, page and setting, filtered as you type. Up and Down move through it, Enter runs the one you pick, and Esc closes it.
+- In that list, Restart and Quit ask for a second Enter before they act, as the Pill menu asks for a second click.
+- Shortcuts is now its own page in Settings, with all 18 keyboard shortcuts in one place, grouped by what they do.
+- Microphone is now its own page in Settings, with your microphone, its level, quiet mode and the wake word.
+- Dictation in Settings now holds Pasting, Sounds and Capture, with the capture timing under Advanced.
+- History in Settings keeps its own settings for saving, its limit and storage. Translate to is now under Translation, and the AI rewrite settings are one section of Formatting.
+- Ramble and Scribe are now under Tools in Settings, and the Model guide is under Dictation.
+- The page that was General is now Startup and updates, and the sidebar group that holds it, called Settings before, is now General.
+
+## 0.4.176-beta
+
+Talk DAT! now asks before it sends usage counts, and with Local-only privacy on, your words stay on this computer.
+
+- Starting Talk DAT! no longer freezes the mouse and keyboard on your whole PC while the speech model loads. The keyboard shortcuts now run in a small helper process of their own, so Windows never waits on Talk DAT!.
+- Talk DAT! now watches the mouse only when one of your shortcuts uses a mouse button. Before, it watched every mouse movement on your PC, even with no mouse shortcut set.
+- Clicking through Settings no longer flickers or jumps. Each click draws the page once, and a slow answer to an earlier click no longer pulls you back to that page.
+- Choosing Local speech, Your key, Chill or Executive on the Pill menu now closes the menu, as Windows menus do. Before, the menu jumped back to its first page.
+- The Settings sidebar now follows Windows 11: a highlight bar moves to the page you pick, and a new page slides up as it opens.
+- Dictation keeps a capital A after "a", so "a A minus" stays a grade instead of losing its letter.
+- A sentence that ends on a capital, such as "I got an A", now ends with a full stop instead of trailing off.
+- "Chad GBT" and "chat GBT" now come out as ChatGPT.
+- A word like "also", "plus" or "finally" in the middle of a sentence no longer starts a new sentence, so "I finally got" and "a B plus" stay whole.
+- "dreq" now comes out as D-REC and "Dandy List" as Dandelist.
+- Talk DAT! now asks before it sends usage counts. Setup asks once, with Share and Don't share and neither chosen, and if you finish setup without answering, Home asks. Nothing is sent before you choose Share, and Don't share sends nothing until you turn the switch on in Settings, Privacy.
+- If you updated from 0.4.175 and never touched the usage counts switch, Home asks you, and nothing is sent until you choose Share. If you had turned it off, it stays off and you are not asked.
+- The setting is now called Share usage counts, and it says the counts carry a random install ID, not linked to you or your account.
+- Settings, Privacy shows your install ID. To have its records deleted, send it to Build@KnightAIAV.com.
+- Reset keeps your usage counts choice. Before, resetting the app settings turned the counts back on.
+- With Local-only privacy on, a command with no text selected no longer opens a web search with your words, and Talk DAT! refuses to send text to an Ollama address on another computer, from the moment it starts.
+- Sign-in now names this computer "Windows PC" or "Mac". Before, it sent the computer's network name, which often includes your own name.
+- On a Mac, the first-open and first-dictation reports now say Mac in their request headers too.
+- With Local-only privacy on, choosing Your key on the Pill now says that dictation stays on this computer. Before, it said dictation ran on your key.
+- Settings now say that a command with no text selected opens a Perplexity web search unless Local-only privacy is on, and that recent recordings are kept for recovery when History is off.
+- The simpler setup and settings windows, used when the main window can't open, now say what the optional account keeps and that your dictation is not sent to us.
+- Saving in those simpler windows now applies Local-only privacy right away. Before, a change made there could wait until Talk DAT! restarted.
+- The license agreement now says the usage counts are sent only if you choose to share them, and that command search stops while Local-only privacy is on.
+
 ## 0.4.175-beta
 
 Recover keeps the part of a long dictation that was already transcribed, and transcribes only the rest.

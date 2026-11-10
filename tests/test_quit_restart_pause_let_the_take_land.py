@@ -113,7 +113,8 @@ class LetTheTakeLandTests(unittest.TestCase):
 
     def test_the_install_quits_through_the_same_quit(self) -> None:
         source = (Path(__file__).resolve().parents[1] / "knight_flow" / "app.py").read_text(encoding="utf-8")
-        self.assertIn("self.overlay.root.after(2200, self.quit)", source)
+        # 2026-10-28: it names itself (tests/test_every_quit_names_who_asked.py).
+        self.assertIn("self.overlay.root.after(2200, lambda: self.quit(", source)
 
     def test_the_tray_fences_quit_off_from_panic_stop(self) -> None:
         source = (Path(__file__).resolve().parents[1] / "knight_flow" / "tray.py").read_text(encoding="utf-8")

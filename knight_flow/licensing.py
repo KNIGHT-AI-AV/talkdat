@@ -16,7 +16,6 @@ from . import mac_support
 import base64
 import json
 import os
-import platform
 import secrets
 import sys
 import time
@@ -177,7 +176,9 @@ class LicenseManager:
     ) -> None:
         settings = config.setdefault("licensing", {})
         self.device_id = ensure_device_identity(config)
-        self.device_name = str(settings.get("device_name") or platform.node() or mac_support.UNNAMED_DEVICE_LABEL)[:80]
+        # A plain label ("Mac", "Windows PC"), never the hostname, which often
+        # carries the person's name. A name they set themselves is kept.
+        self.device_name = str(settings.get("device_name") or mac_support.UNNAMED_DEVICE_LABEL)[:80]
         # "" in a source build that has not been pointed at an account
         # service: every request below then refuses before it is built.
         self.api_base = official_build.api_base(config)

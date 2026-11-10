@@ -7,8 +7,9 @@ and never completes one dictation uninstalls quietly and appears in no
 metric anywhere.
 
 Privacy shape, deliberately narrower than everything else in the product:
-  * a random install id, generated here, tied to nothing -- not the machine,
-    not an email, not a licence;
+  * a random install id, generated here, not linked to the person or their
+    account -- not the machine, not an email, not a licence. It does let the
+    server tell that several reports came from the same install;
   * two timestamps and their difference, the app version, and the platform
     ("windows" or "mac", read where it runs);
   * never any text, ever (X-37), and never anything that identifies a person.
@@ -19,8 +20,8 @@ server has confirmed receipt, then never again.
 2026-09-23, open source: whether these are sent at all is decided by
 official_build.activation_api_base(config), which the app passes in as
 api_base. It is "" in a build from source, with TALKDAT_NO_PHONE_HOME=1, and
-when the person turned off Settings > Privacy > "Share anonymous usage counts"
-(privacy.share_usage_counts, on by default in official builds). Local-only
+when the person turned off Settings > Privacy > "Share usage counts"
+(privacy.share_usage_counts). Local-only
 privacy does not decide them: it governs audio and text, which no report here
 carries. Every sender here does nothing on "".
 
@@ -63,7 +64,7 @@ def stamp_first_run(config: dict[str, Any], save) -> None:
 def is_internal(config: dict[str, Any]) -> bool:
     """X-357: is this one of OUR machines rather than a customer's?
 
-    Every install beacon is anonymous by design, which is right, and which
+    No install beacon names a person, by design, which is right, and which
     also means the counters cannot tell a real adopter from the founder's
     own PC, the build Mac, or a release smoke test that installs and
     uninstalls the product on every publish. On 2026-08-23 the live numbers
@@ -113,7 +114,7 @@ def report_install(config: dict[str, Any], save, api_base: str) -> None:
             request = urllib.request.Request(
                 api_base.rstrip("/") + "/v1/activation",
                 data=json.dumps(payload).encode("utf-8"),
-                headers={"content-type": "application/json", "user-agent": "TalkDat-Windows"},
+                headers={"content-type": "application/json", "user-agent": _user_agent()},
                 method="POST",
             )
             with urllib.request.urlopen(request, timeout=8) as response:
@@ -189,6 +190,11 @@ def _platform_name() -> str:
     import sys
 
     return "mac" if sys.platform == "darwin" else "windows"
+
+
+def _user_agent() -> str:
+    """"TalkDat-Mac" or "TalkDat-Windows", from the same platform read."""
+    return "TalkDat-Mac" if _platform_name() == "mac" else "TalkDat-Windows"
 
 
 def record_first_dictation(config: dict[str, Any], save, api_base: str) -> None:
@@ -300,7 +306,7 @@ def _send(config: dict[str, Any], save, api_base: str) -> None:
             request = urllib.request.Request(
                 api_base.rstrip("/") + "/v1/activation",
                 data=json.dumps(payload).encode("utf-8"),
-                headers={"content-type": "application/json", "user-agent": "TalkDat-Windows"},
+                headers={"content-type": "application/json", "user-agent": _user_agent()},
                 method="POST",
             )
             with urllib.request.urlopen(request, timeout=8) as response:

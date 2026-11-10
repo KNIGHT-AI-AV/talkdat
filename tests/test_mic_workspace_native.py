@@ -50,7 +50,7 @@ def native_mic_probe(connection,evidence,html):
                 metrics=window.evaluate_js("document.querySelectorAll('.mic-check-metrics dd').length")
                 click('Check my mic');phase('listening')
                 window.evaluate_js("window.TalkDat.navigate('general');true")
-                until("document.querySelector('main h1')?.textContent==='General'")
+                until("document.querySelector('main h1')?.textContent==='Startup and updates'")
                 time.sleep(.1)
                 window.evaluate_js("window.TalkDat.navigate('speech-check');true")
                 until("Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Start speech check'&&!b.disabled)")

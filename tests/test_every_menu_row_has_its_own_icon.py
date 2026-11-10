@@ -2,7 +2,7 @@
 
 The inventory found, in the web Pill menu and the Settings rail:
 
-* Settings and "App controls" both wore the sliders icon;
+* Settings and "App controls" both wore the sliders icon (App controls left the Pill in 0.4.177);
 * Stats wore History's clock;
 * Tools wore the Words speech bubble;
 * Live captions and Translate fell back to the generic sliders, because the
@@ -51,7 +51,8 @@ GLYPH_JS = """const glyph=icon=>{const style=getComputedStyle(icon),image=String
 ROWS_JS = "(()=>{" + GLYPH_JS + """return JSON.stringify([...document.querySelectorAll('.menu-items:not(.menu-items-leaving) .menu-row')].map(row=>
   ({label:row.getAttribute('aria-label'),glyph:glyph(row.querySelector('.nav-icon'))})));})()"""
 
-RAIL_JS = "(()=>{" + GLYPH_JS + """return JSON.stringify([...document.querySelectorAll('#navigation button')].map(button=>
+# 0.4.177: the rail's glyphs are on its parent rows; the pages nested under them carry none (the owner's reference).
+RAIL_JS = "(()=>{" + GLYPH_JS + """return JSON.stringify([...document.querySelectorAll('#navigation .nav-parent')].map(button=>
   ({label:button.textContent.trim(),glyph:glyph(button.querySelector('.nav-icon'))})));})()"""
 
 
@@ -83,14 +84,18 @@ def probe_window(connection, html, page, hidden, mode, bounds):
                 raise AssertionError(expression)
 
             def page_rows(title):
-                until("document.querySelector('.pill-menu-heading h1')?.textContent===" + json.dumps(title))
+                # 0.4.177: the top level is a Windows menu with no title bar; an in-place submenu keeps its heading.
+                if title == "Talk DAT!":
+                    until("!document.querySelector('.pill-menu-heading')&&!!document.querySelector('.menu-items .menu-row')")
+                else:
+                    until("document.querySelector('.pill-menu-heading h1')?.textContent===" + json.dumps(title))
                 return json.loads(window.evaluate_js(ROWS_JS))
 
             try:
                 until("document.body.classList.contains('connected')")
                 if mode == "menu":
                     report = {"home": page_rows("Talk DAT!")}
-                    for title in ("Tools", "App controls"):
+                    for title in ("Tools", "Speech"):
                         window.evaluate_js(
                             "document.querySelector('.menu-row[aria-label=" + json.dumps(title) + "]').click();true"
                         )
@@ -99,7 +104,7 @@ def probe_window(connection, html, page, hidden, mode, bounds):
                         page_rows("Talk DAT!")
                     api.request("state", {"probe": "menu", "report": report})
                 else:
-                    until("document.querySelectorAll('#navigation button').length>=7")
+                    until("document.querySelectorAll('#navigation .nav-parent').length>=7")
                     api.request("state", {"probe": "rail", "report": json.loads(window.evaluate_js(RAIL_JS))})
             except Exception as error:  # noqa: BLE001
                 api.request("state", {"probe": mode if mode == "menu" else "rail", "report": {"error": str(error)}})
@@ -193,12 +198,17 @@ class EveryRowHasItsOwnIconTests(unittest.TestCase):
                     self.assertTrue(page_rows, f"{page} drew no rows")
                     self.assertEqual(distinct(page_rows), [], f"{page} shows one glyph for two meanings")
             glyph = {row["label"]: row["glyph"] for row in menu["home"]}
-            self.assertNotEqual(glyph["App controls"], glyph["Settings"])
-            self.assertNotEqual(glyph["Stats"], glyph["History"])
+            # 0.4.177 IA phase 2: Scratchpad and Translate came up to the top level beside Paste last transcript (the
+            # atlas gives Paste and Scratchpad one clipboard), and Start hands-free dictation sits above Speech's microphone.
+            self.assertNotEqual(glyph["Help"], glyph["Settings"])
+            self.assertNotEqual(glyph["Scratchpad"], glyph["Paste last transcript"])
+            self.assertNotEqual(glyph["Start hands-free dictation"], glyph["Speech"])
+            self.assertNotEqual(glyph["Pause listening"], glyph["Settings"])
+            self.assertNotEqual(glyph["Translate"], glyph["Settings"], "Translate fell back to the generic sliders")
             tools = {row["label"]: row["glyph"] for row in menu["Tools"]}
-            for label in ("Live captions", "Translate"):
-                self.assertNotEqual(tools[label], glyph["Settings"], f"{label} fell back to the generic sliders")
-            self.assertNotEqual(tools["Scratchpad"], tools["Scribe"])
+            self.assertNotEqual(tools["Stats"], glyph["History"])
+            self.assertNotEqual(tools["Live captions"], glyph["Settings"], "Live captions fell back to the generic sliders")
+            self.assertNotEqual(tools["Ramble"], tools["Scribe"])
 
             rail = reports["rail"]
             self.assertGreaterEqual(len(rail), 7)

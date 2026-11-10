@@ -5,8 +5,9 @@ DAT! turns your speech into clean, formatted text on your own computer and
 pastes it into whatever app you are typing in.
 
 - **Local.** Speech recognition runs on your computer, with NVIDIA Parakeet TDT
-  0.6B v3 by default. Your audio never leaves the machine. Once the model is
-  downloaded, unplug the network and it still dictates.
+  0.6B v3 by default. On the Local route, which is the default, your audio
+  stays on the machine. Once the model is downloaded, unplug the network and it
+  still dictates.
 - **Free.** No plan, no trial, no subscription, no account needed.
 - **Yours.** Open source under the Apache License 2.0.
 
@@ -42,16 +43,20 @@ license: Parakeet TDT 0.6B v3 is by NVIDIA Corporation under CC BY 4.0. See
 
 ## Privacy
 
-Dictation, formatting and translation happen on your computer. Talk DAT! has no
-cloud of its own. [docs/NETWORK.md](docs/NETWORK.md) lists every connection the
-app can open; in short:
+By default, dictation, formatting and translation happen on your computer, and
+Talk DAT! has no cloud of its own. A provider key you add sends that route's
+audio or text to that provider, and command search (command mode with no text
+selected) opens a web search for the words you said at perplexity.ai, in your
+browser, unless Local-only privacy is on. [docs/NETWORK.md](docs/NETWORK.md)
+lists every connection the app can open; in short:
 
 - **A build from source contacts none of Knight AI+AV's services.** No sign-in,
   no feedback upload, no preference sync, no update check unless you point it
-  at endpoints of your own, and never the anonymous usage counts.
-- **Official builds** additionally offer optional sign-in, send anonymous usage
-  counts (first open, first dictation, still in use, day 7; never audio or
-  text) unless you turn off Settings > Privacy > Share anonymous usage counts,
+  at endpoints of your own, and never the usage counts.
+- **Official builds** also offer optional sign-in, send usage counts
+  (first open, first dictation, still in use, day 7) that carry a random
+  install ID, not linked to you or your account, and never audio or text,
+  only if you choose to share them when the app asks or in Settings, Privacy,
   and check GitHub for updates. The privacy notice is at
   https://www.talkdat.app/privacy.html.
 - Model downloads come from Hugging Face; provider routes go only to the
@@ -65,7 +70,7 @@ app can open; in short:
 | Signed | Windows: Azure Trusted Signing. Mac: Developer ID, notarized | unsigned unless you sign it |
 | Updates | automatic, from Knight AI+AV's releases | pull and rebuild |
 | Sign-in, feedback inbox, prefs sync | available | off unless configured |
-| Anonymous usage counts | on by default, with their own switch in Settings > Privacy | never sent, no switch shown |
+| Usage counts | only after you choose Share, with their own switch in Settings, Privacy | never sent, no switch shown |
 | Name and brand | Talk DAT! | please rename a fork you distribute ([TRADEMARKS.md](TRADEMARKS.md)) |
 
 The switch is `knight_flow/official_build.py`, set at build time by

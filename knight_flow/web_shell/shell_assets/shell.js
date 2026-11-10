@@ -4,12 +4,16 @@
   const state = { data: null, page: "general", draft: new Map(), invalid: new Map(), draftRevision: null, saving: false, closingRequested: false, noticeTimer: 0, guide: {query: "", location: "all", availability: "all"}, themes: {query:"", mode:null}, appearancePanel:"themes", lastPages:{} };
   const navigationGroups = [
     {id:"home", label:"Home", pages:["home"]},
-    {id:"dictation", label:"Dictation", pages:["dictation","speech","models","mic-doctor","speech-check"]},
-    {id:"formatting", label:"Writing", pages:["formatting","translation","words","ramble","scribe","app-profiles"]},
-    {id:"tools", label:"Tools", pages:["tools","history","scratchpad","recovery","stats"]},
+    // 2026-11-06, the owner's order to lay every feature out by the research (IA-SCHEMATIC.md, rules R19-R31): goal
+    // names; one Shortcuts page; the Microphone and Model guide with Dictation; the recording tools with Tools; the
+    // group that held "Settings" inside the Settings window is General, with Clear local data last.
+    {id:"dictation", label:"Dictation", pages:["dictation","microphone","speech","models","model-guide","mic-doctor","speech-check"]},
+    {id:"shortcuts", label:"Shortcuts", pages:["shortcuts"]},
+    {id:"formatting", label:"Writing", pages:["formatting","translation","words","app-profiles"]},
+    {id:"tools", label:"Tools", pages:["tools","history","scratchpad","ramble","scribe","recovery","stats"]},
     {id:"appearance", label:"Appearance", pages:["appearance","menu-order"]},
-    {id:"general", label:"Settings", pages:["general","privacy","reset","account"]},
-    {id:"help", label:"Help", pages:["help","setup","model-guide","feedback","language-request"]},
+    {id:"general", label:"General", pages:["general","privacy","account","reset"]},
+    {id:"help", label:"Help", pages:["help","setup","feedback","language-request"]},
   ];
   // Cells of the generated line-art atlas (icons/line-art-atlas.png, X-598).
   // 2026-09-23: one glyph per meaning. Tools no longer borrows the Words speech
@@ -20,7 +24,9 @@
   // Drawn masks for the meanings the sixteen atlas cells have no glyph for
   // (X-172 started this with Home). Stats and Tools are drawn at the atlas's
   // own stroke weight and footprint; see shell.css.
-  const maskIcons = new Set(["home", "stats", "tools", "download"]);
+  // 0.4.177 IA phase 2: Start hands-free dictation (a voice wave), Pause listening and Scratchpad (a note page: the
+  // atlas gives Paste and Scratchpad one clipboard, and both rows now sit on the menu's top level).
+  const maskIcons = new Set(["home", "stats", "tools", "download", "shortcuts", "handsfree", "pause", "notes"]);
   function el(tag, attrs = {}, children = []) {
     const node = document.createElement(tag);
     for (const [key, value] of Object.entries(attrs)) {
@@ -329,6 +335,12 @@
     if (!strip || !line) return null;
     clearTimeout(footerSay?.timer);
     const menu = document.body.classList.contains("menu-view") && document.querySelector(".pill-menu-heading h1");
+    if (!menu && document.body.classList.contains("menu-view") && !document.body.classList.contains("submenu-view")) {
+      // 0.4.177: a Windows menu has no title line. An answer no row asked for is said on the row that opened
+      // the open submenu, or else on the menu's first row, and the row's own label comes back after it.
+      const row = flyout.open?.button?.isConnected ? flyout.open.button : document.querySelector(".menu-items .menu-row");
+      if (row) return flag(row, message, {tone, detail, hold, sticky});
+    }
     if (menu) {
       // The Pill menu has no footer panel (and, since 2026-10-09, no pager row to
       // borrow): its title line says it, then the title comes back.
@@ -406,10 +418,11 @@
     if (button) { button.disabled = true; button.setAttribute("aria-busy", "true"); }
     try {
       const result = await rpc("action", { name, ...payload });
-      // The host hides the menu after every successful action except these two.
-      const leaving = state.page === "menu" && !name.startsWith("route:") && name !== "menu:toggle_intensity";
+      // Field report 2026-11-05: the host hides the menu after every successful action, a
+      // choice included, as WinUI closes every menu when an item is invoked. A choice used to
+      // keep it open and refresh it, and the refresh rebuilt it from the top level.
+      const leaving = state.page === "menu";
       if (leaving) leaveMenu();
-      if (state.page === "menu" && name.startsWith("route:")) await refresh();
       // A result whose action closes the menu window has no face left to answer
       // on; the app says those on the Pill.
       if (result?.message && !leaving) flag(button || "auto", result.message, {tone: result.tone || (result.success === false ? "error" : "info")});
@@ -510,13 +523,33 @@
     }
     finally { state.saving = false; updateSaveStrip(); }
   }
-  let activeWorkspace=null,searchActive=false;
+  let activeWorkspace=null;
+  // 0.4.177 IA phase 3: the command palette's state (the list it shows, its active row, where the focus goes back to,
+  // and a Restart or Quit that asked once). Its functions live with the search, below.
+  const paletteState = {open:false, options:[], active:-1, back:null, armed:"", armedText:"", disarm:0};
+  const searchField = $("search");
   let activeShortcut = null;
+  // 0.4.177 IA phase 3: shortcutControl's Fn / Globe button reads it too. Phase 2 moved it inside keyName, which left
+  // the Shortcuts page throwing at its first shortcut (ReferenceError: isMac is not defined).
+  const isMac = navigator.platform.includes("Mac");
+  // A key as the Shortcuts page names it; the Pill menu shows the same names (0.4.177 IA phase 2).
+  function keyName(key) {
+    const names = {ctrl:"Ctrl",cmd:isMac?"Command":"Win",alt:"Alt",shift:"Shift",space:"Space",fn:"Fn / Globe",esc:"Esc"};
+    return names[key] || (key.length===1?key.toUpperCase():key.replaceAll('_',' '));
+  }
+  // The live binding of a shortcut, its first chord as a menu shows one ("Ctrl+Win+Space"), or "" when none is set
+  // (R13: a menu shows the person's current binding, read from the shortcut store, or nothing).
+  // 0.4.177 IA phase 3: the saved binding, the one in force: the palette shows it in the Settings window, where an
+  // unsaved change on the Shortcuts page is a draft until it is saved (the Pill menu's page has no drafts).
+  function menuShortcut(id) {
+    const field = allFields().find(field => field.id === "hotkeys." + id);
+    const chords = field ? field.value : null;
+    const first = Array.isArray(chords) ? chords.find(chord => Array.isArray(chord) && chord.length) : null;
+    return first ? first.map(key => keyName(String(key))).join("+") : "";
+  }
   function shortcutControl(field) {
     const value = currentValue(field) || [];
-    const isMac = navigator.platform.includes("Mac");
-    const names = {ctrl:"Ctrl",cmd:isMac?"Command":"Win",alt:"Alt",shift:"Shift",space:"Space",fn:"Fn / Globe"};
-    const readable = chords => chords.map(chord=>chord.map(key=>names[key] || (key.length===1?key.toUpperCase():key.replaceAll('_',' '))).join(" + ")).join(" or ") || "Not assigned";
+    const readable = chords => chords.map(chord=>chord.map(keyName).join(" + ")).join(" or ") || "Not assigned";
     const status = el("span", {class:"shortcut-value",text:readable(value),role:"status"});
     const record = el("button", {type:"button",text:value.length?"Record replacement":"Record", "aria-label":"Record " + field.label});
     const alternative = el("button", {type:"button",text:"Add alternative",class:"quiet"}); alternative.disabled=value.length>=8;
@@ -635,6 +668,14 @@
       const button = el("button", { type: "button", text: field.button || "Open" });
       button.addEventListener("click", () => action(field.action, {}, button)); return button;
     }
+    // 0.4.176: text to read and copy, never a draft (today the install ID on Privacy). The app refuses
+    // any save of a readonly field (shell_state.validate_value).
+    if (field.type === "readonly") {
+      const input = el("input", { id, type: "text", readonly: "", spellcheck: "false", autocomplete: "off",
+        "aria-labelledby": id + "-label", "aria-describedby": id + "-help" });
+      input.value = String(value ?? "");
+      return input;
+    }
     if (field.type === "secret") {
       const input = el("input", {id, type: "password", autocomplete: "new-password", spellcheck: "false", maxlength: 4096, "aria-labelledby": id + "-label", "aria-describedby": id + "-help", placeholder: field.saved ? "Saved. Enter a replacement." : "Enter your provider key"});
       input.value = state.draft.get(field.id) || "";
@@ -711,35 +752,179 @@
     if(field.id==="plugins.enabled")row.append(pluginTools());
     return row;
   }
-  function renderNavigation() {
-    $("navigation").replaceChildren();
-    for (const group of navigationGroups) {
-      const active = group.pages.includes(state.page);
-      if (active) state.lastPages[group.id] = state.page;
-      const target = state.lastPages[group.id] || group.pages[0];
-      const button = el("button", { type:"button", "data-page":target, "aria-current":active ? "page" : "false" }, [icon(group.id), el("span", {text:group.label})]);
-      button.addEventListener("click", () => navigate(target)); $("navigation").append(button);
-    }
-    const group = navigationGroups.find(group => group.pages.includes(state.page));
-    const sections = $("sections"); sections.replaceChildren();
-    const choices = (group?.pages || []).map(id => ({id, label:state.data.pages.find(page => page.id === id)?.label || id}));
-    if (group?.id === "appearance") choices.splice(0, 1,
+  // The owner's reference of 2026-11-05 (shadcn/ui's sidebar system; SIDEBAR-REDESIGN-DECISIONS.md D2-D7): Home is a
+  // plain row; every other group is a parent row with its pages nested under it on the shot's tree line, Help and
+  // Settings pinned at the foot. Rows are made once and only their state changes (field report 2026-11-05: rebuilding
+  // them under the pointer reset hover and press, and the selection blinked); the tabs are remade only when their
+  // group changes.
+  const BOTTOM_GROUPS = ["help", "general"];
+  const navRows = new Map(), navOpen = new Map();
+  let navKey = "", sectionsKey = "", railTip = null;
+  function groupChoices(group) {
+    const choices = group.pages.map(id => ({id, label:state.data?.pages.find(page => page.id === id)?.label || id}));
+    if (group.id === "appearance") choices.splice(0, 1,
       {id:"appearance", panel:"themes", label:"Themes"},
       {id:"appearance", panel:"text", label:"Text and motion"},
       {id:"appearance", panel:"pill", label:"Pill"});
-    sections.hidden = choices.length < 2;
-    for (const choice of choices) {
-      const active = choice.id === state.page && (!choice.panel || choice.panel === state.appearancePanel);
-      const button = el("button", {text:choice.label, "data-page":choice.id, "aria-current":active ? "page" : "false"});
-      button.addEventListener("click", () => { if (choice.panel) state.appearancePanel = choice.panel; navigate(choice.id); });
-      sections.append(button);
+    return choices;
+  }
+  const choiceCurrent = choice => choice.id === state.page && (!choice.panel || choice.panel === state.appearancePanel);
+  const groupOf = page => navigationGroups.find(group => group.pages.includes(page));
+  function goTo(choice) { if (choice.panel) state.appearancePanel = choice.panel; navigate(choice.id); }
+  // A group the user opened or closed with its chevron stays that way; one opened because its page was shown
+  // closes again when another group's page is shown, so moving around leaves no trail of open groups.
+  function setGroupOpen(id, open, chosen = false) {
+    navOpen.set(id, {open, chosen});
+    drawGroupOpen(id);
+  }
+  function drawGroupOpen(id) {
+    const row = navRows.get(id), open = Boolean(navOpen.get(id)?.open);
+    if (!row?.sub) return;
+    row.node.setAttribute("data-open", String(open));
+    row.sub.hidden = !open;
+    row.parent.setAttribute("aria-expanded", String(open));
+    row.toggle.setAttribute("aria-expanded", String(open));
+    row.toggle.setAttribute("aria-label", (open ? "Hide " : "Show ") + row.label + " pages");
+  }
+  function openGroupOf(page) {
+    const target = groupOf(page);
+    if (!target) return;
+    for (const [id, entry] of navOpen) if (id !== target.id && entry.open && !entry.chosen) setGroupOpen(id, false);
+    if (target.pages.length > 1) setGroupOpen(target.id, true, Boolean(navOpen.get(target.id)?.chosen && navOpen.get(target.id)?.open));
+  }
+  // Folded to icons, each row names itself beside it at once and only then (shadcn: TooltipProvider delayDuration 0,
+  // TooltipContent side "right", hidden unless the sidebar is collapsed). Below 768 px the rail is always icons.
+  const railFolded = () => $("shell").getAttribute("data-sidebar") === "collapsed" || Boolean(window.matchMedia?.("(max-width: 767px)").matches);
+  function tipOn(node, text) {
+    const show = () => {
+      if (!railFolded()) return;
+      railTip ||= document.body.appendChild(el("div", {id:"rail-tip", class:"rail-tip", role:"tooltip", hidden:""}));
+      railTip.textContent = typeof text === "function" ? text() : text;
+      const box = node.getBoundingClientRect();
+      railTip.style.left = Math.round(box.x + box.width + 6) + "px";
+      railTip.style.top = Math.round(box.y + box.height / 2) + "px";
+      railTip.hidden = false;
+      node.setAttribute("aria-describedby", "rail-tip");
+    };
+    const hide = () => { if (railTip) railTip.hidden = true; node.removeAttribute("aria-describedby"); };
+    node.addEventListener("pointerenter", show); node.addEventListener("focus", show);
+    node.addEventListener("pointerleave", hide); node.addEventListener("blur", hide);
+  }
+  function setSidebar(open) {
+    $("shell").setAttribute("data-sidebar", open ? "expanded" : "collapsed");
+    const button = $("rail-toggle");
+    button?.setAttribute("aria-expanded", String(open));
+    button?.setAttribute("aria-label", open ? "Collapse the sidebar" : "Expand the sidebar");
+    if (open && railTip) railTip.hidden = true;
+  }
+  setSidebar(true);
+  $("rail-toggle")?.addEventListener("click", () => setSidebar($("shell").getAttribute("data-sidebar") === "collapsed"));
+  // shadcn's shortcuts: Ctrl+B (its Cmd/Ctrl+B, matched on "b" as it matches) folds the sidebar; Ctrl+K, its search
+  // convention, goes to search and (0.4.177 IA phase 3) opens the command palette there. Both are this window's own
+  // keys: neither is a global hotkey, which would take the key from every other app.
+  document.addEventListener("keydown", event => {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || document.body.classList.contains("menu-view")) return;
+    if (event.key === "b") { event.preventDefault(); setSidebar($("shell").getAttribute("data-sidebar") === "collapsed"); }
+    else if (event.key === "k") { event.preventDefault(); if (!paletteState.open) rememberFocus(); $("search").focus(); $("search").select?.(); openPalette(); }
+  });
+  function buildNavigation(navigation) {
+    navRows.clear(); navigation.replaceChildren();
+    const top = el("div", {class:"nav-top"}), bottom = el("div", {class:"nav-bottom"});
+    for (const group of navigationGroups) {
+      const node = el("div", {class:"nav-group", "data-group":group.id});
+      const parent = el("button", {type:"button", class:"nav-row nav-parent"}, [icon(group.id), el("span", {class:"nav-label", text:group.label})]);
+      parent.addEventListener("click", () => navigate(parent.getAttribute("data-page")));
+      tipOn(parent, group.label);
+      node.append(parent);
+      const entry = {node, parent, label:group.label, children:[]};
+      if (group.pages.length > 1) {
+        const sub = el("div", {class:"nav-sub", id:"nav-sub-" + group.id, role:"group", "aria-label":group.label + " pages"});
+        const toggle = el("button", {type:"button", class:"nav-toggle", "aria-controls":sub.id}, [el("span", {class:"nav-chevron", "aria-hidden":"true"})]);
+        toggle.addEventListener("click", () => setGroupOpen(group.id, !navOpen.get(group.id)?.open, true));
+        for (const choice of groupChoices(group)) {
+          const item = el("button", {type:"button", class:"nav-row nav-child", "data-page":choice.id, "data-panel":choice.panel},
+            [el("span", {class:"nav-label", text:choice.label})]);
+          item.addEventListener("click", () => goTo(choice));
+          entry.children.push({item, choice}); sub.append(item);
+        }
+        node.append(toggle, sub);
+        Object.assign(entry, {sub, toggle});
+      }
+      navRows.set(group.id, entry);
+      if (!BOTTOM_GROUPS.includes(group.id)) top.append(node);
+      drawGroupOpen(group.id);
     }
+    // The shot's foot: Help Center, then Settings.
+    bottom.append(...BOTTOM_GROUPS.map(id => navRows.get(id)?.node));
+    navigation.append(top, bottom);
+  }
+  function renderBreadcrumb(group) {
+    const crumbs = $("breadcrumb"), page = state.data?.pages.find(entry => entry.id === state.page);
+    if (!crumbs || !page) return;
+    const here = (group && groupChoices(group).find(choiceCurrent)?.label) || page.label || page.title;
+    const key = JSON.stringify([group?.id || "", here]);
+    if (crumbs.getAttribute("data-key") === key) return;
+    crumbs.setAttribute("data-key", key);
+    const parts = [];
+    if (group && group.label !== here) {
+      const link = el("button", {type:"button", class:"crumb", "data-page":group.pages[0]}, [icon(group.id), el("span", {text:group.label})]);
+      link.addEventListener("click", () => navigate(group.pages[0]));
+      parts.push(link, el("span", {class:"crumb-separator", "aria-hidden":"true"}));
+    }
+    parts.push(el("span", {class:"crumb crumb-page", "aria-current":"page"}, [parts.length || !group ? null : icon(group.id), el("span", {text:here})]));
+    crumbs.replaceChildren(...parts);
+  }
+  // The shot's account card, with the name from General (Your name); without one it shows the app.
+  function renderAccountCard() {
+    const card = $("account-card");
+    if (!card) return;
+    const name = String(allFields().find(field => field.id === "ui.display_name")?.value || "").trim() || "Talk DAT!";
+    card.querySelector(".account-name").textContent = name;
+    card.querySelector(".account-avatar").textContent = (Array.from(name)[0] || "").toUpperCase();
+  }
+  if ($("account-card")) {
+    $("account-card").addEventListener("click", () => navigate("account"));
+    tipOn($("account-card"), () => $("account-card").querySelector(".account-name").textContent);
+  }
+  function renderNavigation() {
+    const navigation = $("navigation");
+    const key = JSON.stringify(navigationGroups.map(groupChoices));
+    if (key !== navKey || !navRows.size || [...navRows.values()].some(row => !navigation.contains(row.node))) { navKey = key; buildNavigation(navigation); }
+    const group = groupOf(state.page);
+    // shadcn opens the active group by default (defaultOpen = isActive); a group already set stays as it is.
+    if (group && group.pages.length > 1 && !navOpen.has(group.id)) setGroupOpen(group.id, true);
+    for (const entry of navigationGroups) {
+      const row = navRows.get(entry.id), active = entry === group;
+      if (active) state.lastPages[entry.id] = state.page;
+      row.parent.setAttribute("data-page", state.lastPages[entry.id] || entry.pages[0]);
+      row.parent.setAttribute("aria-current", active ? (row.sub ? "true" : "page") : "false");
+      for (const {item, choice} of row.children) item.setAttribute("aria-current", choiceCurrent(choice) ? "page" : "false");
+    }
+    renderBreadcrumb(group);
+    renderAccountCard();
+    const sections = $("sections");
+    const choices = group ? groupChoices(group) : [];
+    sections.hidden = choices.length < 2;
+    const tabsKey = JSON.stringify(choices);
+    if (tabsKey !== sectionsKey || sections.children.length !== choices.length) {
+      sectionsKey = tabsKey; sections.replaceChildren();
+      for (const choice of choices) {
+        const button = el("button", {text:choice.label, "data-page":choice.id});
+        button.addEventListener("click", () => goTo(choice));
+        button.sectionChoice = choice;
+        sections.append(button);
+      }
+    }
+    for (const button of sections.children) button.setAttribute("aria-current", choiceCurrent(button.sectionChoice) ? "page" : "false");
   }
   function intro(page) { return el("div", { class: "intro" }, [el("h1", { text: page.label || page.title }), el("p", { text: page.description || "" })]); }
   function renderPage() {
+    // Anything that draws a page while the palette is open closes the palette, so the field never says a list is open.
+    if (paletteState.open) endPalette();
     activeShortcut?.();
     const page = state.data?.pages.find(page => page.id === state.page);
     if (!page) return;
+    drawn = drawnKey();
     renderNavigation(); const main = $("page");
     if(activeWorkspace?.root?.isConnected && activeWorkspace.page === state.page) { updateSaveStrip(); return; }
     activeWorkspace?.dispose?.();activeWorkspace=null;
@@ -838,6 +1023,9 @@
   }
   const materialCache = new Map(), materialRequests = new Map();
   let materialObserver = null, paletteSequence = 0;
+  // What the last answer's theme was, the newest state request, and what the page on screen was drawn from.
+  let receivedPaletteKey = "", refreshTicket = 0, drawnTicket = 0, drawn = "";
+  const drawnKey = () => JSON.stringify([state.page, state.appearancePanel, [...state.draft], [...state.invalid], state.data]);
   async function material(theme, size = "preview") {
     const key = theme + ":" + size;
     if (materialCache.has(key)) {
@@ -1038,12 +1226,38 @@
     main.append(el("section", { class: "section" }, [el("h2", { text: account.title || "Your account" }), el("p", { class: "secondary", text: account.description || "Open your account to view access and sign-in options." })]));
     const button = el("button", { text: "Manage account" }); button.addEventListener("click", () => action("account", {}, button)); main.append(el("div", { class: "action-list" }, [button]));
   }
-  let menuBack = null, lastMenuMove = null, menuOpener = "";
+  let menuBack = null, lastMenuMove = null, menuOpener = "", menuHomeWidth = 0;
   // The Pill menu's sizes (CSS px at 100%), the same numbers as shell.css --menu-* and
   // menu_geometry.MENU_METRICS (tests/test_the_menu_fits_its_window.py keeps all three).
-  const MENU_SIZE = {pad: 6, header: 44, row: 40, update: 64, sep: 9};
-  const menuViewHeight = rows => 2 * MENU_SIZE.pad + MENU_SIZE.header + rows.reduce((sum, item) =>
+  const MENU_SIZE = {pad: 4, header: 44, row: 32, update: 49, sep: 9};
+  const menuViewHeight = (rows, header = true) => 2 * MENU_SIZE.pad + (header ? MENU_SIZE.header : 0) + rows.reduce((sum, item) =>
     sum + (item.separator ? MENU_SIZE.sep : item.kind === "update" ? MENU_SIZE.update : MENU_SIZE.row), 0);
+  // 0.4.177 IA phase 3 (PHASE2-REVIEW-0477.md decision 1, shadcn's DropdownMenuContent, which sizes to its content):
+  // the window is as wide as its widest row needs, from 288 to 360 px (shell.css --menu-w and --menu-w-max,
+  // menu_geometry.MENU_METRICS width and max_width). The page lays each row out once at its natural width
+  // (.menu-measure) and sends the width with the height (menu_fit). A row whose value would take it past 360 px
+  // drops the value: a value never cuts its label (phase 2's rule), however long a custom binding is. The open and
+  // slide animations scale the boxes, so each width is read through the list's own scale.
+  const MENU_WIDTH = {min: 288, max: 360};
+  function menuViewWidth(list) {
+    const ratio = (list.offsetWidth && list.getBoundingClientRect().width / list.offsetWidth) || 1;
+    const box = node => { const rect = node.getBoundingClientRect(); return {left: (rect.left ?? rect.x ?? 0) / ratio, width: (rect.width || 0) / ratio}; };
+    list.classList.add("menu-measure");
+    const rows = [...list.querySelectorAll(".menu-row")].map(row => {
+      const value = row.querySelector(".menu-value"), label = row.querySelector(".menu-label"), whole = box(row).width;
+      if (!value || !label) return {value: null, whole, bare: whole};
+      const end = box(value), start = box(label);
+      return {value, whole, bare: whole - Math.max(0, end.left + end.width - start.left - start.width)};
+    });
+    list.classList.remove("menu-measure");
+    const inset = 2 * MENU_SIZE.pad;
+    let widest = 0;
+    for (const row of rows) {
+      if (row.value && row.whole + inset > MENU_WIDTH.max) row.value.remove();
+      widest = Math.max(widest, row.value?.parentNode ? row.whole : row.bare);
+    }
+    return Math.min(MENU_WIDTH.max, Math.max(MENU_WIDTH.min, Math.ceil(widest + inset)));
+  }
   // A right-click opens the menu with its first row focused for the keyboard and screen
   // readers, but no ring until a key is pressed, as Windows' own menus do.
   document.addEventListener("keydown", () => document.body.removeAttribute("data-menu-quiet"), true);
@@ -1103,14 +1317,138 @@
       up.addEventListener("click", event => move(-1, event)); down.addEventListener("click", event => move(1, event));
       main.append(el("div", {class:"menu-order-row"}, [el("span", {text:byId.get(id).label}),up,down]));
     }
-    main.append(el("p", {class:"secondary",text:"App controls: " + fixed.map(row=>row.label).join(", ")}));
+    // 0.4.177 IA phase 2: App controls is gone; the switches, Settings, Help, Restart and Quit keep their places.
+    main.append(el("p", {class:"secondary",text:"Always in place: " + ["Speech", "Writing style", ...fixed.map(row=>row.label)].join(", ")}));
     const reset = el("button", {text:"Use default order"});
     reset.addEventListener("click", () => { dirty(field,"[]"); renderPage(); }); main.append(el("div", {class:"action-list"}, [reset]));
   }
+  // 0.4.177, the owner's order of 2026-11-05: the Pill menu's submenus open BESIDE it, in a window of their
+  // own, as WinUI's MenuFlyoutSubItem does (FLUENT-MENUS-SPEC.md B6, B9). Resting on a row for Windows'
+  // MenuShowDelay (400 ms) opens its submenu, a click opens it at once, resting on another row closes it after
+  // the same delay unless the pointer reaches the submenu, Right opens it from the keyboard, and Left or Esc in
+  // it closes only it. Invoking any of its items closes every menu. The submenu page only draws and reports;
+  // this page decides. Where the renderer has no submenu window, the submenu opens in place as before.
+  const MENU_SHOW_DELAY_MS = 400;
+  const flyout = {open: null, hoverTimer: 0, closeTimer: 0, window: true, armed: "", disarm: 0};
+  const flyoutTheme = () => Object.fromEntries(Object.entries(state.data?.palette || {})
+    .filter(([, value]) => ["string", "number", "boolean"].includes(typeof value) && String(value).length <= 300).slice(0, 64));
+  const flyoutRow = child => child.separator ? {label:"-", kind:"separator"} : {
+    label: child.id && child.id === flyout.armed ? MENU_CONFIRM[child.id] : child.label,
+    icon: child.icon || "general", kind: child.choice ? "radio" : "item",
+    ...(child.choice ? {checked: Boolean(child.checked)} : {}), ...(child.value ? {value: child.value} : {}),
+    ...(child.description ? {description: child.description} : {})};
+  function clearFlyoutTimers() { clearTimeout(flyout.hoverTimer); clearTimeout(flyout.closeTimer); flyout.hoverTimer = flyout.closeTimer = 0; }
+  async function drawFlyout(keyboard) {
+    const {button, item} = flyout.open;
+    const box = button.getBoundingClientRect();
+    const height = 2 * MENU_SIZE.pad + item.children.reduce((sum, child) => sum + (child.separator ? MENU_SIZE.sep : MENU_SIZE.row), 0);
+    await rpc("submenu", {op:"open", rows:item.children.map(flyoutRow), keyboard, scale:window.devicePixelRatio || 1, theme:flyoutTheme(),
+      anchor:{x:box.x ?? box.left ?? 0, y:box.y ?? box.top ?? 0, width:box.width || button.offsetWidth, height:box.height || button.offsetHeight},
+      size:{width:window.innerWidth || MENU_WIDTH.min, height}});
+  }
+  async function openFlyout(button, item, keyboard) {
+    clearFlyoutTimers();
+    if (!flyout.window) { item.run(); return; }
+    if (flyout.open?.button === button && !keyboard) return;
+    if (flyout.open) closeFlyout(false);
+    flyout.open = {button, item}; flyout.armed = "";
+    button.classList.add("submenu-open"); button.setAttribute("aria-expanded", "true");
+    try { await drawFlyout(keyboard); }
+    catch {
+      // No submenu window here (the Mac, or it could not start): the submenu opens in place, as before 0.4.177.
+      flyout.window = false; flyout.open = null;
+      button.classList.remove("submenu-open"); button.removeAttribute("aria-expanded");
+      item.run();
+    }
+  }
+  function closeFlyout(refocus) {
+    clearFlyoutTimers();
+    const open = flyout.open;
+    flyout.open = null; flyout.armed = ""; clearTimeout(flyout.disarm);
+    if (!open) return;
+    open.button.classList.remove("submenu-open"); open.button.removeAttribute("aria-expanded");
+    rpc("submenu", refocus ? {op:"close", refocus:true} : {op:"close"}).catch(() => {});
+    if (refocus) open.button.focus();
+  }
+  function hoverOpen(button, item) {
+    clearTimeout(flyout.closeTimer); flyout.closeTimer = 0;
+    if (flyout.open?.button === button) return;
+    clearTimeout(flyout.hoverTimer);
+    flyout.hoverTimer = setTimeout(() => { flyout.hoverTimer = 0; menuOpener = item.label; openFlyout(button, item, false); }, MENU_SHOW_DELAY_MS);
+  }
+  function hoverAway(button) {
+    clearTimeout(flyout.hoverTimer); flyout.hoverTimer = 0;
+    if (!flyout.open || flyout.open.button === button) return;
+    clearTimeout(flyout.closeTimer);
+    flyout.closeTimer = setTimeout(() => closeFlyout(false), MENU_SHOW_DELAY_MS);
+  }
+  function submenuEvent(message) {
+    const kind = message?.kind, index = message?.index;
+    if (kind === "enter") { clearTimeout(flyout.closeTimer); flyout.closeTimer = 0; return; }
+    if (kind === "leave") {
+      if (flyout.open) { clearTimeout(flyout.closeTimer); flyout.closeTimer = setTimeout(() => closeFlyout(false), MENU_SHOW_DELAY_MS); }
+      return;
+    }
+    if (kind === "close") { closeFlyout(true); return; }
+    if (kind !== "invoke" || !flyout.open) return;
+    const child = flyout.open.item.children[index];
+    if (!child || child.separator || (child.choice && child.checked)) return;
+    // Restart and Quit arm on their first click and act on a second within 3 s (X-686), here too.
+    const key = child.id || child.action?.replace("menu:", "") || "";
+    if (MENU_CONFIRM[key] && flyout.armed !== key) {
+      flyout.armed = key; clearTimeout(flyout.disarm);
+      flyout.disarm = setTimeout(() => { flyout.armed = ""; if (flyout.open) drawFlyout(false).catch(() => {}); }, MENU_CONFIRM_MS);
+      drawFlyout(false).catch(() => {});
+      return;
+    }
+    flyout.armed = "";
+    action(child.action, {}, null);
+  }
+  // The submenu window's page (shell_host._SubmenuApi): it draws the rows the menu sends and reports pointer,
+  // click and key events back. It keeps no state of its own and asks the app for nothing.
+  let submenuWired = false;
+  function showSubmenu(payload) {
+    const report = (kind, index = -1) => { try { window.pywebview?.api?.event?.(kind, index); } catch { /* the menu is gone */ } };
+    document.body.classList.add("menu-view", "submenu-view");
+    if (!submenuWired) {
+      submenuWired = true;
+      document.body.addEventListener("pointerenter", () => report("enter"));
+      document.body.addEventListener("pointerleave", () => report("leave"));
+    }
+    if (payload?.theme) applyPalette(payload.theme);
+    const main = $("page"), list = el("div", {class:"menu-items", role:"menu"});
+    (payload?.rows || []).forEach((row, index) => {
+      if (row.kind === "separator") { list.append(el("div", {class:"menu-sep", role:"separator"})); return; }
+      const radio = row.kind === "radio", parts = [];
+      if (radio) parts.push(el("span", {class:"menu-check" + (row.checked ? "" : " menu-check-off"), "aria-hidden":"true"}));
+      parts.push(icon(row.icon || "general"), el("span", {class:"menu-label"}, [el("span", {text:row.label})]));
+      if (row.value) parts.push(el("span", {class:"menu-value", text:row.value}));
+      const button = el("button", {role:radio ? "menuitemradio" : "menuitem", class:"menu-row", "aria-label":row.label, "data-index":String(index)}, parts);
+      if (radio) button.setAttribute("aria-checked", row.checked ? "true" : "false");
+      if (row.description) button.setAttribute("aria-description", row.description);
+      button.addEventListener("click", () => report("invoke", index));
+      list.append(button);
+    });
+    list.addEventListener("keydown", event => {
+      const buttons = [...list.querySelectorAll('[role^="menuitem"]')];
+      let at = buttons.indexOf(document.activeElement);
+      if (event.key === "ArrowLeft" || event.key === "Escape") { event.preventDefault(); report("close"); return; }
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); if (at >= 0) report("invoke", Number(buttons[at].getAttribute("data-index"))); return; }
+      if (event.key === "ArrowDown") at = (at + 1) % buttons.length;
+      else if (event.key === "ArrowUp") at = (at - 1 + buttons.length) % buttons.length;
+      else return;
+      event.preventDefault(); buttons[at]?.focus();
+    });
+    main.replaceChildren(list);
+    document.body.classList.remove("submenu-opening"); void document.body.offsetWidth; document.body.classList.add("submenu-opening");
+    if (payload?.keyboard) list.querySelector('[role^="menuitem"]')?.focus();
+  }
   function renderMenu(main) {
     menuBack = null;
+    if (flyout.open) closeFlyout(false);
+    clearFlyoutTimers(); flyout.window = true;
     document.body.setAttribute("data-menu-quiet", "");
-    const iconNames = {settings:"general",paste_last:"paste",history:"history",more_features:"tools",stats:"stats",ramble:"formatting",captions:"captions",translation:"translation",scratchpad:"scratchpad",scribe:"scribe",local_models:"dictation",check_updates:"download",restart_app:"restart",quit_app:"power"};
+    const iconNames = {hands_free:"handsfree",settings:"general",help:"help",pause:"pause",paste_last:"paste",history:"history",more_features:"tools",stats:"stats",ramble:"formatting",captions:"captions",translation:"translation",scratchpad:"notes",scribe:"scribe",restart_app:"restart",quit_app:"power"};
     // Tools' child rows carry only an action ("menu:captions"), no id. Looking
     // the icon up by `item.id` alone gave Live captions and Translate the
     // generic sliders; the action names the destination just as well.
@@ -1130,14 +1468,17 @@
       const old = direction && motionAllowed() ? main.querySelector(".menu-items:not(.menu-items-leaving)") : null;
       const oldBox = old ? {top: old.offsetTop, height: old.offsetHeight} : null;
       main.replaceChildren(); menuBack = back;
-      const heading = el("div", {class:"pill-menu-heading"});
-      if (back) { const previous=el("button", {class:"quiet menu-back", "aria-label":"Back to menu"}, [glyph("back")]); previous.addEventListener("click",back); heading.append(previous); }
-      heading.append(el("h1", {text:title}));
-      if (!back) { const help=el("button", {class:"quiet menu-help", "aria-label":"Help"}, [glyph("help")]); help.addEventListener("click",()=>{action("menu:help",{},help);}); heading.append(help); }
-      const close=el("button", {class:"quiet menu-close", "aria-label":"Close menu"}, [glyph("close")]); close.addEventListener("click",()=>{leaveMenu();rpc("dismiss").catch(e=>notice(e.message,true));}); heading.append(close);
+      // 0.4.177: a Windows 11 context menu has no title bar (MenuFlyout). Only the in-place
+      // submenu, the fallback where the renderer has no submenu window, keeps a heading with Back.
+      const heading = back ? el("div", {class:"pill-menu-heading"}) : null;
+      if (back) {
+        const previous=el("button", {class:"quiet menu-back", "aria-label":"Back to menu"}, [glyph("back")]); previous.addEventListener("click",back); heading.append(previous);
+        heading.append(el("h1", {text:title}));
+        const close=el("button", {class:"quiet menu-close", "aria-label":"Close menu"}, [glyph("close")]); close.addEventListener("click",()=>{leaveMenu();rpc("dismiss").catch(e=>notice(e.message,true));}); heading.append(close);
+      }
       const list=el("div", {class:"menu-items",role:"menu","aria-label":title});
       // X-686 (interaction grid, build 10): a row acts only on a press that began on
-      // it in THIS view. A double-click on Speech, Formatting, Tools or App controls
+      // it in THIS view. A double-click on Speech, Writing style or Tools (once App controls too)
       // replaced the rows in place, and its second click landed on whatever row now
       // sat in that slot: on a short menu, Restart or Quit. The second click of a
       // double-click is never a second decision here, and Restart and Quit arm on
@@ -1157,13 +1498,18 @@
           parts.push(icon(item.icon || "general"), text);
           if (item.value) parts.push(el("span", {class:"menu-value",text:item.value}));
           if (item.run) parts.push(el("span", {class:"menu-chevron","aria-hidden":"true"}));
-          if (item.choice && item.checked) parts.push(el("span", {class:"menu-check","aria-hidden":"true"}));
+          if ((item.choice || item.check) && item.checked) parts.push(el("span", {class:"menu-check","aria-hidden":"true"}));
         }
-        const button=el("button", {role:item.choice ? "menuitemradio" : "menuitem",class:"menu-row"+(item.kind?" menu-row-"+item.kind:"")+(item.required?" required":""), "data-action":item.action || item.id || "", "aria-label":item.name || item.label}, parts);
+        // 0.4.177 IA phase 2: an on/off option is a check row (menuitemcheckbox) whose label never flips (R6), and the
+        // main action is the menu's default row, bold as Windows draws a default item (R2).
+        const role = item.check ? "menuitemcheckbox" : item.choice ? "menuitemradio" : "menuitem";
+        const button=el("button", {role,class:"menu-row"+(item.kind?" menu-row-"+item.kind:"")+(item.default?" menu-row-default":"")+(item.required?" required":""), "data-action":item.action || item.id || "", "aria-label":item.name || item.label}, parts);
         if (item.description) button.setAttribute("aria-description", item.description);
-        if (item.choice) button.setAttribute("aria-checked", item.checked ? "true" : "false");
+        if (item.choice || item.check) button.setAttribute("aria-checked", item.checked ? "true" : "false");
         // A keyboard open (Right) is never a stray press, so it skips the X-686 press guard.
-        if (item.run) { button.setAttribute("aria-haspopup", "menu"); button.menuOpen = () => { menuOpener = item.label; item.run(); }; }
+        if (item.run) { button.setAttribute("aria-haspopup", "menu"); button.menuOpen = () => { menuOpener = item.label; openFlyout(button, item, true); }; }
+        // 0.4.177: on the top level, resting on a row opens its submenu or closes the open one (WinUI's 400 ms).
+        if (!back) button.addEventListener("pointerenter", () => item.run ? hoverOpen(button, item) : hoverAway(button));
         const confirm = MENU_CONFIRM[item.id || item.action?.replace("menu:","") || ""];
         let disarm = 0;
         const arm = on => {
@@ -1181,17 +1527,22 @@
           if (confirm) arm(false);
           // The current choice is already made: pressing it again changes nothing.
           if (item.choice && item.checked) return;
-          if (item.run) { menuOpener = item.label; item.run(); } else action(item.action,{},button);
+          if (item.run) { menuOpener = item.label; if (back) item.run(); else openFlyout(button, item, false); } else action(item.action,{},button);
         });
         list.append(button);
       }
-      main.append(heading,list); menuKeys(list);
+      main.append(...(heading ? [heading] : []), list); menuKeys(list);
+      // 0.4.177 IA phase 3: the window is as wide as its widest row needs (menuViewWidth: 288 to 360 px; past 360 a
+      // value never cuts its label, phase 2's rule). A view shown in place keeps Home's width, so the menu never
+      // changes width under the pointer.
+      const width = Math.max(menuViewWidth(list), back ? menuHomeWidth : 0);
+      if (!back) menuHomeWidth = width;
       if (direction) list.dataset.enter = direction;
       // 2026-10-09: the window takes this view's height. It grows before the slide, so
       // the arriving rows have room, and shrinks after it, so the leaving rows are not
       // cut; the content sits on the Pill's side of the window, so nothing jumps.
-      const height = menuViewHeight(rows);
-      const fit = () => rpc("menu_fit", {height}).catch(() => {});
+      const height = menuViewHeight(rows, Boolean(heading));
+      const fit = () => rpc("menu_fit", {height, width}).catch(() => {});
       if (!old || height > window.innerHeight + 0.5) fit();
       if (old) {
         delete old.dataset.enter; delete old.dataset.turn;
@@ -1223,28 +1574,39 @@
           caption:update.required ? "Fixes a problem." : "Restarts to install.",
           description:update.required ? "Fixes a problem. Restarts Talk DAT! to install." : "Restarts Talk DAT! to install."});
       }
-      for (const item of (state.data.menu||[]).filter(item=>!item.fixed)) {
+      // 0.4.177: a submenu row carries its rows, so the menu opens them beside itself (MenuFlyout);
+      // its run() shows them in place, the fallback where the renderer has no submenu window.
+      const submenu = (title, children) => ({children, run: () => show(title, children, back, "forward")});
+      // 0.4.177 IA phase 2 (IA-SCHEMATIC.md section 1): the daily block in the person's Menu layout order, the main
+      // action first, bold, its value its live shortcut; then three fixed groups, each behind a separator: the
+      // switches (Speech and Writing style, drawn from the app's state, then Pause listening), Settings and Help, and
+      // Restart and Quit. App controls is gone: Check for updates is on Home and Help, Arrange menu is Settings >
+      // Appearance > Menu layout, Help is a row of its own.
+      const menu = state.data.menu || [];
+      for (const item of menu.filter(item=>!item.fixed)) {
         const row=entry(item);
-        if(item.children) row.run=()=>show(row.label,item.children.map(entry),back,"forward");
+        if(item.children) Object.assign(row, submenu(row.label, item.children.map(entry)));
+        if(item.shortcut) { const keys = menuShortcut(item.shortcut); if (keys) row.value = keys; }
         rows.push(row);
       }
+      const group = name => menu.filter(item => item.fixed && item.group === name).map(entry);
       rows.push({separator:true});
-      // 2026-10-09: Speech and Formatting are one-of-two choices, shown as radio rows
-      // with the current one checked (they read "On" and "Switch to Executive").
+      // 2026-10-09: Speech and Formatting (Writing style since 0.4.177) are one-of-two choices, shown as radio rows
+      // with the current one checked (they read "On" and "Switch to Executive"). Each ends on its settings row.
       const local = state.data.route === "local", executive = state.data.intensity === "executive";
       const choice = (label, description, icon, checked, action) => ({label, description, icon, action, choice: true, checked});
-      rows.push({id:"speech-route",label:"Speech",value:local?"Local":"Your key",description:local?"Local, on this computer":"Your key, connected provider",icon:"dictation",run:()=>show("Speech",[
+      rows.push({id:"speech-route",label:"Speech",value:local?"Local":"Your key",description:local?"Local, on this computer":"Your key, connected provider",icon:"dictation",...submenu("Speech",[
         choice("Local speech","Process on this computer","dictation",local,"route:local"),
-        choice("Your key","Use your configured provider","account",!local,"route:byok")],back,"forward")},
-        {id:"writing-finish",label:"Formatting",value:executive?"Executive":"Chill",description:executive?"Executive, polished writing":"Chill, natural writing",icon:"formatting",run:()=>show("Formatting",[
+        choice("Your key","Use your configured provider","account",!local,"route:byok"),
+        {separator:true},
+        {label:"Speech settings",description:"Route, provider and model",icon:"general",action:"menu:speech_settings"}])},
+        {id:"writing-style",label:"Writing style",value:executive?"Executive":"Chill",description:executive?"Executive, polished writing":"Chill, natural writing",icon:"formatting",...submenu("Writing style",[
           choice("Chill","Keep your natural speaking style","formatting",!executive,"menu:toggle_intensity"),
           choice("Executive","Polish and structure your writing","formatting",executive,"menu:toggle_intensity"),
           {separator:true},
-          {label:"Writing settings",description:"Numbers, punctuation and cleanup",icon:"general",action:"menu:formatting"}],back,"forward")},
-        {id:"application",label:"App controls",description:"Updates, restart, quit and help",icon:"power",run:()=>show("App controls",[
-          ...(state.data.menu||[]).filter(item=>item.fixed).map(entry),
-          {label:"Arrange menu",description:"Choose your daily order",icon:"appearance",action:"menu_order"},
-          {label:"Help",description:"Guides and feature reference",icon:"help",action:"menu:help"}],back,"forward")});
+          {label:"Writing settings",description:"Numbers, punctuation and cleanup",icon:"general",action:"menu:formatting"}])},
+        ...group("switches"));
+      for (const name of ["places", "lifecycle"]) { const items = group(name); if (items.length) rows.push({separator:true}, ...items); }
       show("Talk DAT!",rows,null,direction);
     };
     home();
@@ -1275,6 +1637,18 @@
     if (hex.test(palette.on_danger || "")) document.documentElement.style.setProperty("--on-danger", palette.on_danger);
     if ([palette.select, palette.muted, palette.text].every(value => hex.test(value || "")))
       document.documentElement.style.setProperty("--muted-on-select", readableOn(palette.select, palette.muted, palette.text));
+    // The owner's reference (2026-11-05) dims every sidebar label, tab and hint that is not the current one. They sit
+    // on the shot's surfaces: the theme's bg, the page lifted 1.6% toward white, and 2.1 to 7% of the text over them;
+    // the Pill menu's rows sit on the panel, resting, hovered and pressed. The theme's muted ink stays wherever it
+    // reads at 4.5:1 on all of them and moves toward the text only as
+    // far as it must (SIDEBAR-REDESIGN-DECISIONS.md D1; tests/test_the_sidebar_opens_like_the_reference.py).
+    if ([palette.bg, palette.panel, palette.muted, palette.text].every(value => hex.test(value || ""))) {
+      const main = mixHex(palette.bg, "#ffffff", .016), field = mixHex(main, palette.text, .021);
+      const surfaces = [palette.bg, mixHex(palette.bg, palette.text, .038), mixHex(palette.bg, palette.text, .07), main, field,
+        mixHex(field, palette.text, .065), mixHex(main, palette.text, .047),
+        palette.panel, mixHex(palette.panel, palette.text, .038), mixHex(palette.panel, palette.text, .07)];
+      document.documentElement.style.setProperty("--chrome-ink", readableOnAll(surfaces, palette.muted, palette.text));
+    }
     // 2026-10-09 (Pill menu): the update row's caption sits on a tint of the theme's
     // accent (the danger colour for a required update), and an error said on the menu
     // sits on the panel or on a row tinted with the danger colour. Measured, the plain
@@ -1307,25 +1681,49 @@
   }
   function receive(data) {
     if (!data || !Array.isArray(data.pages)) return;
+    // The submenu page draws only what the menu sends it.
+    if (document.body.classList.contains("submenu-view")) return;
     state.data = data;
     linkRestored();
     document.body.classList.toggle("reduce-motion", Boolean(data.reduce_motion));
     document.body.classList.toggle("high-contrast", Boolean(data.high_contrast));
     const fonts = {system: '"Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif', constantia: 'Constantia, Georgia, serif', candara: 'Candara, "Segoe UI", sans-serif', knight: 'Knight, "Segoe UI", sans-serif'};
     document.documentElement.style.setProperty("--ui-font", fonts[data.app_font] || fonts.system);
-    applyPalette(data.palette);
+    // Field report 2026-11-05: an answer with the same theme leaves the theme alone.
+    // Applying it again took the material texture off the window until a fetch put it back.
     const themeDraft = state.draft.get("ui.settings_theme");
-    if (themeDraft) applyPalette(data.themes?.find(theme => theme.name === themeDraft));
+    const paletteKey = JSON.stringify([data.palette, themeDraft || "", Boolean(data.high_contrast)]);
+    if (paletteKey !== receivedPaletteKey) {
+      receivedPaletteKey = paletteKey;
+      applyPalette(data.palette);
+      if (themeDraft) applyPalette(data.themes?.find(theme => theme.name === themeDraft));
+    }
     if (!data.pages.some(page => page.id === state.page)) state.page = data.pages[0]?.id;
-    if (searchActive && $("search").value.trim()) renderSearch(); else renderPage();
+    if (paletteState.open) { renderSearch(); return; }
+    // An answer that brings nothing new draws nothing: the page on screen is already it.
+    if (drawnKey() === drawn) return;
+    renderPage();
   }
-  async function refresh() { try { receive(await rpc("state", { page: state.page })); } catch (error) { notice(error.message, true); } }
+  // Field report 2026-11-05: "It jumps between them after I click." A click draws at once
+  // from the data in hand; an answer older than one already drawn is dropped, never drawn over
+  // it. Any other answer draws as it comes: at start the page asks more than once, and holding
+  // the first answer back for the newest request left the window blank (test_web_pill_menu).
+  async function refresh() {
+    // The submenu window's api only reports events (0.4.177, shell_host._SubmenuApi): it loads no state.
+    if (typeof window.pywebview?.api?.event === "function" && typeof window.pywebview?.api?.request !== "function") return;
+    const ticket = ++refreshTicket;
+    try {
+      const data = await rpc("state", { page: state.page });
+      if (ticket > drawnTicket) { drawnTicket = ticket; receive(data); }
+    }
+    catch (error) { if (ticket > drawnTicket) notice(error.message, true); }
+  }
   async function navigate(page, field = "") {
     if(activeWorkspace && page!==state.page && !await activeWorkspace.leave())return;
     if(page==="reset" && (state.draft.size || state.invalid.size)){
       notice("Save or discard your settings changes before clearing local data.",true);return;
     }
-    state.page = page; $("search").value = "";searchActive=false;searchSequence++;
+    state.page = page; endPalette();
     if (page === "appearance" && field) {
       const section = state.data?.pages.find(p=>p.id===page)?.sections.find(s=>s.fields.some(f=>f.id===field))?.label;
       state.appearancePanel = section === "Text and motion" ? "text" : section === "Pill details" ? "pill" : "themes";
@@ -1335,6 +1733,8 @@
     clearTimeout(state.menuLeaveTimer); document.body.classList.remove("menu-leaving");
     // X-684: every open replays the menu's entrance (the window is reused, hidden between opens).
     if (page === "menu") { document.body.classList.remove("menu-opening"); void document.body.offsetWidth; document.body.classList.add("menu-opening"); }
+    // shadcn moves nothing on navigation: the page and the selection change at once (D9).
+    openGroupOf(page);
     renderPage();
     await refresh();
     if(state.page!==page||$("search").value.trim())return;
@@ -1343,39 +1743,178 @@
     if (field) { const row = [...document.querySelectorAll("[data-field]")].find(node => node.dataset.field === field); const disclosure = row?.closest("details"); if (disclosure) disclosure.open = true; row?.scrollIntoView({ block: "center" }); row?.querySelector("button,input,select,textarea")?.focus(); }
     else if (page !== "menu") $("page").focus({ preventScroll: true });
   }
-  let searchSequence=0;
-  $("search").addEventListener("input", async () => {
-    const sequence=++searchSequence;
-    const allowed=!activeWorkspace||await activeWorkspace.leave();
-    if(sequence!==searchSequence)return;
-    if(!allowed) { $("search").value="";return; }
-    if($("search").value.trim()) { activeWorkspace?.dispose?.();activeWorkspace=null; }
+  // 0.4.177 IA phase 3 (the owner, 2026-11-06: an industry-standard menu; IA-SCHEMATIC.md section 4, rules R32 and
+  // R33): the top bar's search is the command palette. Ctrl+K, or a click in the field, opens one list: every action
+  // the Pill and the tray run, by the names they give them (AppShell._commands, in the Pill's daily order), each with
+  // its live shortcut; then the pages; then the settings; filtered as you type. An empty query lists the actions. The
+  // field is a combobox and the list a listbox (the WAI-ARIA pattern): the focus stays in the field, Up and Down move
+  // the active option (aria-activedescendant), Enter runs it and closes the list, and Esc closes it and puts the focus
+  // back where it was. Restart and Quit ask twice, as the Pill menu's do (MENU_CONFIRM; by key, "Press Enter again").
+  // The list draws in the page, where the search always drew its results, so a workspace is left first as before.
+  const PALETTE_CONFIRM = {restart_app: "Press Enter again to restart", quit_app: "Press Enter again to quit"};
+  let searchSequence = 0, lastFocusOutside = null;
+  searchField.setAttribute("role", "combobox");
+  searchField.setAttribute("aria-autocomplete", "list");
+  searchField.setAttribute("aria-controls", "command-palette");
+  searchField.setAttribute("aria-expanded", "false");
+  document.addEventListener("focusin", event => { if (event.target !== searchField) lastFocusOutside = event.target; });
+  // Where the focus was before the list opened: the control, or its id or its setting, since closing the list draws
+  // the page again.
+  function rememberFocus() {
+    const active = document.activeElement;
+    const node = active && active !== searchField && active !== document.body ? active : lastFocusOutside;
+    paletteState.back = node && node !== searchField
+      ? {node, id: node.id || "", field: node.closest?.("[data-field]")?.dataset.field || ""} : null;
+  }
+  function restoreFocus() {
+    const back = paletteState.back; paletteState.back = null;
+    const row = back?.field ? [...document.querySelectorAll("[data-field]")].find(node => node.dataset.field === back.field) : null;
+    const target = (back?.node?.isConnected && back.node) || (back?.id && $(back.id)) || row?.querySelector("button,input,select,textarea") || $("page");
+    target.focus({preventScroll: true});
+  }
+  function disarmPalette() {
+    clearTimeout(paletteState.disarm);
+    const option = paletteState.options.find(item => item.key === paletteState.armed);
+    paletteState.armed = ""; paletteState.armedText = "";
+    if (option) { delete option.node.dataset.armed; option.label.textContent = option.text; option.node.setAttribute("aria-label", option.text); }
+  }
+  function armPalette(option, how) {
+    disarmPalette();
+    const text = (how === "key" ? PALETTE_CONFIRM : MENU_CONFIRM)[option.entry.id];
+    paletteState.armed = option.key; paletteState.armedText = text;
+    option.node.dataset.armed = "true"; option.label.textContent = text; option.node.setAttribute("aria-label", text);
+    $("notice").textContent = text;
+    paletteState.disarm = setTimeout(disarmPalette, MENU_CONFIRM_MS);
+  }
+  function markPaletteActive(index) {
+    paletteState.active = index;
+    paletteState.options.forEach((option, at) => option.node.setAttribute("aria-selected", String(at === index)));
+    const node = paletteState.options[index]?.node;
+    if (node) { searchField.setAttribute("aria-activedescendant", node.id); node.scrollIntoView?.({block: "nearest"}); }
+    else searchField.removeAttribute("aria-activedescendant");
+  }
+  // Moving off a Restart or Quit that asked once takes its question back.
+  function setPaletteActive(index) { if (index !== paletteState.active) disarmPalette(); markPaletteActive(index); }
+  function endPalette() {
+    disarmPalette();
+    paletteState.open = false; paletteState.options = []; paletteState.active = -1;
+    searchField.value = ""; searchSequence++;
+    searchField.setAttribute("aria-expanded", "false"); searchField.removeAttribute("aria-activedescendant");
+  }
+  function closePalette() { endPalette(); renderPage(); restoreFocus(); }
+  async function openPalette() {
+    if (paletteState.open) { renderSearch(); return; }
+    const sequence = ++searchSequence;
+    const allowed = !activeWorkspace || await activeWorkspace.leave();
+    if (sequence !== searchSequence) return;
+    if (!allowed) { searchField.value = ""; paletteState.back = null; return; }
+    activeWorkspace?.dispose?.(); activeWorkspace = null;
+    paletteState.open = true; paletteState.active = -1;
     renderSearch();
+    // The check rows say the app's state as it is now (Pause listening may have been chosen in the tray since).
+    refresh();
+  }
+  // Running an option closes the list: an action puts the focus back and then runs; a page or a setting goes to its
+  // place. A choice already made runs nothing.
+  function runPaletteOption(option, how) {
+    if (!option) return;
+    if (option.entry?.confirm) {
+      if (paletteState.armed !== option.key) { armPalette(option, how); return; }
+      disarmPalette();
+    }
+    if (option.kind === "page" || option.kind === "setting") { endPalette(); paletteState.back = null; option.run(); return; }
+    closePalette();
+    option.run();
+  }
+  searchField.addEventListener("pointerdown", () => { if (!paletteState.open) rememberFocus(); });
+  searchField.addEventListener("click", () => { if (!paletteState.open) openPalette(); });
+  searchField.addEventListener("input", () => {
+    disarmPalette();
+    paletteState.active = -1;
+    if (paletteState.open) { renderSearch(); return; }
+    if (!searchField.value.trim()) return;
+    rememberFocus();
+    openPalette();
+  });
+  searchField.addEventListener("keydown", event => {
+    if (event.key === "Escape" && paletteState.open) { event.preventDefault(); event.stopPropagation(); closePalette(); return; }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!paletteState.open) { rememberFocus(); openPalette(); return; }
+      const count = paletteState.options.length;
+      if (!count) return;
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      setPaletteActive(paletteState.active < 0 ? (step > 0 ? 0 : count - 1) : (paletteState.active + step + count) % count);
+      return;
+    }
+    if (event.key === "Enter" && paletteState.open) { event.preventDefault(); runPaletteOption(paletteState.options[paletteState.active], "key"); }
   });
   function renderSearch() {
-    const query = $("search").value.trim().toLowerCase(); searchActive=Boolean(query); if (!query) { renderPage(); return; }
+    const query = searchField.value.trim().toLowerCase();
     activeShortcut?.();
     const main = $("page"); main.replaceChildren(intro({ title:"Search", description:"Settings, tools and guides in one place." }));
-    let count = 0;
-    const matches = content => query.split(/\s+/).every(word => content.toLowerCase().includes(word));
-    for (const tool of state.data?.tools || []) {
-      if (!matches(tool.label+" "+tool.description)) continue;
-      const button = el("button", {class:"search-result",text:tool.label}, [el("small",{text:"Tool: "+tool.description})]);
-      button.addEventListener("click",()=>action(tool.action,{},button)); main.append(button); count++;
+    const words = query.split(/\s+/).filter(Boolean);
+    const matches = content => words.every(word => content.toLowerCase().includes(word));
+    const keep = paletteState.options[paletteState.active]?.key, armed = paletteState.armed;
+    paletteState.options = [];
+    const list = el("div", {id:"command-palette", class:"command-palette", role:"listbox", "aria-label":"Search results"});
+    const option = item => {
+      const index = paletteState.options.length, entry = item.entry;
+      const label = el("span", {class:"command-label", text:item.text});
+      const parts = [el("span", {class:"command-text"}, [label, ...(item.detail ? [el("small", {text:item.detail})] : [])])];
+      const shortcut = entry?.shortcut ? menuShortcut(entry.shortcut) : "";
+      if (shortcut) parts.push(el("span", {class:"command-shortcut", text:shortcut}));
+      const checkable = Boolean(entry && (entry.choice || entry.check));
+      if (checkable && entry.checked) parts.push(el("span", {class:"command-check", "aria-hidden":"true"}));
+      const node = el("button", {type:"button", id:"command-option-" + index, class:"search-result command-option", role:"option",
+        tabindex:"-1", "aria-selected":"false", "aria-label":item.text}, parts);
+      const description = [item.detail, shortcut].filter(Boolean).join(", ");
+      if (description) node.setAttribute("aria-description", description);
+      if (checkable) node.setAttribute("aria-checked", entry.checked ? "true" : "false");
+      const made = {...item, index, node, label};
+      // A press keeps the focus in the field (the combobox pattern); a double-click never confirms Restart or Quit.
+      node.addEventListener("mousedown", event => event.preventDefault());
+      node.addEventListener("click", event => {
+        if (event.detail > 1 && entry?.confirm) return;
+        setPaletteActive(index);
+        runPaletteOption(made, event.detail > 0 ? "pointer" : "key");
+      });
+      paletteState.options.push(made);
+      return node;
+    };
+    const group = (id, title, items) => {
+      if (!items.length) return;
+      const heading = el("div", {class:"command-heading", id:"command-group-" + id, role:"presentation", text:title});
+      list.append(el("div", {class:"command-group", role:"group", "aria-labelledby":heading.id}, [heading, ...items.map(item => option(item))]));
+    };
+    const commands = state.data?.commands || [];
+    const actions = commands.filter(entry => matches(entry.label + " " + (entry.group || ""))).map(entry => ({kind:"action",
+      key:"action:" + entry.id, text:entry.label, detail:entry.group || "", entry,
+      run:() => { if (entry.choice && entry.checked) return; action(entry.action); }}));
+    // Settings' other tools (Words, Mic Doctor, Back up and the rest) are actions too; a tool the palette already lists
+    // is not said twice.
+    const listed = new Set(commands.map(entry => entry.action));
+    const tools = words.length ? (state.data?.tools || []).filter(tool => !listed.has(tool.action) && matches(tool.label + " " + tool.description))
+      .map(tool => ({kind:"tool", key:"tool:" + tool.action, text:tool.label, detail:"Tool: " + tool.description, run:() => action(tool.action)})) : [];
+    const pages = words.length ? (state.data?.pages || []).filter(page => page.id !== "menu" && matches(page.label + " " + page.description + " " + (page.keywords || "")))
+      .map(page => ({kind:"page", key:"page:" + page.id, text:page.label, detail:page.description, run:() => navigate(page.id)})) : [];
+    const fields = [];
+    if (words.length) for (const page of state.data?.pages || []) for (const section of page.sections || []) for (const field of section.fields || []) {
+      if (page.id === "words" || !matches(`${field.label} ${field.description} ${section.label} ${page.label}`)) continue;
+      fields.push({kind:"setting", key:"field:" + field.id, text:field.label, detail:page.label + ": " + (field.description || section.label),
+        run:() => navigate(page.id, field.id)});
     }
-    for (const page of state.data?.pages || []) {
-      if (page.id === "menu" || !matches(page.label+" "+page.description+" "+(page.keywords||""))) continue;
-      const button=el("button",{class:"search-result",text:page.label},[el("small",{text:page.description})]);
-      button.addEventListener("click",()=>navigate(page.id));main.append(button);count++;
-    }
-    for (const page of state.data?.pages || []) for (const section of page.sections || []) for (const field of section.fields || []) {
-      if (page.id === "words") continue;
-      const content = `${field.label} ${field.description} ${section.label} ${page.label}`.toLowerCase();
-      if (!query.split(/\s+/).every(word => content.includes(word))) continue;
-      const button = el("button", { class: "search-result", text: field.label }, [el("small", { text: page.label + ": " + (field.description || section.label) })]);
-      button.addEventListener("click", () => navigate(page.id, field.id)); main.append(button); count++;
-    }
-    if (!count) main.append(el("p", { class: "secondary", text: "No matches. Try 'microphone', 'History' or 'formatting'." }));
+    group("actions", "Actions", [...actions, ...tools]);
+    group("pages", "Pages", pages);
+    group("settings", "Settings", fields);
+    if (paletteState.options.length) main.append(list);
+    else main.append(el("p", { class: "secondary", text: "No matches. Try 'microphone', 'History' or 'formatting'." }));
+    const again = paletteState.options.find(item => item.key === armed);
+    if (again) { again.node.dataset.armed = "true"; again.label.textContent = paletteState.armedText; again.node.setAttribute("aria-label", paletteState.armedText); }
+    else if (armed) { clearTimeout(paletteState.disarm); paletteState.armed = ""; paletteState.armedText = ""; }
+    const kept = paletteState.options.findIndex(item => item.key === keep);
+    markPaletteActive(kept >= 0 ? kept : paletteState.options.length ? 0 : -1);
+    searchField.setAttribute("aria-expanded", String(paletteState.options.length > 0));
   }
   $("help-button").prepend(icon("help"));
   document.querySelector(".search>span").replaceWith(icon("search"));
@@ -1454,7 +1993,7 @@
   $("conflict-dialog").addEventListener("cancel", cancelClose);
   $("conflict-latest").addEventListener("click", () => { state.draft.clear(); state.invalid.clear(); $("conflict-dialog").close(); receive(state.data); if (state.closingRequested) rpc("close").catch(() => {}); });
   $("conflict-keep").addEventListener("click", () => { state.draftRevision = state.data.revision; $("conflict-dialog").close(); save(state.closingRequested); });
-  window.TalkDat = Object.freeze({ receive, navigate, refresh, flag, requestClose: async () => { if(activeWorkspace&&!await activeWorkspace.leave()){cancelClose();return;} state.closingRequested = true; if (state.draft.size || state.invalid.size) { if (!$("close-dialog").open) $("close-dialog").showModal(); } else rpc("close").catch(() => {}); } });
+  window.TalkDat = Object.freeze({ receive, navigate, refresh, flag, submenuEvent, showSubmenu, requestClose: async () => { if(activeWorkspace&&!await activeWorkspace.leave()){cancelClose();return;} state.closingRequested = true; if (state.draft.size || state.invalid.size) { if (!$("close-dialog").open) $("close-dialog").showModal(); } else rpc("close").catch(() => {}); } });
   window.addEventListener("blur", () => { if (state.page === "menu") { leaveMenu(); rpc("dismiss").catch(() => {}); } });
   window.addEventListener("pywebviewready", refresh);
   if (window.pywebview?.api) refresh();

@@ -561,8 +561,14 @@ _COPULA = frozenset("is are was were".split())
 
 
 def _ends_unfinished(sentence: str) -> bool:
-    words = re.findall(r"[A-Za-z']+", sentence.lower())
+    spoken = re.findall(r"[A-Za-z']+", sentence)
+    words = [word.lower() for word in spoken]
     if len(words) < 4 or words[-1] not in _UNFINISHED_ENDINGS:
+        return False
+    # 2026-10-29, from his 10-26 dictation ("is above an A."): an article, a
+    # conjunction or a copula left hanging is lowercase mid-sentence, so a
+    # capital on the last word is the letter or a name, and the thought ends.
+    if not spoken[-1].islower():
         return False
     if words[-1] in _COPULA:
         # "that's what it is", "I don't know where he was": a wh-clause (or
@@ -687,6 +693,37 @@ _SOFT_BREAK_RE = re.compile(
     r")\b\s+",
     re.IGNORECASE,
 )
+
+# 2026-10-29, from his 10-26 dictation ("a A plus", "I finally got"): a cue
+# inside a clause is not a new sentence. A subject, an auxiliary or "to" right
+# before it leaves the clause open ("we also need", "it was finally done", "to
+# also check"), and "plus" starts a sentence only when a clause follows it
+# ("plus the service was fast"); otherwise it is a grade, a sum or a noun ("a B
+# plus", "a big plus for the team").
+_CLAUSE_OPEN_BEFORE_CUE = frozenset(
+    "i we you he she it they who".split()
+    + ["to"]
+    + "am is are was were be been being have has had do does did".split()
+    + "will would shall should can could may might must".split()
+    + "i'm we're you're they're he's she's it's that's there's i've we've you've they've".split()
+    + "i'll we'll you'll they'll he'll she'll it'll i'd we'd you'd they'd he'd she'd".split()
+)
+_CLAUSE_OPENERS_AFTER_PLUS = frozenset(
+    "i we you he she it they there this that these those the my our your his her its their".split()
+    + "i'm we're you're they're he's she's it's that's there's i've we've you've they've".split()
+    + "i'll we'll you'll they'll he'll she'll it'll".split()
+)
+
+
+def _cue_inside_a_clause(before: str, cue: str, after: str) -> bool:
+    previous = re.search(r"([A-Za-z']+)\W*$", before)
+    if previous and previous.group(1).lower().replace("’", "'") in _CLAUSE_OPEN_BEFORE_CUE:
+        return True
+    if cue.lower() != "plus":
+        return False
+    following = re.match(r"\s*([A-Za-z']+)", after)
+    return not (following and following.group(1).lower().replace("’", "'") in _CLAUSE_OPENERS_AFTER_PLUS)
+
 
 _BULLET_CUE_RE = re.compile(
     r"\b("
@@ -1715,6 +1752,8 @@ def _soft_break_run_on(line: str) -> str:
         cue = match.group(1)
         if first_then and cue.lower() == "and then":
             return match.group(0)
+        if _cue_inside_a_clause(line[:match.start()], cue, line[match.end():]):
+            return match.group(0)
         cue = re.sub(
             r"^and\s+(?=after that\b|before that\b|then\b)",
             "",
@@ -1756,6 +1795,18 @@ _NUMBER_WORDS = frozenset((
 ).split())
 
 
+def _another_word_in_capitals(word: str, run: str) -> bool:
+    """True when a function word comes back in capitals: another word, not a stutter.
+
+    2026-10-29, from his 10-26 dictation ("above a A minus"): mid-sentence a
+    function word is lowercase, so a copy in capitals is the letter A, a name
+    or a title ("the The Who"). "I" is a capital everywhere, so "i I" is still
+    one word said twice.
+    """
+    lowered = word.lower()
+    return word.islower() and not run.islower() and lowered != "i" and not lowered.startswith("i'")
+
+
 def _remove_immediate_repeats(text: str) -> str:
     """Collapse STT stutters of function words; keep every deliberate repeat."""
     number_words = _NUMBER_WORDS
@@ -1767,6 +1818,8 @@ def _remove_immediate_repeats(text: str) -> str:
             word = match.group(1)
             lowered = word.lower()
             if lowered not in _STUTTER_WORDS:
+                return match.group(0)
+            if _another_word_in_capitals(word, match.group(0)):
                 return match.group(0)
             if lowered in {"is", "was"} and _CLEFT_BEFORE_RE.search(prose[:match.start()]):
                 return match.group(0)
@@ -2791,7 +2844,7 @@ def _repetition_dropped(source: str, candidate: str) -> bool:
         counts = Counter()
         for match in _DOUBLED_WORD_RE.finditer(text):
             word = match[1].casefold()
-            if word not in _NUMBER_WORDS:
+            if word not in _NUMBER_WORDS and not _another_word_in_capitals(match[1], match[0]):
                 counts[word] += len(re.findall(r"\b[A-Za-z']+\b", match[0]))
         return counts
 

@@ -129,5 +129,5 @@ class ResetActions:
     def finish(self):
         if not getattr(self.app,"_reset_finished",False):
             raise ValueError("Wait for the reset to finish.")
-        self.app._cross_thread_calls.put(lambda:self.app.quit(settings_confirmed=True))
+        self.app._cross_thread_calls.put(lambda:self.app.quit(settings_confirmed=True,source="reset"))
 

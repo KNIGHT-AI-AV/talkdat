@@ -119,22 +119,31 @@ class TheMenuKeepsItsDesignedShapeTests(unittest.TestCase):
         the way to something routine; they come last, behind a separator."""
         panic = self.source.index('"Panic stop"')
         quit_ = self.source.index('"Quit Talk DAT!"')
-        for name in ('"History"', '"Settings"', '"Hands-free dictation"', 'self._update_label'):
+        for name in ('"History"', '"Settings"', '"Start hands-free dictation"', 'self._update_label',
+                     '"Restart Talk DAT!"'):
             self.assertLess(self.source.index(name), panic, name + " sits below Panic")
         self.assertLess(panic, quit_, "Quit is the very last item")
 
-    def test_rare_rooms_live_under_more(self) -> None:
-        more = self.source[self.source.index("more = pystray.Menu("):self.source.index("menu = pystray.Menu(")]
-        for name in ('"Status"', '"Stats"', '"Local models"', '"Hide overlay"',
-                     '"Share an idea"', '"Restart Talk DAT!"'):
+    def test_more_is_dissolved(self) -> None:
+        """0.4.177 IA phase 2 (R5: no catch-all submenu): Status went to the icon's
+        tooltip and Help, Stats and Local models to Settings, Share an idea to Help,
+        Hide overlay became Show the Pill, Restart joined the last group."""
+        self.assertNotIn("more = pystray.Menu(", self.source)
+        for name in ('"More"', '"Status"', '"Stats"', '"Local models"', '"Hide overlay"', '"Share an idea"'):
             with self.subTest(item=name):
-                self.assertIn(name, more)
+                self.assertNotIn(name, self.source)
 
-    def test_the_dynamic_labels_survive(self) -> None:
-        """Pause/Resume and the update item are the two stateful labels; a
-        static string here would lie about the running state."""
-        self.assertIn("pystray.MenuItem(self._pause_label,", self.source)
+    def test_the_options_are_check_items_and_the_update_shows_only_when_waiting(self) -> None:
+        """R6: an option is a check item whose label never flips (Pause listening
+        used to turn into Resume dictation); the update item says the version and
+        is there only while one waits."""
+        self.assertIn('pystray.MenuItem("Pause listening",', self.source)
+        self.assertIn("checked=self._is_paused", self.source)
+        self.assertIn('pystray.MenuItem("Show the Pill",', self.source)
+        self.assertIn("checked=self._pill_is_shown", self.source)
         self.assertIn("pystray.MenuItem(self._update_label,", self.source)
+        self.assertIn("visible=self._update_waiting", self.source)
+        self.assertNotIn("_pause_label", self.source)
 
 
 class TheTkThreadOwnsTheGarbageTests(unittest.TestCase):

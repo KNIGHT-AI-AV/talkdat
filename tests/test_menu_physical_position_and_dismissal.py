@@ -1,5 +1,6 @@
 """Native menu placement and click-away do not depend on DOM focus."""
 import ctypes
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock
@@ -14,14 +15,24 @@ class NativeMenuTests(unittest.TestCase):
         api._hide_menu_after_exit = Mock()
         return api
 
+    @staticmethod
+    def settle(api, seconds=1.0):
+        # 0.4.177: the dismissal is read once the activation settles (50 ms), so focus passing to the menu's own
+        # submenu window keeps both open (shell_host._dismiss_unless_partner).
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline and not api._hide_menu_after_exit.called:
+            time.sleep(0.01)
+
     def test_native_focus_loss_dismisses_even_without_dom_blur(self):
         api = self.api()
         api._native_menu_deactivated()
+        self.settle(api)
         api._hide_menu_after_exit.assert_called_once()
 
     def test_hidden_menu_and_settings_do_not_start_dismissal(self):
         for api in (self.api(visible=False), self.api(mode="settings")):
             api._native_menu_deactivated()
+            self.settle(api, 0.2)
             api._hide_menu_after_exit.assert_not_called()
 
     def test_physical_negative_bounds_are_applied_inside_per_monitor_context(self):

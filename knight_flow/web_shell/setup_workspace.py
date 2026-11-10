@@ -86,12 +86,13 @@ class SetupWorkspace:
             'usage_counts':self.usage_counts_snapshot()}
 
     def usage_counts_snapshot(self):
-        # Owner decision 2026-09-23: setup mentions the anonymous usage counts
-        # once -- a line and the toggle, no nag -- and only in a build that can
-        # send them. The switch is privacy.share_usage_counts, the same one
-        # Settings > Privacy shows.
+        # Owner decision 2026-09-23: setup mentions the usage counts once, no
+        # nag, and only in a build that can send them. 0.4.176 (TEAM KNIGHT,
+        # consent before capture): it asks, with two answers and neither chosen
+        # until the person picks one. Finish setup does not need an answer;
+        # unanswered, nothing is sent and Home asks.
         if not official_build.usage_counts_available():return None
-        return {'on':official_build.share_usage_counts(self.config)}
+        return {'answered':official_build.usage_counts_answered(self.config),'on':official_build.share_usage_counts(self.config)}
 
     def formatting_snapshot(self):
         if self.formatting is None:return None
@@ -131,12 +132,10 @@ class SetupWorkspace:
             with _SAVE_LOCK:
                 self.current(payload['revision'])
                 candidate=self.normalize()
-                privacy=candidate.get('privacy')
-                if type(privacy) is not dict:privacy=candidate['privacy']={}
-                privacy['share_usage_counts']=payload['value']
+                official_build.record_usage_counts_answer(candidate,payload['value'])
                 self.persist(candidate)
             if self.message=='Saved.':
-                self.message=('Anonymous usage counts are on.' if payload['value'] else 'Anonymous usage counts are off.')+' Change it any time in Settings, Privacy.'
+                self.message=official_build.usage_counts_saved_message(payload['value'])
         elif operation in {'chapter','route','preset','finish'}:
             fields={'revision','value'} if operation!='finish' else {'revision','accepted'}
             self.require(payload,fields)

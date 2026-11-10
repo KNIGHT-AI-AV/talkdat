@@ -22,7 +22,7 @@ needs them to build:
 | Asset | Files |
 |---|---|
 | Talk Stone logo and application icon | `knight_flow/assets/app_icon.ico`, `knight_flow/assets/app_icon.png`, `knight_flow/assets/logo.ico`, `knight_flow/assets/logo.png`, `knight_flow/assets/favicon.ico`, `knight_flow/assets/favicon.png` |
-| The Pill artwork and animation frames | `knight_flow/assets/flow_pill_240.png`, `knight_flow/assets/flow_pill_240.json`, `branding/the-pill/flow-pill-original-240.png`, `branding/the-pill/flow-pill-original-240.json`, `knight_flow/assets/loading_pill_240.png`, `knight_flow/assets/loading_pill_240.json`, `knight_flow/assets/ui/processing-spectrum-loop-4k.png` |
+| The Pill artwork and animation frames | `knight_flow/assets/flow_pill_240.png`, `knight_flow/assets/flow_pill_240.json`, `knight_flow/assets/loading_pill_240.png`, `knight_flow/assets/loading_pill_240.json`, `knight_flow/assets/ui/processing-spectrum-loop-4k.png` |
 | Knight Display typeface | `knight_flow/assets/fonts/KnightDisplay.ttf`, `knight_flow/web_shell/shell_assets/fonts/KnightDisplay.ttf` |
 | Onboarding art | `knight_flow/assets/onboarding/*.png` |
 | Installer art | `knight_flow/assets/ui/installer-clay.jpg`, `installer/splash.png`, `packaging/dmg-background.png` |

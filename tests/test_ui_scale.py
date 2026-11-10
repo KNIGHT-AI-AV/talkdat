@@ -316,9 +316,10 @@ class ContextMenuControlTests(unittest.TestCase):
 
     def test_restart_and_close_lead_the_menu(self) -> None:
         keys = self._rows()
-        # X-118, his IA: Home leads; destructive app control closes the
-        # menu, the way every current tray app orders itself.
-        self.assertEqual("settings", keys[0], f"Home must lead the menu, got {keys[:4]}")
+        # 0.4.177 IA phase 2 (IA-SCHEMATIC.md section 1) replaces X-118's
+        # "Home leads": the main action leads; destructive app control still
+        # closes the menu, the way every current tray app orders itself.
+        self.assertEqual("hands_free", keys[0], f"the main action must lead the menu, got {keys[:4]}")
         self.assertEqual(["restart_app", "quit_app"], keys[-2:],
                          f"app control must close the menu, got {keys[-4:]}")
 

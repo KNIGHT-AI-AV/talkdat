@@ -1,8 +1,9 @@
 """The usage-counts toggle, in the real Settings renderer (owner decision 2026-09-23).
 
-An official build shows "Share anonymous usage counts" on the Privacy page,
-on by default, and first-run setup shows the same line with its toggle once,
-on the last chapter; flipping that toggle saves privacy.share_usage_counts.
+An official build shows "Share usage counts" on the Privacy page, off until
+the person says yes (0.4.176, consent before capture), and first-run setup asks
+once, on the last chapter, with two answers and neither chosen; the answer
+saves privacy.share_usage_counts and privacy.usage_counts_asked.
 Runs in the real web shell on the isolated test desktop
 (scripts/run_tests_offscreen.py tests.test_usage_counts_native).
 """
@@ -61,21 +62,23 @@ def native_usage_probe(connection, evidence, html, label, detail):
                 until("document.body.classList.contains('connected')")
                 window.evaluate_js("window.TalkDat.navigate('privacy');true")
                 until("document.getElementById(" + repr(FIELD) + ")")
-                assert window.evaluate_js("document.getElementById(" + repr(FIELD) + ").getAttribute('aria-checked')==='true'"), 'Settings toggle is not on by default'
+                # 0.4.176, consent before capture: off until the person says yes.
+                assert window.evaluate_js("document.getElementById(" + repr(FIELD) + ").getAttribute('aria-checked')==='false'"), 'Settings toggle is on before an answer'
                 page = window.evaluate_js("document.querySelector('main').innerText")
                 assert label in page and detail in page, 'Settings does not show the owner\'s words'
                 assert 'Keep speech and finishing on this computer' in page, 'Local-only privacy is gone'
                 window.evaluate_js("window.TalkDat.navigate('setup');true")
                 until("document.querySelector('.setup-welcome')")
                 assert not window.evaluate_js("document.querySelector('.setup-usage')"), 'mentioned on the welcome chapter too'
-                click('Try it'); until("document.querySelector('.setup-usage .switch')")
+                click('Try it'); until("document.querySelectorAll('.setup-usage button').length===2")
                 assert window.evaluate_js("document.querySelectorAll('.setup-usage').length===1")
+                assert not window.evaluate_js("document.querySelector('.setup-usage [role=switch]')"), 'setup still shows a switch'
                 setup_text = window.evaluate_js("document.querySelector('.setup-usage').innerText")
                 assert label in setup_text and 'Never your audio or text.' in setup_text, setup_text
-                assert window.evaluate_js("document.querySelector('.setup-usage .switch').getAttribute('aria-checked')==='true'")
-                window.evaluate_js("document.querySelector('.setup-usage .switch').click();true")
-                until("document.querySelector('.setup-usage .switch')?.getAttribute('aria-checked')==='false'")
-                until("document.querySelector('.setup-status')?.textContent.includes('Anonymous usage counts are off')")
+                assert window.evaluate_js("Array.from(document.querySelectorAll('.setup-usage button')).every(b=>b.getAttribute('aria-pressed')==='false')"), 'an answer was chosen for the person'
+                click("Don't share")
+                until("Array.from(document.querySelectorAll('.setup-usage button')).some(b=>b.textContent===\"Don't share\"&&b.getAttribute('aria-pressed')==='true')")
+                until("document.querySelector('.setup-status')?.textContent.includes('Usage counts are off.')")
                 evidence.send({'desktop': surface, 'status': 'Settings and setup usage-counts toggles passed'})
             except Exception as error:
                 evidence.send({'error': str(error), 'ui': window.evaluate_js('document.body.innerText.slice(-1500)')})
@@ -125,6 +128,7 @@ class NativeUsageCountsTests(unittest.TestCase):
                 while not tasks.empty(): tasks.get_nowait()()
                 self.assertIs(config['privacy']['share_usage_counts'], False)
                 self.assertIs(saved[-1]['privacy']['share_usage_counts'], False)
+                self.assertIs(saved[-1]['privacy']['usage_counts_asked'], True, "Don't share is an answer")
                 self.assertIs(config['privacy']['local_only'], True)
                 print('Native usage-counts toggles in Settings and setup passed on', result['desktop'])
             finally:

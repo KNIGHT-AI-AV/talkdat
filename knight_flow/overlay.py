@@ -6808,7 +6808,30 @@ class Overlay:
         return "break"
 
     def _context_menu_rows(self) -> list[tuple[str, str, str, Any]]:
-        return self._ordered_context_menu_rows(self._context_menu_default_rows())
+        """The Tk menu's rows: the update row while a release waits, then the one row list in the saved order.
+
+        The web menu reads this list too (AppShell._menu) and leaves the update row out: the page draws its own, from
+        the release the last check found.
+        """
+        return self._context_menu_status_rows() + self._ordered_context_menu_rows(self._context_menu_default_rows())
+
+    def _context_menu_status_rows(self) -> list[tuple[str, str, str, Any]]:
+        """0.4.177 IA phase 2: "Update x.y.z" leads the menu only while an update waits (IA-SCHEMATIC.md section 1).
+
+        Its badge used to relabel the Check for updates row, which left the Pill (Home and Help check for updates).
+        getattr: test doubles build a bare Overlay without callbacks.
+        """
+        callbacks = getattr(self, "callbacks", None)
+        badge_cb = callbacks.get("update_badge") if isinstance(callbacks, dict) else None
+        badge = ""
+        if callable(badge_cb):
+            try:
+                badge = str(badge_cb() or "").strip()
+            except Exception:
+                badge = ""
+        if not badge:
+            return []
+        return [("install_update", badge, "Restarts Talk DAT! to install", self._draw_update_icon)]
 
     def _ordered_context_menu_rows(
         self,
@@ -6847,35 +6870,59 @@ class Overlay:
         ]
 
     def _context_menu_feature_rows(self) -> list[tuple[str, str, str, Any]]:
-        """The occasional features, shown in the X-339 side panel.
+        """Tools' rows, shown in the X-339 side panel (the web menu's Tools submenu).
 
-        X-185's wording rulings carry over verbatim: "translation" keeps its
-        id for the capability manifest, "on-device" stays true on both
-        platforms, and Scribe stays reachable.
+        X-185's wording rulings carry over verbatim: "on-device" stays true on
+        both platforms, and Scribe stays reachable. 0.4.177 IA phase 2
+        (IA-SCHEMATIC.md section 1): Translate and Scratchpad moved up to the
+        daily block, Stats moved in from it, and Local models left the Pill
+        for Settings > Dictation, where it always lived as a page.
         """
         return [
             ("ramble", "Ramble", "Long speech into a document", self._draw_ramble_icon),
-            ("captions", "Live captions", "Your words on screen as you speak", self._draw_captions_icon),
-            ("translation", "Translate", "Translate a passage on this computer", self._draw_translate_icon),
-            ("scratchpad", "Scratchpad", "Tabbed local notes", self._draw_scratchpad_icon),
             ("scribe", "Scribe", "Two-sided notes from a call", self._draw_scribe_icon),
-            # 2026-09-23: "Local models", the one name Settings, the tray and
-            # the sidebar already used for this destination.
-            ("local_models", "Local models", "Download and choose local speech", self._draw_offline_icon),
+            ("captions", "Live captions", "Your words on screen as you speak", self._draw_captions_icon),
+            ("stats", "Stats", "Words, streaks, time saved", self._draw_stats_icon),
         ]
 
     # These controls change the application lifecycle rather than the user's
     # daily writing flow. They retain their long-lived action IDs and callbacks,
     # but always occupy a stable tail zone directly above Reset layout.
-    MENU_SAFETY_ZONE_ACTIONS = ("check_updates", "restart_app", "quit_app")
+    # 0.4.177 IA phase 2: Check for updates left the Pill (Home and Help check;
+    # a waiting update has its own row), so the zone is Restart and Quit.
+    MENU_SAFETY_ZONE_ACTIONS = ("restart_app", "quit_app")
+    # 0.4.177 IA phase 2 (IA-SCHEMATIC.md section 1): after the person's daily
+    # block, the fixed groups the Menu layout never moves, each behind a
+    # separator on the web menu: the switches (Speech and Writing style are drawn
+    # from the app's state; Pause listening is a row), the places (Settings and
+    # Help), and the lifecycle zone above. Pinned rows never drag either. One
+    # source: the pinned rows are read from the groups, so the two never drift.
+    MENU_FIXED_GROUPS = (("switches", ("pause",)), ("places", ("settings", "help")),
+                         ("lifecycle", MENU_SAFETY_ZONE_ACTIONS))
+    MENU_PINNED_ACTIONS = tuple(member for group, members in MENU_FIXED_GROUPS if group != "lifecycle"
+                                for member in members)
+    # The Tk menu's update row (_context_menu_status_rows): first, never saved, never dragged.
+    MENU_STATUS_ACTIONS = ("install_update",)
+
+    @classmethod
+    def menu_row_group(cls, identifier: str) -> str:
+        """Which group a Pill menu row belongs to: status, daily, switches, places or lifecycle."""
+        if identifier in cls.MENU_STATUS_ACTIONS:
+            return "status"
+        for group, members in cls.MENU_FIXED_GROUPS:
+            if identifier in members:
+                return group
+        return "daily"
 
     @classmethod
     def _pin_context_menu_safety_zone(cls, order: Sequence[str], available: Sequence[str]) -> list[str]:
-        """Preserve daily-row order while pinning lifecycle actions at the tail.
+        """Preserve daily-row order while pinning the fixed groups at the tail.
 
         Old versions allowed all rows to be interleaved. Filtering only the
-        three lifecycle IDs migrates those saves without discarding, renaming,
-        or re-defaulting any valid daily destination.
+        fixed IDs (the lifecycle pair and, since 0.4.177, Pause listening,
+        Settings and Help) migrates those saves without discarding, renaming,
+        or re-defaulting any valid daily destination; ids the menu no longer
+        has (Check for updates, Local models, Stats at the top level) drop.
         """
         available_ids = [str(item) for item in available]
         available_set = set(available_ids)
@@ -6890,10 +6937,9 @@ class Overlay:
             if item not in seen:
                 valid.append(item)
                 seen.add(item)
-        safety_set = set(cls.MENU_SAFETY_ZONE_ACTIONS)
-        daily = [item for item in valid if item not in safety_set]
-        safety = [item for item in cls.MENU_SAFETY_ZONE_ACTIONS if item in available_set]
-        return daily + safety
+        fixed = cls.MENU_PINNED_ACTIONS + cls.MENU_SAFETY_ZONE_ACTIONS
+        daily = [item for item in valid if item not in fixed]
+        return daily + [item for item in fixed if item in available_set]
 
     def _context_menu_default_rows(
         self,
@@ -6930,19 +6976,32 @@ class Overlay:
             # rename half-lands, and no desktop application calls its
             # preferences Home. The id was always `settings`; now the label
             # agrees with it, with the tray, and with the crosswalk.
-            ("settings", "Settings", "Preferences, tools and account", self._draw_gear_icon),
+            #
+            # 0.4.177 IA phase 2 (the owner, 2026-11-06: an industry-standard
+            # menu, IA-SCHEMATIC.md section 1, rules R1-R13): one row list for
+            # the web and Tk menus. The daily block, which the person's Menu
+            # layout order reorders: the main action first (bold on the web
+            # menu, its value the live hands-free shortcut), then Paste last,
+            # History, Scratchpad, Translate and Tools. Then the fixed groups
+            # (MENU_FIXED_GROUPS): Pause listening, a check row whose label never
+            # flips; Settings and Help; Restart and Quit. Settings left the daily
+            # block for its group; Stats went into Tools; Check for updates and
+            # Local models left the Pill. The comments sit above the tuples on
+            # purpose: tests/capability_crosswalk.py reads each id followed
+            # directly by its label.
+            ("hands_free", "Start hands-free dictation", "Talk without holding a key", self._draw_hands_free_icon),
             # X-143: the Chill/Executive control is the pinned SWITCH above
             # these rows, in the route switch's language -- never a menu row.
             ("paste_last", "Paste last transcript", "Insert here and keep on clipboard", self._draw_paste_icon),
             ("history", "History", "Search and recover transcripts", self._draw_history_icon),
+            ("scratchpad", "Scratchpad", "Tabbed local notes", self._draw_scratchpad_icon),
+            ("translation", "Translate", "Translate a passage on this computer", self._draw_translate_icon),
             # 2026-09-23: "Tools", as the web menu and Settings say it;
-            # "Features" was a second name for the same row. (The comment sits
-            # above the tuple on purpose: tests/capability_crosswalk.py reads
-            # each id followed directly by its label.)
+            # "Features" was a second name for the same row.
             (
                 "more_features",
                 "Tools",
-                "Captions, translation, notes and more",
+                "Ramble, Scribe, captions and stats",
                 self._draw_chip_icon,
             ),
             # X-339: the feature rows live in _context_menu_feature_rows()
@@ -6952,8 +7011,9 @@ class Overlay:
             # slides out to the right instead of growing down. The flat
             # splice survives only for the native access menu below.
             *(self._context_menu_feature_rows() if show_features else []),
-            ("stats", "Stats", "Words, streaks, time saved", self._draw_stats_icon),
-            ("check_updates", "Check for updates", "Install the latest release", self._draw_update_icon),
+            ("pause", "Pause listening", "Turn every trigger off until you resume", self._draw_pause_icon),
+            ("settings", "Settings", "Preferences, tools and account", self._draw_gear_icon),
+            ("help", "Help", "Guides, status and support", self._draw_help_icon),
             ("restart_app", "Restart Talk DAT!", "Relaunch; dictations stay protected", self._draw_restart_icon),
             # "Quit", as the tray says it: one word for leaving the app.
             ("quit_app", "Quit Talk DAT!", "Exit until you open it again", self._draw_close_icon),
@@ -8883,11 +8943,9 @@ class Overlay:
                     ),
                 )
 
-            update_index = self.context_menu_access_action_entries.get("check_updates")
-            badge_cb = self.callbacks.get("update_badge")
-            if update_index is not None and callable(badge_cb):
-                badge = str(badge_cb() or "").strip()
-                menu.entryconfigure(update_index, label=badge or "Check for updates")
+            pause_var = getattr(self, "context_menu_access_pause_var", None)
+            if pause_var is not None:
+                pause_var.set(bool(getattr(self, "_paused_look", False)))
         except tk.TclError:
             return
         except Exception:
@@ -8977,11 +9035,17 @@ class Overlay:
 
         route_var = tk.StringVar(master=window, value="local")
         finish_var = tk.StringVar(master=window, value="executive")
+        pause_var = tk.BooleanVar(master=window, value=bool(getattr(self, "_paused_look", False)))
         self.context_menu_access_route_entries = {}
         self.context_menu_access_finish_entries = {}
         self.context_menu_access_action_entries = {}
 
-        menu.add_command(label="Speech route", state=tk.DISABLED)
+        # 0.4.177 IA phase 2: the web menu's order and names. A waiting update first.
+        for action, title, _subtitle, _icon in self._context_menu_status_rows():
+            menu.add_command(label=title, command=lambda selected=action: self._activate_context_menu_action(selected))
+            self.context_menu_access_action_entries[action] = self._menu_end_index(menu)
+            menu.add_separator()
+        menu.add_command(label="Speech", state=tk.DISABLED)
         for route, label in (("local", "Local"), ("byok", "Your key")):
             menu.add_radiobutton(
                 label=label,
@@ -8992,7 +9056,7 @@ class Overlay:
             self.context_menu_access_route_entries[route] = self._menu_end_index(menu)
 
         menu.add_separator()
-        menu.add_command(label="Writing finish", state=tk.DISABLED)
+        menu.add_command(label="Writing style", state=tk.DISABLED)
         for finish, label in (("standard", "Chill"), ("executive", "Executive")):
             menu.add_radiobutton(
                 label=label,
@@ -9003,12 +9067,24 @@ class Overlay:
             self.context_menu_access_finish_entries[finish] = self._menu_end_index(menu)
 
         menu.add_separator()
+        # Pause listening: a check whose label never flips (R6), as on the web menu and the tray.
+        menu.add_checkbutton(
+            label="Pause listening",
+            variable=pause_var,
+            command=lambda: self._activate_context_menu_action("pause"),
+        )
+        self.context_menu_access_action_entries["pause"] = self._menu_end_index(menu)
+
+        menu.add_separator()
         menu.add_command(label="Actions", state=tk.DISABLED)
-        safety_started = False
+        group = "daily"
         for action, title, _subtitle, _icon in self._context_menu_access_rows():
-            if action in self.MENU_SAFETY_ZONE_ACTIONS and not safety_started:
+            if action == "pause":
+                continue
+            row_group = self.menu_row_group(action)
+            if row_group != group:
                 menu.add_separator()
-                safety_started = True
+                group = row_group
             menu.add_command(
                 label=title,
                 command=lambda selected=action: self._activate_context_menu_action(selected),
@@ -9024,6 +9100,7 @@ class Overlay:
         self.context_menu_access_menu = menu
         self.context_menu_access_route_var = route_var
         self.context_menu_access_finish_var = finish_var
+        self.context_menu_access_pause_var = pause_var
         self._place_context_menu_access_footer(width, height)
         self._sync_context_menu_access_menu()
 
@@ -9529,10 +9606,11 @@ class Overlay:
         }
         if not action:
             return "break"
-        if action in self.MENU_SAFETY_ZONE_ACTIONS:
+        if self.menu_row_group(action) != "daily":
             # Lifecycle controls click normally, but never enter the reorder
             # gesture. Their stable tail zone prevents a routine drag from
-            # putting Close between daily writing tools.
+            # putting Close between daily writing tools. 0.4.177: nor do the
+            # update row and the pinned groups (Pause listening, Settings, Help).
             return "break"
         if int(event.x) <= 30:
             self._context_menu_begin_drag()
@@ -9546,7 +9624,7 @@ class Overlay:
         state = getattr(self, "context_menu_press_state", None)
         if not state or state.get("dragging") or not state.get("action"):
             return
-        if state.get("action") in self.MENU_SAFETY_ZONE_ACTIONS:
+        if self.menu_row_group(str(state.get("action"))) != "daily":
             return
         state["dragging"] = True
         state["timer"] = None
@@ -9573,10 +9651,12 @@ class Overlay:
             current = order.index(action)
         except ValueError:
             return "break"
-        daily_count = sum(item not in self.MENU_SAFETY_ZONE_ACTIONS for item in order)
+        # The daily block sits after the update row (when one waits) and before the fixed groups.
+        lead = sum(self.menu_row_group(item) == "status" for item in order)
+        daily_count = sum(self.menu_row_group(item) == "daily" for item in order)
         target = max(
-            0,
-            min(max(0, daily_count - 1), (content_y - self.MENU_ROWS_Y0) // self.MENU_ROW_PITCH),
+            lead,
+            min(lead + max(0, daily_count - 1), (content_y - self.MENU_ROWS_Y0) // self.MENU_ROW_PITCH),
         )
         if target != current:
             order.insert(target, order.pop(current))
@@ -9865,6 +9945,28 @@ class Overlay:
         if action == "paste_last":
             self._restore_foreground_window(target_hwnd)
             self.root.after(45, lambda target=target_hwnd: self._paste_last_from_context(target))
+        elif action == "hands_free":
+            # 0.4.177 IA phase 2: the menu's main action. The take reads the
+            # field it is going into when it starts (X-604, X-628), so it starts
+            # in the window the menu opened over, once the menu has gone.
+            self._restore_foreground_window(target_hwnd)
+            self.root.after(
+                self.MENU_HANDS_FREE_DELAY_MS,
+                lambda target=target_hwnd: self._hands_free_from_context(target),
+            )
+        elif action == "pause":
+            # The app's own toggle (the tray's Pause listening): it lands a take first.
+            callback = self.callbacks.get("pause")
+            if callable(callback):
+                callback()
+        elif action == "help":
+            # Help is where the Status panel lives (X-613); without the renderer, the Status window.
+            self.open_status()
+        elif action == "install_update":
+            # The Tk menu's update row: the release the last check found, as the tray installs it.
+            callback = self.callbacks.get("install_update")
+            if callable(callback):
+                callback()
         elif action == "account":
             self.open_account()
         elif action == "translation":
@@ -9924,8 +10026,22 @@ class Overlay:
             # dictation before the process goes down.
             callback = self.callbacks.get("restart" if action == "restart_app" else "quit")
             if callable(callback):
-                callback()
+                if action == "quit_app":
+                    callback(source="pill_menu")
+                else:
+                    callback()
         return "break"
+
+    # 0.4.177 IA phase 2: longer than the web menu's exit (shell_host.MENU_EXIT_SECONDS,
+    # 140 ms), so the take never starts while the menu still holds the focus.
+    MENU_HANDS_FREE_DELAY_MS = 220
+
+    def _hands_free_from_context(self, target_hwnd: int) -> None:
+        if target_hwnd and not self._foreground_window_is(target_hwnd):
+            self._restore_foreground_window(target_hwnd)
+        callback = self.callbacks.get("hands_free")
+        if callable(callback):
+            callback()
 
     def _paste_last_from_context(self, target_hwnd: int) -> None:
         if target_hwnd and not self._foreground_window_is(target_hwnd):
@@ -10340,24 +10456,14 @@ class Overlay:
                     palette["text"],
                 )
                 canvas.create_image(px(18), cy, image=drag_photo)
-        badge_cb = self.callbacks.get("update_badge")
-        update_badge = ""
-        if callable(badge_cb):
-            try:
-                update_badge = str(badge_cb() or "")
-            except Exception:
-                update_badge = ""
         # X-121, his order: a row that has a keyboard shortcut SHOWS it,
         # right-aligned in the row the way every current menu does. Mapped
         # from the live hotkey config, so a remap changes the label too.
         menu_hotkey_actions = {"paste_last": "paste_last", "scratchpad": "scratchpad", "translation": "translate_toggle"}
         body_right = self._context_menu_body_right(self._menu_main_width())
         for _name, cy, title, subtitle, active, icon_drawer in rows:
+            # X-47: a waiting update names its version (0.4.177: on its own row, first).
             icon_drawer(canvas, px(32), cy, active)
-            if _name == "check_updates" and update_badge:
-                # X-47: the row goes red and names the version until they
-                # take the update. Red is the point.
-                title = update_badge
             canvas.create_text(
                 px(58),
                 cy - px(7),
@@ -10735,6 +10841,18 @@ class Overlay:
     def _draw_restart_icon(self, canvas: tk.Canvas, cx: int, cy: int, active: bool) -> None:
         px = self._menu_px
         self._draw_menu_asset(canvas, "restart", cx, cy, active)
+
+    # 0.4.177 IA phase 2: the new rows' generated assets. Pause listening draws its
+    # state as a checkbox, so the Tk row reads as the web menu's check row.
+    def _draw_hands_free_icon(self, canvas: tk.Canvas, cx: int, cy: int, active: bool) -> None:
+        self._draw_menu_asset(canvas, "microphone", cx, cy, active)
+
+    def _draw_pause_icon(self, canvas: tk.Canvas, cx: int, cy: int, active: bool) -> None:
+        paused = bool(getattr(self, "_paused_look", False))
+        self._draw_menu_asset(canvas, "checkbox_on" if paused else "checkbox_off", cx, cy, active)
+
+    def _draw_help_icon(self, canvas: tk.Canvas, cx: int, cy: int, active: bool) -> None:
+        self._draw_menu_asset(canvas, "vocabulary", cx, cy, active)
 
     @staticmethod
     def _window_owns_focus(window: tk.Toplevel, widget: tk.Misc | None) -> bool:
@@ -14208,7 +14326,7 @@ class Overlay:
         )
         ttk.Label(
             panel,
-            text="You can switch later in Settings > Voice. Talk DAT! runs on this machine, or through a provider you have a key for. Nothing is sent to us either way.",
+            text="You can switch later in Settings > Voice. Talk DAT! runs on this machine, or through a provider you have a key for. Your dictation is not sent to us either way.",
             wraplength=ui_scale.px(820, self.config),
             style="Flow.Muted.TLabel",
         ).grid(row=13, column=0, columnspan=2, sticky="w", pady=ui_scale.spacing((4, 4), self.config))
@@ -18279,7 +18397,7 @@ class Overlay:
                 self.set_state("captured", f"Restored {len(restored)} file(s). Open Talk DAT! again to load them.", "")
                 callback = self.callbacks.get("quit")
                 if callable(callback):
-                    callback()
+                    callback(source="restore")
             except Exception as exc:
                 self.set_state("error", f"Restore failed: {exc}")
 
@@ -19882,14 +20000,33 @@ class Overlay:
             wraplength=ui_scale.px(880, self.config),
             style="Flow.Muted.TLabel",
         ).grid(row=9, column=0, columnspan=2, sticky="w", pady=ui_scale.spacing((12, 4), self.config))
-        # Owner decision 2026-09-23: the anonymous usage counts have their own
-        # switch, separate from Local-only privacy (which governs audio and
-        # text). Shown only where the counts can be sent at all.
-        from .official_build import USAGE_COUNTS_LINE, share_usage_counts, usage_counts_available
+        # Owner decision 2026-09-23: the usage counts have their own switch,
+        # separate from Local-only privacy (which governs audio and text).
+        # Shown only where the counts can be sent at all. 0.4.176 (consent
+        # before capture): it reads off until the person says yes, and only a
+        # change made here is saved as their answer.
+        from .official_build import (USAGE_COUNTS_ID_DETAIL, USAGE_COUNTS_ID_LABEL, USAGE_COUNTS_LINE,
+                                     install_id as usage_install_id, record_usage_counts_answer,
+                                     share_usage_counts, usage_counts_available)
 
-        share_counts_var = tk.BooleanVar(value=share_usage_counts(self.config))
+        share_counts_shown = share_usage_counts(self.config)
+        share_counts_var = tk.BooleanVar(value=share_counts_shown)
         if usage_counts_available():
             check(privacy_tab, USAGE_COUNTS_LINE, share_counts_var, 10)
+            # 0.4.176 item 7: the install ID, read only, and how to have its
+            # records deleted, as Settings, Privacy says in the web shell.
+            usage_id_var = tk.StringVar(value=usage_install_id(self.config))
+            usage_id_entry = entry(privacy_tab, usage_id_var, 34)
+            # A Tk variable is unset once Python lets go of it; the window outlives this function.
+            usage_id_entry.usage_id_var = usage_id_var
+            usage_id_entry.configure(state="readonly")
+            add_row(privacy_tab, 11, USAGE_COUNTS_ID_LABEL, usage_id_entry)
+            ttk.Label(
+                privacy_tab,
+                text=USAGE_COUNTS_ID_DETAIL,
+                wraplength=ui_scale.px(880, self.config),
+                style="Flow.Muted.TLabel",
+            ).grid(row=12, column=0, columnspan=2, sticky="w", pady=ui_scale.spacing((4, 0), self.config))
 
         button_row = tk.Frame(window, bg=palette["bg"])
         button_row.grid(row=2, column=0, sticky="ew", padx=ui_scale.spacing(16, self.config), pady=ui_scale.spacing((0, 16), self.config))
@@ -20136,8 +20273,8 @@ class Overlay:
             privacy["save_history"] = bool(save_history_var.get())
             privacy["history_limit"] = parse_int(history_limit_var, 0, 0, 100000)
             privacy["redact_pii"] = bool(redact_pii_var.get())
-            if usage_counts_available():
-                privacy["share_usage_counts"] = bool(share_counts_var.get())
+            if usage_counts_available() and bool(share_counts_var.get()) != share_counts_shown:
+                record_usage_counts_answer(self.config, bool(share_counts_var.get()))
             backend_choice = history_backend_var.get().strip().lower()
             privacy["history_backend"] = backend_choice if backend_choice in HISTORY_BACKENDS else "jsonl"
             audio_selection = audio_device_var.get().strip()
@@ -20298,6 +20435,13 @@ class Overlay:
             callback = self.callbacks.get("save_settings")
             if callback:
                 callback()
+            # X-338 (LIST-0476): the rule the launch, the Pill's switch, setup
+            # and the web save apply. This save never set the fence, so a
+            # change made here waited for the next route switch or launch.
+            from . import net_fence
+            from .stt_registry import local_only as local_only_privacy, route_mode as saved_route_mode
+
+            net_fence.set_local_only(local_only_privacy(self.config) or saved_route_mode(self.config) == "local")
             save_message = "Saved."
             save_kind = "success"
             if preview_only:
@@ -22561,7 +22705,7 @@ class Overlay:
                     summary_var.set("Reset finished. Close Talk DAT to continue.")
                     finish = self.callbacks.get("reset_finish")
                     if not callable(finish):
-                        finish = self.callbacks.get("quit", lambda: None)
+                        finish = functools.partial(self.callbacks.get("quit", lambda **_: None), source="reset")
                     erase_button.configure(text="Close Talk DAT", state="normal", command=finish)
                     back_button.pack_forget()
                     dialog.protocol("WM_DELETE_WINDOW", finish)
@@ -27312,7 +27456,7 @@ class Overlay:
     def close(self) -> None:
         callback = self.callbacks.get("quit")
         if callback:
-            callback()
+            callback(source="window_close")
         else:
             # _tk_root, not root: on macOS the Pill is a Toplevel and the real
             # root is hidden. Destroying only the Toplevel would leave the

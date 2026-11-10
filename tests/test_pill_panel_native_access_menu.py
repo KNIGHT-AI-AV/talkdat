@@ -45,23 +45,24 @@ class NativeAccessMenuSourceContracts(unittest.TestCase):
         self.assertEqual(
             set(actions),
             {
-                "settings",
+                "hands_free",
                 "paste_last",
                 "history",
-                "ramble",
-                "captions",
-                "translation",
                 "scratchpad",
+                "translation",
+                "ramble",
                 "scribe",
-                "local_models",
+                "captions",
                 "stats",
-                "check_updates",
+                "pause",
+                "settings",
+                "help",
                 "restart_app",
                 "quit_app",
             },
         )
         self.assertNotIn("more_features", actions)
-        self.assertEqual(actions[-3:], list(Overlay.MENU_SAFETY_ZONE_ACTIONS))
+        self.assertEqual(actions[-2:], list(Overlay.MENU_SAFETY_ZONE_ACTIONS))
 
     def test_native_radio_wrappers_delegate_once_to_existing_handlers(self) -> None:
         overlay = bare_overlay()

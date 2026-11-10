@@ -35,8 +35,9 @@ class ShellBackendTests(unittest.TestCase):
         self.backend.handle('save', {'revision':self.backend.snapshot()['revision'],
                                     'changes':{'overlay.menu_order':json.dumps(['quit_app','history','settings'])}})
         order = self.config['overlay']['menu_order']
-        self.assertEqual(order[:2], ['history','settings'])
-        self.assertEqual(order[-3:], ['check_updates','restart_app','quit_app'])
+        # 0.4.177 IA phase 2: Settings is a fixed row now, pinned with Pause listening and Help above Restart and Quit.
+        self.assertEqual(order[0], 'history')
+        self.assertEqual(order[-5:], ['pause','settings','help','restart_app','quit_app'])
 
     def test_bad_menu_ids_do_not_reach_disk(self):
         with self.assertRaisesRegex(ValueError, 'menu'):

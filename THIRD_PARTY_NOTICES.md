@@ -162,6 +162,17 @@ is prepared by the user (see `docs/WAKE_WORD.md`).
 - CTranslate2: https://github.com/OpenNMT/CTranslate2
 - ONNX Runtime: https://github.com/microsoft/onnxruntime
 
+## Design references
+
+- Settings' sidebar follows the layout and measurements of shadcn/ui's sidebar
+  (https://github.com/shadcn-ui/ui). No code from it is included; the numbers
+  are written into Talk DAT!'s own stylesheet. Its license names it as follows
+  (quoted as upstream wrote it):
+
+      MIT License
+
+      Copyright (c) 2023 shadcn
+
 ## Fonts
 
 - `knight_flow/assets/fonts/KnightDisplay.ttf` (and its copy under

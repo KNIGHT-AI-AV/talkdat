@@ -372,11 +372,15 @@ class OnboardingWizard:
         initial_route = self._route_for_provider(selected_provider_id(self.config))
         self.route_var = tk.StringVar(value=initial_route)
         self.writing_var = tk.StringVar(value=selected_writing_preset(self.config))
-        # Owner decision 2026-09-23: the anonymous usage counts get their own
-        # switch (privacy.share_usage_counts), mentioned once above Finish.
-        from ..official_build import share_usage_counts
+        # Owner decision 2026-09-23: the usage counts get their own switch
+        # (privacy.share_usage_counts), mentioned once above Finish. 0.4.176
+        # (TEAM KNIGHT, consent before capture): asked with two answers,
+        # neither chosen until the person picks one. "unanswered" matches
+        # neither radio and is not Tk's tristate value "", so neither shows set.
+        from ..official_build import share_usage_counts, usage_counts_answered
 
-        self.share_counts_var = tk.BooleanVar(value=share_usage_counts(self.config))
+        self.usage_choice_var = tk.StringVar(
+            value=("yes" if share_usage_counts(self.config) else "no") if usage_counts_answered(self.config) else "unanswered")
         self.microphone_tested = False
         self.hotkey_rehearsed = False
         self.dictation_tested = False
@@ -2080,8 +2084,10 @@ class OnboardingWizard:
                 raise
             if host is not None:
                 from .. import net_fence
-                from ..stt_registry import local_only
-                net_fence.set_local_only(local_only(self.config) or str(self.config.get("stt", {}).get("route_mode", "local")) == "local")
+                from ..stt_registry import local_only, route_mode
+                # X-338: the rule the launch, the Pill's switch and every save apply. route_mode() reads a legacy
+                # "auto" (or a "cloud" with no key) as Local; comparing the saved string lowered the fence for them.
+                net_fence.set_local_only(local_only(self.config) or route_mode(self.config) == "local")
                 host.apply_runtime_config()
             self._setup_runtime_refreshed = True
             return True
@@ -3599,8 +3605,8 @@ class OnboardingWizard:
                 f"Talk DAT! runs on {platform_copy.THIS_COMPUTER}. On the local route your speech is transcribed on this "
                 "machine and never sent anywhere. A cloud route sends it to the provider you pick, "
                 "and you choose the route every time. An account is optional; if you make one we "
-                "keep only your email and which computers are signed in. We never count or keep "
-                "what you dictate."
+                "keep your email address, the computers you sign in on, and your theme and menu order. "
+                "We never keep what you dictate."
             ),
             bg=self.palette["panel"],
             fg=self.palette["muted"],
@@ -3628,31 +3634,45 @@ class OnboardingWizard:
         ).grid(row=1, column=2, sticky="w", padx=(self.px(4), 0), pady=(self.px(4), 0))
         self._terms_link(holder, 1, 3, "Privacy Notice", PRIVACY_URL)
         holder.columnconfigure(4, weight=1)
-        # Owner decision 2026-09-23: one line and the toggle, no nag, and only
-        # in a build that can send the counts at all.
-        from ..official_build import USAGE_COUNTS_LINE, usage_counts_available
+        # Owner decision 2026-09-23: mentioned once, no nag, and only in a build
+        # that can send the counts at all. 0.4.176: the line, then two equal
+        # answers; Finish does not need one, and unanswered sends nothing.
+        from ..official_build import (USAGE_COUNTS_ASK, USAGE_COUNTS_DECLINE, USAGE_COUNTS_LINE,
+                                      USAGE_COUNTS_SHARE, usage_counts_available)
 
         if usage_counts_available():
-            tk.Checkbutton(
-                holder,
-                text=USAGE_COUNTS_LINE,
-                variable=self.share_counts_var,
+            usage = tk.Frame(holder, bg=self.palette["panel"])
+            usage.grid(row=2, column=0, columnspan=5, sticky="w", pady=(self.px(6), 0))
+            tk.Label(
+                usage,
+                text=f"{USAGE_COUNTS_LINE} {USAGE_COUNTS_ASK}",
+                bg=self.palette["panel"],
+                fg=self.palette["muted"],
+                font=(BRAND_UI_FAMILY, type_scale.CAPTION),
                 anchor="w",
                 justify="left",
                 wraplength=self.px(620),
-                font=(BRAND_UI_FAMILY, type_scale.CAPTION),
-                bg=self.palette["panel"],
-                fg=self.palette["muted"],
-                activebackground=self.palette["panel"],
-                activeforeground=self.palette["text"],
-                selectcolor=self.palette["panel"],
-                highlightthickness=1,
-                highlightbackground=self.palette["panel"],
-                highlightcolor=self.palette["accent2"],
-                bd=0,
-                takefocus=True,
-                cursor="hand2",
-            ).grid(row=2, column=0, columnspan=5, sticky="w", pady=(self.px(6), 0))
+            ).grid(row=0, column=0, columnspan=2, sticky="w")
+            for column, (text, value) in enumerate(((USAGE_COUNTS_SHARE, "yes"), (USAGE_COUNTS_DECLINE, "no"))):
+                tk.Radiobutton(
+                    usage,
+                    text=text,
+                    value=value,
+                    variable=self.usage_choice_var,
+                    anchor="w",
+                    font=(BRAND_UI_FAMILY, type_scale.CAPTION),
+                    bg=self.palette["panel"],
+                    fg=self.palette["muted"],
+                    activebackground=self.palette["panel"],
+                    activeforeground=self.palette["text"],
+                    selectcolor=self.palette["panel"],
+                    highlightthickness=1,
+                    highlightbackground=self.palette["panel"],
+                    highlightcolor=self.palette["accent2"],
+                    bd=0,
+                    takefocus=True,
+                    cursor="hand2",
+                ).grid(row=1, column=column, sticky="w", padx=(0, self.px(18)), pady=(self.px(4), 0))
 
     def _terms_link(self, parent: tk.Widget, row: int, column: int, text: str, url: str) -> None:
         link = tk.Label(
@@ -3939,13 +3959,14 @@ class OnboardingWizard:
             return
         candidate = copy.deepcopy(self.config)
         apply_writing_preset(candidate, self.writing_var.get())
-        from ..official_build import usage_counts_available
+        from ..official_build import record_usage_counts_answer, usage_counts_available
 
+        # 0.4.176: only an answer the person picked is saved as one. The choice exists only where the counts can be
+        # sent (a source build shows none), so it is read only there, as the switch it replaced was.
         if usage_counts_available():
-            privacy = candidate.get("privacy")
-            if not isinstance(privacy, dict):
-                privacy = candidate["privacy"] = {}
-            privacy["share_usage_counts"] = bool(self.share_counts_var.get())
+            choice = self.usage_choice_var.get()
+            if choice in {"yes", "no"}:
+                record_usage_counts_answer(candidate, choice == "yes")
         mark_onboarding_complete(candidate, route=self.route_var.get(),
             microphone_tested=self.microphone_tested, hotkey_rehearsed=self.hotkey_rehearsed,
             dictation_tested=self.dictation_tested, access_choice=self.access_choice)

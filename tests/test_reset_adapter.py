@@ -117,7 +117,7 @@ class ResetAdapterTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.actions.finish()
         self.execute();self.settle();self.actions.finish()
         self.app.quit.assert_not_called()
-        self.posts.pop(0)();self.app.quit.assert_called_once_with(settings_confirmed=True)
+        self.posts.pop(0)();self.app.quit.assert_called_once_with(settings_confirmed=True,source="reset")
 
     def test_shared_editor_closes_before_deletion(self):
         clip=self.root/"pronunciation"/"term.wav";clip.parent.mkdir();clip.write_bytes(b"123")

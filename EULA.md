@@ -1,6 +1,6 @@
 # Talk DAT! End User License Agreement
 
-Effective date: September 23, 2026
+Effective date: October 27, 2026
 
 This End User License Agreement ("Agreement") covers the official Talk DAT!
 binaries that Knight AI+AV LLC ("Knight") builds, signs and distributes: the
@@ -77,16 +77,24 @@ and remove Knight's branding; see TRADEMARKS.md.
 
 ## Your content and providers
 
-What you dictate is yours, and you are responsible for it. Talk DAT!
-transcribes and formats on your own device; Knight does not receive your
-audio, transcripts, history, dictionaries, scratchpads, or protected voice
-sessions. If you add a key for a third-party speech or writing provider,
-requests on that route go from your device to that provider, and you are
-responsible for that provider's account, charges, and terms.
+What you dictate is yours, and you are responsible for it. By default,
+Talk DAT! transcribes and formats on your own device, and Knight does not
+receive your audio, transcripts, history, dictionaries, scratchpads, or
+protected voice sessions. Knight receives dictated text only in a formatting
+log you choose to attach to a feedback report. If you add a key for a
+third-party speech or writing provider, requests on that route go from your
+device to that provider, and you are responsible for that provider's account,
+charges, and terms. In command mode, if no text is selected and Local-only
+privacy is off, Talk DAT! opens a web search for the words you said at
+perplexity.ai, in your default browser, under Perplexity's own terms.
 
 If you use the optional account, Knight processes the minimum account and
 device metadata described in the Talk DAT! Privacy Notice at
 https://www.talkdat.app/privacy.html. You can delete the account at any time.
+The official binaries send the usage counts described in the Privacy Notice
+only if you choose to share them, when the app asks or in Settings, Privacy.
+They carry a random install ID, not linked to you or your account, and never
+your audio or text. You can turn them off in Settings, Privacy at any time.
 
 ## Recording other people
 

@@ -82,7 +82,7 @@
   {
     "label": "Save local transcript history",
     "tab": "General",
-    "tip": "Keeps a private copy of your dictations on this computer; off keeps no record."
+    "tip": "Keeps a private copy of your dictations on this computer. Off keeps no transcript history; recent recordings are still kept for recovery, and you can clear them in History."
   },
   {
     "label": "Play start and stop sounds",

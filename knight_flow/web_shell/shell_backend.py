@@ -17,8 +17,12 @@ PAGES = (
     # tuple because the tuple is also the search and navigation order.
     ('home','Home','Welcome back','Your shortcut, your words, and what changed in this version.'),
     ('setup','Getting started','Getting started','Set up your microphone, shortcut and speech.'),
-    ('general', 'General', 'General', 'Everyday settings: your name, updates, sounds and pasting.'),
-    ('dictation', 'Dictation', 'Dictation', 'Your microphone, capture controls and text delivery.'),
+    # 2026-11-06 (the owner's order to lay every feature out by the research, IA-SCHEMATIC.md): General is now
+    # Startup and updates; Microphone and Shortcuts are their own pages.
+    ('general', 'Startup and updates', 'Startup and updates', 'Your name, what opens at launch, and updates.'),
+    ('dictation', 'Dictation', 'Dictation', 'How your words are pasted, the sounds, and capture.'),
+    ('microphone', 'Microphone', 'Microphone', 'Your microphone, its level and the wake word.'),
+    ('shortcuts', 'Shortcuts', 'Shortcuts', 'Every keyboard shortcut in one place.'),
     ('speech', 'Speech', 'Speech', 'Choose on-device speech or a provider you hold a key for.'),
     ('formatting', 'Formatting', 'Formatting', 'Choose how your text is cleaned up.'),
     ('translation', 'Translation', 'Translation', 'Translate, compare and copy in one place.'),
@@ -42,7 +46,7 @@ PAGES = (
     ('language-request','Request a language','Request a language','Tell us which language and region matter to you.'),
     ('models', 'Local models', 'Local models', 'Download models once, then use them on this computer.'),
     ('model-guide', 'Model guide', 'Model guide', 'Which speech models are available now, and which are still being tested.'),
-    ('menu-order', 'Menu layout', 'Menu layout', 'Move daily actions into your preferred order. App controls stay together at the bottom.'),
+    ('menu-order', 'Menu layout', 'Menu layout', 'Put the daily actions in your order. The rest of the menu stays in place.'),
 )
 
 TOOLS = (
@@ -78,7 +82,7 @@ def declared_fields(assets):
 
     A field marked "official_only" (today: privacy.share_usage_counts) exists
     only where official_build says the thing it switches can happen at all. A
-    source build never sends the anonymous counts, so it shows no switch for
+    source build never sends the usage counts, so it shows no switch for
     them rather than one that does nothing.
     """
     from knight_flow import official_build
@@ -161,6 +165,11 @@ def provider_fields(config):
 
 
 def normalize_settings(candidate, changed, previous=None):
+    if 'privacy.share_usage_counts' in changed:
+        # 0.4.176 (consent before capture): turning the usage counts switch on
+        # or off in Settings, Privacy is the person's answer.
+        from knight_flow import official_build
+        official_build.record_usage_counts_answer(candidate, candidate['privacy']['share_usage_counts'])
     if 'overlay.menu_order' in changed:
         from knight_flow.overlay import Overlay
         overlay = object.__new__(Overlay)
@@ -207,8 +216,10 @@ def normalize_settings(candidate, changed, previous=None):
 
 
 class ShellBackend:
-    def __init__(self, config, assets, persist, applied, palette, *, actions=None, menu=None, system_preferences=None, models=None, menu_layout=None, microphones=None, workspaces=None, formatting=None, finish_choice=None, update=None, menu_fit=None):
+    def __init__(self, config, assets, persist, applied, palette, *, actions=None, menu=None, system_preferences=None, models=None, menu_layout=None, microphones=None, workspaces=None, formatting=None, finish_choice=None, update=None, menu_fit=None, commands=None):
         self.config, self.assets = config, Path(assets)
+        # 0.4.177 IA phase 3: the command palette's actions (AppShell._commands), for the Settings window's search.
+        self.commands = commands or (lambda: [])
         self.update = update
         self.menu_fit = menu_fit
         self.formatting = formatting
@@ -271,7 +282,7 @@ class ShellBackend:
                 'reduce_motion': bool(read_path(self.config, 'ui.reduce_motion', False) or preferences.get('reduce_motion')),
                 'high_contrast': bool(preferences.get('high_contrast')),
                 'tools': [{'action': action, 'label': label, 'description': description} for action,label,description in TOOLS if action in self.actions],
-                'menu': self.menu(), 'actions': sorted(self.actions),
+                'menu': self.menu(), 'commands': self.commands(), 'actions': sorted(self.actions),
                 'update': self.update() if self.update is not None else None,
                 'microphones': self.microphones(),
                 'route': read_path(self.config, 'stt.route_mode', 'local'),
@@ -306,11 +317,16 @@ class ShellBackend:
             return self.menu_layout(payload['expanded'])
         if method == 'menu_fit':
             # 2026-10-09: the Pill menu's window takes the height of the view it shows,
-            # in CSS px at 100%. Anything but one sane number is refused.
-            height = payload.get('height') if isinstance(payload, dict) and set(payload) == {'height'} else None
-            if type(height) not in (int, float) or not 100 <= height <= 2000 or self.menu_fit is None:
+            # in CSS px at 100%, and (0.4.177 IA phase 3) the width its widest row needs.
+            # Anything but one or two sane numbers is refused.
+            keys = set(payload) if isinstance(payload, dict) else None
+            sane = lambda value: type(value) in (int, float) and 100 <= value <= 2000
+            if (keys not in ({'height'}, {'height', 'width'}) or not sane(payload['height'])
+                    or ('width' in keys and not sane(payload['width'])) or self.menu_fit is None):
                 raise ValueError('This menu size is unavailable.')
-            return self.menu_fit(height)
+            if 'width' in keys:
+                return self.menu_fit(payload['height'], width=payload['width'])
+            return self.menu_fit(payload['height'])
         if method == 'state':
             return self.snapshot()
         if method == 'save':

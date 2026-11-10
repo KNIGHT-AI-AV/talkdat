@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import Mock,patch
 from knight_flow import plugins
 from knight_flow.web_shell.plugins_workspace import PluginsWorkspace
+from tests.child_isolation import SUITE_LOAD_SECONDS,product_budget
 
 class PluginsWorkspaceTests(unittest.TestCase):
     def setUp(self):
@@ -29,14 +30,15 @@ class PluginsWorkspaceTests(unittest.TestCase):
             with self.assertRaises(ValueError):self.service.handle(payload)
     def test_reload_returns_before_slow_import_then_shows_failure(self):
         (plugins.plugins_dir()/'slow.py').write_text('import time\ntime.sleep(20)\n')
-        started=time.perf_counter();state=self.service.handle({'command':'reload'})
-        self.assertLess(time.perf_counter()-started,.15);self.assertEqual(state['phase'],'loading')
-        self.assertTrue(plugins._reload_done.wait(3))
+        with product_budget():  # the product's own load budget (the suite gives its workers more room)
+            started=time.perf_counter();state=self.service.handle({'command':'reload'})
+            self.assertLess(time.perf_counter()-started,.15);self.assertEqual(state['phase'],'loading')
+            self.assertTrue(plugins._reload_done.wait(3))
         self.assertEqual(self.service.handle({'command':'status'})['phase'],'warning')
     def test_disabling_during_reload_retires_the_new_hosts_too(self):
         marker=Path(self.temp.name)/'started'
         (plugins.plugins_dir()/'slow.py').write_text('from pathlib import Path\nimport time\nPath('+repr(str(marker))+').touch()\ntime.sleep(.2)\ndef register(api):api.add_text_filter(lambda t,c:t)\n')
-        done=plugins.request_reload(self.config);deadline=time.monotonic()+2
+        done=plugins.request_reload(self.config);deadline=time.monotonic()+SUITE_LOAD_SECONDS  # a worker's start
         while not marker.exists() and time.monotonic()<deadline:time.sleep(.01)
         self.assertTrue(marker.exists());latest=plugins.request_reload(None)
         self.assertIs(done,latest);self.assertTrue(done.wait(3));self.assertEqual(plugins._hosts,[])
