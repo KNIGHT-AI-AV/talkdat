@@ -611,6 +611,8 @@ class TalkDatApp:
                 callbacks["web_settings"] = self.web_shell.open_settings
                 callbacks["web_menu"] = self.web_shell.open_menu
                 callbacks["web_menu_close"] = self.web_shell.menu_controller.hide
+                # 0.4.178: the overlay asks before a right-click opens the menu; an open menu closes instead.
+                callbacks["web_menu_is_open"] = self.web_shell.menu_is_open
                 callbacks["web_finish_choice"] = self.web_shell.offer_finish_choice
         except Exception as error:
             log.warning("Web shell unavailable; using the existing windows (%s)", type(error).__name__)

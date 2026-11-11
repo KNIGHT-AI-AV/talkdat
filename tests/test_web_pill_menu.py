@@ -29,6 +29,7 @@ def probe_window(connection, html, page, hidden, mode, bounds):
     create=webview.create_window
     def instrument(*args,**kwargs):
         window=create(*args,**kwargs)
+        if type(kwargs['js_api']).__name__=='_SubmenuApi':return window  # 0.4.178: the submenu window, not probed
         def probe():
             api=kwargs['js_api']
             def until(expression):
@@ -72,8 +73,8 @@ def probe_window(connection, html, page, hidden, mode, bounds):
 
 
 class ProbeController(ShellController):
-    def open(self,page='general',*,hidden=False,bounds=None,side=None):
-        if self.process and self.process.is_alive():return super().open(page,hidden=hidden,bounds=bounds)
+    def open(self,page='general',*,hidden=False,bounds=None,side=None,**menu):  # 0.4.178: and what an open carries
+        if self.process and self.process.is_alive():return super().open(page,hidden=hidden,bounds=bounds,**menu)
         ctx=multiprocessing.get_context('spawn');parent,child=ctx.Pipe()
         self.connection=parent
         self.process=ctx.Process(target=probe_window,args=(child,bundled_html(self.assets),page,hidden,self.mode,bounds),daemon=True)

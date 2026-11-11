@@ -543,7 +543,10 @@
   // unsaved change on the Shortcuts page is a draft until it is saved (the Pill menu's page has no drafts).
   function menuShortcut(id) {
     const field = allFields().find(field => field.id === "hotkeys." + id);
-    const chords = field ? field.value : null;
+    return chordText(field ? field.value : null);
+  }
+  // 0.4.178: the first chord of a binding as a menu shows it; the menu's main row carries its live binding (keys).
+  function chordText(chords) {
     const first = Array.isArray(chords) ? chords.find(chord => Array.isArray(chord) && chord.length) : null;
     return first ? first.map(key => keyName(String(key))).join("+") : "";
   }
@@ -1265,8 +1268,12 @@
   // replaced itself is the tail of the click that replaced it (X-686).
   const DOUBLE_CLICK_MS = 500, MENU_CONFIRM_MS = 3000;
   const MENU_CONFIRM = {restart_app: "Click again to restart", quit_app: "Click again to quit"};
+  // 0.4.178: a key used in the menu tells the renderer once per open, so its hover grace waits for the pointer.
+  let menuKeysTold = false;
+  function tellKeys() { if (menuKeysTold) return; menuKeysTold = true; rpc("menu_input", {keyboard: true}).catch(() => {}); }
   function menuKeys(list) {
     list.addEventListener("keydown", event => {
+      tellKeys();
       // 2026-10-09: Right opens the focused row's submenu and Left comes back a level,
       // as menus do (WAI-ARIA menu pattern, WinUI); decided before anything else.
       if (event.key === "ArrowRight" && typeof document.activeElement?.menuOpen === "function") { event.preventDefault(); document.activeElement.menuOpen(); return; }
@@ -1329,7 +1336,12 @@
   // it closes only it. Invoking any of its items closes every menu. The submenu page only draws and reports;
   // this page decides. Where the renderer has no submenu window, the submenu opens in place as before.
   const MENU_SHOW_DELAY_MS = 400;
-  const flyout = {open: null, hoverTimer: 0, closeTimer: 0, window: true, armed: "", disarm: 0};
+  // 0.4.178, menu-aim (Amazon's menu-aim, Radix's pointer grace): for this long after the pointer leaves the row whose
+  // submenu is open, a move inside the triangle from where it left to the submenu's near corners is on its way there,
+  // so no other row opens or closes anything (FINDINGS-0478 section 5: crossing Writing style toward Speech's submenu
+  // opened Writing style under the pointer). Radix's grace is 300 ms.
+  const MENU_AIM_MS = 300;
+  const flyout = {open: null, hoverTimer: 0, closeTimer: 0, window: true, armed: "", disarm: 0, rect: null, aim: null, aimTimer: 0, over: null};
   const flyoutTheme = () => Object.fromEntries(Object.entries(state.data?.palette || {})
     .filter(([, value]) => ["string", "number", "boolean"].includes(typeof value) && String(value).length <= 300).slice(0, 64));
   const flyoutRow = child => child.separator ? {label:"-", kind:"separator"} : {
@@ -1337,14 +1349,36 @@
     icon: child.icon || "general", kind: child.choice ? "radio" : "item",
     ...(child.choice ? {checked: Boolean(child.checked)} : {}), ...(child.value ? {value: child.value} : {}),
     ...(child.description ? {description: child.description} : {})};
-  function clearFlyoutTimers() { clearTimeout(flyout.hoverTimer); clearTimeout(flyout.closeTimer); flyout.hoverTimer = flyout.closeTimer = 0; }
+  function clearFlyoutTimers() { clearTimeout(flyout.hoverTimer); clearTimeout(flyout.closeTimer); clearTimeout(flyout.aimTimer); flyout.hoverTimer = flyout.closeTimer = flyout.aimTimer = 0; flyout.aim = null; }
+  // The pointer is inside the triangle from where it left the open submenu's row to the submenu's near edge.
+  function aiming(event) {
+    const aim = flyout.aim, rect = flyout.rect;
+    if (!flyout.open || !aim || !rect || typeof event?.clientX !== "number" || performance.now() - aim.at > MENU_AIM_MS) return false;
+    const edge = rect.x >= aim.x ? rect.x : rect.x + rect.width;
+    const corners = [[aim.x, aim.y], [edge, rect.y], [edge, rect.y + rect.height]];
+    const side = (a, b, p) => (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+    const point = [event.clientX, event.clientY];
+    const signs = [side(corners[0], corners[1], point), side(corners[1], corners[2], point), side(corners[2], corners[0], point)];
+    return signs.every(value => value >= 0) || signs.every(value => value <= 0);
+  }
+  // A row entered on the way to the submenu is looked at again once the grace is over, if the pointer is still on it.
+  function hoverLater(button, item) {
+    clearTimeout(flyout.aimTimer);
+    flyout.aimTimer = setTimeout(() => {
+      flyout.aimTimer = 0; flyout.aim = null;
+      if (flyout.over === button) (item ? hoverOpen : hoverAway)(button, item);
+    }, MENU_AIM_MS);
+  }
   async function drawFlyout(keyboard) {
     const {button, item} = flyout.open;
     const box = button.getBoundingClientRect();
     const height = 2 * MENU_SIZE.pad + item.children.reduce((sum, child) => sum + (child.separator ? MENU_SIZE.sep : MENU_SIZE.row), 0);
-    await rpc("submenu", {op:"open", rows:item.children.map(flyoutRow), keyboard, scale:window.devicePixelRatio || 1, theme:flyoutTheme(),
+    const answer = await rpc("submenu", {op:"open", rows:item.children.map(flyoutRow), keyboard, scale:window.devicePixelRatio || 1, theme:flyoutTheme(),
       anchor:{x:box.x ?? box.left ?? 0, y:box.y ?? box.top ?? 0, width:box.width || button.offsetWidth, height:box.height || button.offsetHeight},
       size:{width:window.innerWidth || MENU_WIDTH.min, height}});
+    // Where it opened, in this page's pixels (the renderer says): the far side of the menu-aim triangle.
+    const local = answer?.local;
+    flyout.rect = Array.isArray(local) && local.length === 4 ? {x: local[0], y: local[1], width: local[2], height: local[3]} : null;
   }
   async function openFlyout(button, item, keyboard) {
     clearFlyoutTimers();
@@ -1370,21 +1404,39 @@
     rpc("submenu", refocus ? {op:"close", refocus:true} : {op:"close"}).catch(() => {});
     if (refocus) open.button.focus();
   }
-  function hoverOpen(button, item) {
+  function hoverOpen(button, item, event) {
+    if (aiming(event)) { hoverLater(button, item); return; }
     clearTimeout(flyout.closeTimer); flyout.closeTimer = 0;
     if (flyout.open?.button === button) return;
     clearTimeout(flyout.hoverTimer);
     flyout.hoverTimer = setTimeout(() => { flyout.hoverTimer = 0; menuOpener = item.label; openFlyout(button, item, false); }, MENU_SHOW_DELAY_MS);
   }
-  function hoverAway(button) {
+  function hoverAway(button, event) {
+    if (aiming(event)) { hoverLater(button, null); return; }
     clearTimeout(flyout.hoverTimer); flyout.hoverTimer = 0;
     if (!flyout.open || flyout.open.button === button) return;
     clearTimeout(flyout.closeTimer);
     flyout.closeTimer = setTimeout(() => closeFlyout(false), MENU_SHOW_DELAY_MS);
   }
+  // 0.4.178: Esc, from the page's keys or from the renderer's watch (when the menu does not have the keyboard): the open
+  // submenu first, then an in-place view, then the menu, which asks the renderer to close it (WinUI, FLUENT-MENUS-SPEC B9).
+  function menuEscape() {
+    if (state.page !== "menu") return;
+    if (flyout.open) { closeFlyout(true); return; }
+    if (menuBack) { menuBack(); return; }
+    leaveMenu(); rpc("close").catch(() => {});
+  }
+  // A close the renderer decided (a click elsewhere, the pointer away, the focus gone, a second right-click on the Pill):
+  // the submenu goes and the menu plays its exit; the renderer hides the window after it.
+  function leaveMenuNow() {
+    if (flyout.open) closeFlyout(false);
+    leaveMenu();
+  }
   function submenuEvent(message) {
     const kind = message?.kind, index = message?.index;
-    if (kind === "enter") { clearTimeout(flyout.closeTimer); flyout.closeTimer = 0; return; }
+    // The pointer reached the submenu: nothing pending on the menu's rows may open or close anything now (0.4.178).
+    if (kind === "enter") { clearTimeout(flyout.closeTimer); clearTimeout(flyout.hoverTimer); clearTimeout(flyout.aimTimer);
+      flyout.closeTimer = flyout.hoverTimer = flyout.aimTimer = 0; flyout.aim = null; return; }
     if (kind === "leave") {
       if (flyout.open) { clearTimeout(flyout.closeTimer); flyout.closeTimer = setTimeout(() => closeFlyout(false), MENU_SHOW_DELAY_MS); }
       return;
@@ -1410,6 +1462,7 @@
   function showSubmenu(payload) {
     const report = (kind, index = -1) => { try { window.pywebview?.api?.event?.(kind, index); } catch { /* the menu is gone */ } };
     document.body.classList.add("menu-view", "submenu-view");
+    document.documentElement.classList.add("menu-root");
     if (!submenuWired) {
       submenuWired = true;
       document.body.addEventListener("pointerenter", () => report("enter"));
@@ -1444,7 +1497,7 @@
     if (payload?.keyboard) list.querySelector('[role^="menuitem"]')?.focus();
   }
   function renderMenu(main) {
-    menuBack = null;
+    menuBack = null; menuKeysTold = false;
     if (flyout.open) closeFlyout(false);
     clearFlyoutTimers(); flyout.window = true;
     document.body.setAttribute("data-menu-quiet", "");
@@ -1509,7 +1562,14 @@
         // A keyboard open (Right) is never a stray press, so it skips the X-686 press guard.
         if (item.run) { button.setAttribute("aria-haspopup", "menu"); button.menuOpen = () => { menuOpener = item.label; openFlyout(button, item, true); }; }
         // 0.4.177: on the top level, resting on a row opens its submenu or closes the open one (WinUI's 400 ms).
-        if (!back) button.addEventListener("pointerenter", () => item.run ? hoverOpen(button, item) : hoverAway(button));
+        if (!back) {
+          button.addEventListener("pointerenter", event => { flyout.over = button; item.run ? hoverOpen(button, item, event) : hoverAway(button, event); });
+          button.addEventListener("pointerleave", event => {
+            if (flyout.over === button) flyout.over = null;
+            // 0.4.178: leaving the open submenu's row starts the menu-aim grace from where the pointer left it.
+            if (flyout.open?.button === button && typeof event.clientX === "number") flyout.aim = {x: event.clientX, y: event.clientY, at: performance.now()};
+          });
+        }
         const confirm = MENU_CONFIRM[item.id || item.action?.replace("menu:","") || ""];
         let disarm = 0;
         const arm = on => {
@@ -1537,6 +1597,7 @@
       // changes width under the pointer.
       const width = Math.max(menuViewWidth(list), back ? menuHomeWidth : 0);
       if (!back) menuHomeWidth = width;
+      if (!back && !direction) menuMeasured = {height: menuViewHeight(rows, Boolean(heading)), width};
       if (direction) list.dataset.enter = direction;
       // 2026-10-09: the window takes this view's height. It grows before the slide, so
       // the arriving rows have room, and shrinks after it, so the leaving rows are not
@@ -1586,7 +1647,7 @@
       for (const item of menu.filter(item=>!item.fixed)) {
         const row=entry(item);
         if(item.children) Object.assign(row, submenu(row.label, item.children.map(entry)));
-        if(item.shortcut) { const keys = menuShortcut(item.shortcut); if (keys) row.value = keys; }
+        if(item.shortcut) { const keys = item.keys ? chordText(item.keys) : menuShortcut(item.shortcut); if (keys) row.value = keys; }
         rows.push(row);
       }
       const group = name => menu.filter(item => item.fixed && item.group === name).map(entry);
@@ -1683,6 +1744,16 @@
     if (!data || !Array.isArray(data.pages)) return;
     // The submenu page draws only what the menu sends it.
     if (document.body.classList.contains("submenu-view")) return;
+    takeState(data);
+    if (!data.pages.some(page => page.id === state.page)) state.page = data.pages[0]?.id;
+    if (paletteState.open) { renderSearch(); return; }
+    // An answer that brings nothing new draws nothing: the page on screen is already it.
+    if (drawnKey() === drawn) return;
+    renderPage();
+  }
+  // The state's look (motion, contrast, font, theme) applied, without drawing: receive() draws after it, and an open of
+  // the Pill menu (openMenu) draws once, itself (0.4.178).
+  function takeState(data) {
     state.data = data;
     linkRestored();
     document.body.classList.toggle("reduce-motion", Boolean(data.reduce_motion));
@@ -1698,11 +1769,17 @@
       applyPalette(data.palette);
       if (themeDraft) applyPalette(data.themes?.find(theme => theme.name === themeDraft));
     }
-    if (!data.pages.some(page => page.id === state.page)) state.page = data.pages[0]?.id;
-    if (paletteState.open) { renderSearch(); return; }
-    // An answer that brings nothing new draws nothing: the page on screen is already it.
-    if (drawnKey() === drawn) return;
-    renderPage();
+  }
+  // 0.4.178 (FINDINGS-0478 section 2): the Pill menu opens with what the app sent at the right-click, drawn in this one
+  // call, and says the size it drew so the renderer places the window before its first frame. The menu page used to draw
+  // the state it had when it last closed and redraw 130 to 260 ms later, when a whole state answer (86 ms on the app's
+  // thread) came back; with the fresh values in hand it does not ask for that answer at an open.
+  let menuFresh = false, menuMeasured = null;
+  function openMenu(fresh) {
+    menuMeasured = null;
+    if (fresh && typeof fresh === "object" && state.data) { takeState({...state.data, ...fresh}); menuFresh = true; }
+    navigate("menu");
+    return menuMeasured;
   }
   // Field report 2026-11-05: "It jumps between them after I click." A click draws at once
   // from the data in hand; an answer older than one already drawn is dropped, never drawn over
@@ -1730,12 +1807,16 @@
       if (field === "overlay.menu_order") { page="menu-order"; state.page=page; }
     }
     document.body.classList.toggle("menu-view", page === "menu");
+    // 0.4.178: in the menu the window's own ground is the menu's surface (an opaque WebView2 window cannot show what is
+    // behind it), so the surface never sits inside a slab of another colour (FINDINGS-0478 section 2.1).
+    document.documentElement.classList.toggle("menu-root", page === "menu");
     clearTimeout(state.menuLeaveTimer); document.body.classList.remove("menu-leaving");
     // X-684: every open replays the menu's entrance (the window is reused, hidden between opens).
     if (page === "menu") { document.body.classList.remove("menu-opening"); void document.body.offsetWidth; document.body.classList.add("menu-opening"); }
     // shadcn moves nothing on navigation: the page and the selection change at once (D9).
     openGroupOf(page);
     renderPage();
+    if (page === "menu" && menuFresh) { menuFresh = false; $("page").scrollTop = 0; return; }
     await refresh();
     if(state.page!==page||$("search").value.trim())return;
     if(page==="dictation"&&state.data?.microphones?.status==="idle")await action("refresh_microphones");
@@ -1928,7 +2009,7 @@
   $("help-button").addEventListener("click", () => { if (help.pinned && !$("help-popover").hidden) closeHelp(true); else showHelp(true); });
   $("help-close").addEventListener("click", () => closeHelp(true));
   document.addEventListener("pointerdown", event => { if (!$("help-popover").contains(event.target) && !$("help-button").contains(event.target)) closeHelp(); });
-  document.addEventListener("keydown", event => { if (event.key === "Escape") { if (!$("help-popover").hidden) { closeHelp(true); event.preventDefault(); } else if (state.page === "menu") { if(menuBack) menuBack();else { leaveMenu(); rpc("close").catch(() => {}); } event.preventDefault(); } } });
+  document.addEventListener("keydown", event => { if (event.key === "Escape") { if (!$("help-popover").hidden) { closeHelp(true); event.preventDefault(); } else if (state.page === "menu") { menuEscape(); event.preventDefault(); } } });
   // X-688 (interaction grid, build 24): the Settings window shows Windows' own menu
   // (the host trims it to Cut, Copy, Paste, Undo, Select all and Emoji) in text
   // fields and on selected reader text, where it helps; everywhere else it stays shut.
@@ -1993,7 +2074,7 @@
   $("conflict-dialog").addEventListener("cancel", cancelClose);
   $("conflict-latest").addEventListener("click", () => { state.draft.clear(); state.invalid.clear(); $("conflict-dialog").close(); receive(state.data); if (state.closingRequested) rpc("close").catch(() => {}); });
   $("conflict-keep").addEventListener("click", () => { state.draftRevision = state.data.revision; $("conflict-dialog").close(); save(state.closingRequested); });
-  window.TalkDat = Object.freeze({ receive, navigate, refresh, flag, submenuEvent, showSubmenu, requestClose: async () => { if(activeWorkspace&&!await activeWorkspace.leave()){cancelClose();return;} state.closingRequested = true; if (state.draft.size || state.invalid.size) { if (!$("close-dialog").open) $("close-dialog").showModal(); } else rpc("close").catch(() => {}); } });
+  window.TalkDat = Object.freeze({ receive, navigate, refresh, flag, submenuEvent, showSubmenu, openMenu, menuEscape, leaveMenu: leaveMenuNow, requestClose: async () => { if(activeWorkspace&&!await activeWorkspace.leave()){cancelClose();return;} state.closingRequested = true; if (state.draft.size || state.invalid.size) { if (!$("close-dialog").open) $("close-dialog").showModal(); } else rpc("close").catch(() => {}); } });
   window.addEventListener("blur", () => { if (state.page === "menu") { leaveMenu(); rpc("dismiss").catch(() => {}); } });
   window.addEventListener("pywebviewready", refresh);
   if (window.pywebview?.api) refresh();

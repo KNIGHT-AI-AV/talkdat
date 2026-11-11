@@ -3,6 +3,16 @@
 All notable product changes to Talk DAT! are recorded here. The project uses beta
 versions while broader field verification remains in progress.
 
+## 0.4.178-beta
+
+The Pill menu now opens and closes the way a menu should.
+
+- The Pill menu opens at its full size in one step, with no blank frame, no jump and no Talk DAT! button flashing on the taskbar.
+- A click anywhere outside the Pill menu closes it, and so do Esc and switching to another app.
+- Right-clicking the Pill again while its menu is open closes the menu.
+- When the pointer leaves the Pill menu, the menu closes after a moment. Moving back keeps it open.
+- Speech and Writing style open beside the menu, and moving the pointer toward an open submenu across other rows keeps it open.
+
 ## 0.4.177-beta
 
 The Pill menu, the tray and Settings are laid out again around what you use most, and Ctrl+K finds any action, page or setting.

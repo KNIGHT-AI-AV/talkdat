@@ -205,6 +205,12 @@ class AppShell:
                                    for key,title,detail,_ in self.overlay._context_menu_feature_rows()]
             if identifier == 'hands_free':
                 row.update(default=True, shortcut='hands_free')
+                # 0.4.178: its live binding rides with the row, so an open never shows a binding the menu page last
+                # read from a whole-state answer it no longer asks for at each open (R13: the saved binding).
+                config = getattr(self.app, 'config', None)
+                keys = (config.get('hotkeys') or {}).get('hands_free') if isinstance(config, dict) else None
+                if isinstance(keys, list):
+                    row['keys'] = copy.deepcopy(keys)
             if identifier == 'pause':
                 row.update(check=True, checked=paused)
             result.append(row)
@@ -481,9 +487,18 @@ class AppShell:
         self.finish_choice.pending = None
         return False
 
+    def menu_is_open(self):
+        """Whether the Pill menu is showing (0.4.178): the overlay asks before a right-click opens it."""
+        return not self._legacy and getattr(self.menu_controller, 'menu_open', False) is True
+
     def open_menu(self, x, y):
         if self._legacy:
             return False
+        if self.menu_is_open():
+            # 0.4.178: a second right-click on the Pill closes its menu, as a second click on a menu's button does;
+            # before, it hid the menu and showed it again 7 ms later (FINDINGS-0478 section 2.4).
+            self.menu_controller.dismiss()
+            return True
         self._last_menu_position = (int(x), int(y))
         self._menu_requested = True
         self.overlay.context_menu_target_hwnd = self.overlay._foreground_target_window()
@@ -500,8 +515,18 @@ class AppShell:
         self._menu_side = pill_menu_side(pill, self._menu_work_area, scale, height=home)
         self._menu_bounds = pill_menu_bounds(pill, self._menu_work_area, scale, height=home, side=self._menu_side,
                                              width=self._menu_width)
+        # 0.4.178 (FINDINGS-0478 section 2): the open carries the Pill (the renderer sizes the window from what the
+        # page measures, before the first frame), what the menu draws (no whole-state answer, 86 ms on this thread,
+        # and no redraw 130 to 260 ms after it appeared), and the window it opened over (the focus goes back to it).
+        anchor = {'pill': [int(value) for value in pill], 'work': [int(value) for value in self._menu_work_area],
+                  'scale': float(scale), 'side': self._menu_side}
+        fresh = None
+        with contextlib.suppress(Exception):
+            fresh = self.backend.menu_state()
+        target = self.overlay.context_menu_target_hwnd
         try:
-            self.menu_controller.open('menu', bounds=self._menu_bounds, side=self._menu_side)
+            self.menu_controller.open('menu', bounds=self._menu_bounds, side=self._menu_side, anchor=anchor,
+                                      fresh=fresh, target=target if type(target) is int and target > 0 else 0)
             return True
         except Exception as error:
             log.warning('Web menu could not open (%s)', type(error).__name__)

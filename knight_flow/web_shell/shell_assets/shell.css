@@ -560,3 +560,7 @@ main .intro{margin-bottom:24px}
 body.reduce-motion .rail,body.reduce-motion .rail-tip,body.reduce-motion #navigation .nav-toggle{transition:none;animation:none}
 body.high-contrast #navigation .nav-row[aria-current=page],body.high-contrast #account-card{box-shadow:none;outline:1px solid CanvasText;outline-offset:-1px}
 @media(forced-colors:active){#navigation .nav-row[aria-current=page]{outline:2px solid Highlight;outline-offset:-2px}.nav-chevron,.breadcrumb .crumb-separator{background:ButtonText}.rail-tip{border:1px solid CanvasText}}
+/* 0.4.178 (FINDINGS-0478 section 2.1): a WebView2 window is opaque, so whatever paints behind the menu's surface shows
+   while it opens and closes. It painted the theme's ground (--bg), and the surface grew inside it from 95%: a slab, then a
+   second rectangle zooming inside it. In the menu and its submenu the window's own ground is the surface itself. */
+:root.menu-root{background:var(--panel)}.menu-view #shell{background:transparent}

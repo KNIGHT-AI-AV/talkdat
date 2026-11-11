@@ -24,7 +24,7 @@ class TheNotesNameEveryChangeTests(unittest.TestCase):
     def test_it_is_the_newest_section_in_the_files_own_shape(self) -> None:
         text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
         headings = re.findall(r"^## (\S+)", text, re.M)
-        self.assertEqual(headings[:3], ["0.4.177-beta", "0.4.176-beta", "0.4.175-beta"])
+        self.assertEqual(headings[:4], ["0.4.178-beta", "0.4.177-beta", "0.4.176-beta", "0.4.175-beta"])
         body = section()
         paragraphs = [block for block in body.strip().split("\n\n") if block.strip()]
         self.assertEqual(len(paragraphs), 2, "a summary line, then the bullets")

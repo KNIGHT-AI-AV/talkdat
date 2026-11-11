@@ -9185,7 +9185,19 @@ class Overlay:
             y = preferred_y
         return x, min(max(y, top + margin), bottom - height - margin)
 
+    def _second_click_closes_context_menu(self) -> bool:
+        """0.4.178: a second right-click on the Pill closes its menu (web or Tk), as a second click on any
+        menu's button does. It used to close it and open it again (FINDINGS-0478 section 2.4)."""
+        callbacks = getattr(self, "callbacks", {})
+        is_open = callbacks.get("web_menu_is_open") if isinstance(callbacks, dict) else None
+        if getattr(self, "context_menu_window", None) is None and not (callable(is_open) and is_open()):
+            return False
+        self._close_context_menu()
+        return True
+
     def _open_context_menu(self, x_root: int, y_root: int) -> None:
+        if self._second_click_closes_context_menu():
+            return
         self._close_context_menu(animate=False)
         callbacks = getattr(self, "callbacks", {})
         web_menu = callbacks.get("web_menu") if isinstance(callbacks, dict) else None

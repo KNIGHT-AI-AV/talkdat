@@ -210,8 +210,11 @@ class TheEntranceTests(unittest.TestCase):
         for side in ("above", "below"):
             controller.open("menu", bounds=[100, 200, 288, 400], side=side)
             with self.subTest(side=side):
-                self.assertEqual(shell_host._receive(there), {"command": "navigate", "page": "menu",
-                                                              "bounds": [100, 200, 288, 400], "side": side})
+                # 0.4.178: a shown menu's open also carries its number, the Pill and what it draws
+                # (tests/test_the_menu_opens_whole.py); the page, the bounds and the side are as before.
+                message = shell_host._receive(there)
+                self.assertEqual({key: message[key] for key in ("command", "page", "bounds", "side")},
+                                 {"command": "navigate", "page": "menu", "bounds": [100, 200, 288, 400], "side": side})
 
     def test_the_first_open_tells_the_page_its_side(self):
         # Review R-B2b (N07): a renderer started for the menu builds the first page's

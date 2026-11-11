@@ -136,9 +136,9 @@ def probe_window(connection, html, page, hidden, mode, bounds):
 
 
 class ProbeController(ShellController):
-    def open(self, page="general", *, hidden=False, bounds=None, side=None):
+    def open(self, page="general", *, hidden=False, bounds=None, side=None, **menu):  # 0.4.178: and what an open carries
         if self.process and self.process.is_alive():
-            return super().open(page, hidden=hidden, bounds=bounds)
+            return super().open(page, hidden=hidden, bounds=bounds, **menu)
         context = multiprocessing.get_context("spawn")
         parent, child = context.Pipe()
         self.connection = parent

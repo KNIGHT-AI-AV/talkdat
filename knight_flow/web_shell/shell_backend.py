@@ -264,14 +264,7 @@ class ShellBackend:
         # X-767: the page works in display names; save() maps them back to the
         # stored key, so a renamed family keeps every saved choice.
         theme = theme_display_name(str(read_path(self.config, 'ui.settings_theme', 'Flow Dark')))
-        themes = []
-        for family in SETTINGS_THEME_FAMILIES:
-            for mode in ('Dark', 'Light'):
-                name = family+' '+mode
-                colors = {**self.palette(name), 'name': theme_display_name(name), 'mode': mode.lower(),
-                          **material_metadata(family)}
-                colors['ring'] = colors.get('focus_ring', colors.get('accent'))
-                themes.append(colors)
+        themes = [self._theme_colors(family, mode) for family in SETTINGS_THEME_FAMILIES for mode in ('Dark', 'Light')]
         palette = next((item for item in themes if item['name'] == theme), themes[0])
         preferences = self.system_preferences()
         pages.append({'id':'menu', 'label':'Menu', 'hidden':True, 'sections':[]})
@@ -294,6 +287,35 @@ class ShellBackend:
                 'model_guide': [{'label':entry.label,'provider':entry.provider,'mode':entry.mode,
                                  'status':MODEL_CATALOG_STATUS_LABELS[entry.status], 'status_id':entry.status, 'notes':entry.notes}
                                 for entry in catalog_entries()]}
+
+    def _theme_colors(self, family, mode):
+        name = family + ' ' + mode
+        colors = {**self.palette(name), 'name': theme_display_name(name), 'mode': mode.lower(), **material_metadata(family)}
+        colors['ring'] = colors.get('focus_ring', colors.get('accent'))
+        return colors
+
+    def menu_state(self):
+        """What the Pill menu draws, read at each right-click and sent with the open (0.4.178).
+
+        The menu page used to ask for the whole state (snapshot(): 86 ms on the Tk thread, 160 KB, every open) and
+        drew the menu from the last one it had until the answer came, 130 to 260 ms later (FINDINGS-0478 section 2.2).
+        These are the values the menu shows, read the way snapshot() reads them, and nothing else.
+        """
+        theme = theme_display_name(str(read_path(self.config, 'ui.settings_theme', 'Flow Dark')))
+        palette = None
+        for family in SETTINGS_THEME_FAMILIES:
+            for mode in ('Dark', 'Light'):
+                if palette is None and theme_display_name(family + ' ' + mode) == theme:
+                    palette = self._theme_colors(family, mode)
+        if palette is None:
+            palette = self._theme_colors(SETTINGS_THEME_FAMILIES[0], 'Dark')
+        preferences = self.system_preferences()
+        return {'menu': self.menu(), 'update': self.update() if self.update is not None else None,
+                'route': read_path(self.config, 'stt.route_mode', 'local'),
+                'intensity': read_path(self.config, 'cleanup.format_intensity', DEFAULT_CONFIG['cleanup']['format_intensity']),
+                'theme': theme, 'palette': palette, 'app_font': read_path(self.config, 'ui.app_font', 'system'),
+                'reduce_motion': bool(read_path(self.config, 'ui.reduce_motion', False) or preferences.get('reduce_motion')),
+                'high_contrast': bool(preferences.get('high_contrast'))}
 
     def formatting_snapshot(self):
         if self.formatting is None:

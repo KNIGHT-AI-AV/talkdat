@@ -31,7 +31,8 @@ from knight_flow.web_shell.shell_app import AppShell
 ASSETS = Path(__file__).resolve().parents[1] / "knight_flow" / "web_shell" / "shell_assets"
 #: Answered by the host itself (shell_host Api.request), never forwarded.
 # 0.4.177: "submenu" opens and closes the Pill menu's submenu window, in the renderer itself.
-HOST_ANSWERS = {"theme_asset", "cancel_close", "dismiss", "close", "submenu"}
+# 0.4.178: "menu_input" tells the renderer's menu watch the keyboard is in use (its hover grace waits).
+HOST_ANSWERS = {"theme_asset", "cancel_close", "dismiss", "close", "submenu", "menu_input"}
 
 
 def page_methods() -> set[str]:

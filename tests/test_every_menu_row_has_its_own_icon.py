@@ -70,9 +70,15 @@ def probe_window(connection, html, page, hidden, mode, bounds):
 
     def instrument(*args, **kwargs):
         window = create(*args, **kwargs)
+        if type(kwargs["js_api"]).__name__ == "_SubmenuApi":
+            return window  # 0.4.178: the menu's submenu window draws only what the menu sends it
 
         def probe():
             api = kwargs["js_api"]
+            # 0.4.178: the renderer now has its submenu window, so Tools and Speech open beside the menu. This test reads
+            # each view's glyphs in the menu's own page: without the window the menu shows them in place, drawn with the
+            # same icon() and the same row entries the submenu window is sent.
+            api._submenu_window = None
 
             def until(expression, timeout=20):
                 deadline = time.monotonic() + timeout
@@ -117,9 +123,9 @@ def probe_window(connection, html, page, hidden, mode, bounds):
 
 
 class ProbeController(ShellController):
-    def open(self, page="general", *, hidden=False, bounds=None, side=None):
+    def open(self, page="general", *, hidden=False, bounds=None, side=None, **menu):  # 0.4.178: and what an open carries
         if self.process and self.process.is_alive():
-            return super().open(page, hidden=hidden, bounds=bounds)
+            return super().open(page, hidden=hidden, bounds=bounds, **menu)
         context = multiprocessing.get_context("spawn")
         parent, child = context.Pipe()
         self.connection = parent
